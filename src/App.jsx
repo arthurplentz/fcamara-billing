@@ -586,7 +586,7 @@ function ImportModal({ onImport, onClose }) {
         const sheetName=layout==="te" ? (wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0]) : wb.SheetNames[0];
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:""});
         const {records,errors}=
-            layout==="feewip" ? parseRevenueRows(rows, comp)
+            layout==="feewip" ? parseRevenueRows(rows, comp, { empresaFixa:empresa })
           : layout==="usage"  ? parseRevenueRows(rows, comp, { tipoFixo:"Usage Based", empresaFixa:empresa })
           :                     parseSheetRows(rows, empresa, "Time & Expenses", comp);
         const m=[];
@@ -623,9 +623,9 @@ function ImportModal({ onImport, onClose }) {
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:14}}>
         <Field label="Competência *" hint="(preencha primeiro)"><input style={inp} placeholder="05/2026" value={competencia} onChange={e=>{setComp(e.target.value);reset();}}/></Field>
-        {(layout==="te"||layout==="usage") && <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>}
+        <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
         {layout==="te" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Time & Expenses" disabled/></Field>}
-        {layout==="feewip" && <Field label="Tipo / Empresa"><input style={{...inp,color:T.muted}} value="Vêm da planilha (Fee/WIP)" disabled/></Field>}
+        {layout==="feewip" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Fee / WIP (da planilha)" disabled/></Field>}
         {layout==="usage" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Usage Based" disabled/></Field>}
       </div>
       <div style={{marginBottom:14}}>
