@@ -614,7 +614,6 @@ function HistoryModal({ history, onClose }) {
 function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
   const [selected, setSelected] = useState(new Set(records.map(r=>r.id)));
   const [sharedProg, setSharedProg] = useState(() => ({ ...records[0]?.progress } || makeProgress()));
-  const [nfNumero, setNfNumero] = useState(records[0]?.nfNumero || "");
   const [obs, setObs] = useState("");
   const [error, setError] = useState("");
 
@@ -623,11 +622,10 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
   const setVal = (id, val) => setSharedProg(p=>({...p,[id]:val}));
 
   function handleSave() {
-    if (sharedProg.p5_nf && !nfNumero.trim()) { setError("Informe o número da NF para marcar como emitida."); return; }
     if (selected.size === 0) { setError("Selecione ao menos um profissional."); return; }
     const now = nowISO();
     const updated = records.map(r => selected.has(r.id)
-      ? { ...r, progress: { ...sharedProg }, nfNumero: sharedProg.p5_nf ? nfNumero.trim() : r.nfNumero, obs: obs || r.obs, updatedAt: now }
+      ? { ...r, progress: { ...sharedProg }, obs: obs || r.obs, updatedAt: now }
       : r
     );
     onSave(updated);
@@ -687,14 +685,11 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
         );})}
       </div>
 
-      {/* NF Número */}
-      <div style={{marginBottom:14,padding:"12px 14px",borderRadius:T.rMd,background:sharedProg.p5_nf?T.okBg:T.canvas,border:`1px solid ${sharedProg.p5_nf?T.okLine:T.line}`}}>
-        <label style={{fontSize:13,fontWeight:700,display:"block",marginBottom:6,color:T.ink}}>
-          Número da NF {sharedProg.p5_nf&&<span style={{color:T.danger}}>*obrigatório</span>}
-        </label>
-        <input type="text" value={nfNumero} onChange={e=>{setNfNumero(e.target.value);setError("");}} placeholder="Ex: 123456" style={{...inp,maxWidth:260}}/>
-        <div style={{fontSize:11,color:T.muted,marginTop:4}}>Será aplicado a todos os profissionais selecionados nesta nota.</div>
-      </div>
+      {/* O número da NF é informado na tela "🧾 Notas fiscais" */}
+      {sharedProg.p5_nf && <div style={{marginBottom:14,padding:"10px 14px",borderRadius:T.rMd,background:T.brandBg,border:`1px solid ${C.blue.border}`,fontSize:12,color:T.inkSoft,display:"flex",gap:8,alignItems:"flex-start"}}>
+        <span aria-hidden="true">🧾</span>
+        <span>O <b>número da NF</b> é informado na tela <b>Notas fiscais</b> do cliente — lá você seleciona os profissionais de cada nota e vê o valor somado.</span>
+      </div>}
 
       {/* Obs */}
       <div style={{marginBottom:16}}>
