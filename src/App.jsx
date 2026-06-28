@@ -1984,19 +1984,25 @@ function AppInner() {
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
-  }, [user, toast]);
+  }, [user?.id, toast]); // só recarrega quando troca o usuário (login/logout), não em foco/refresh
 
   // ─ Autenticação (Supabase) ─
+  const userIdRef = useRef(null);
   useEffect(() => {
     let mounted = true;
     async function applySession(session, greet) {
       if (session?.user) {
         const { data: prof } = await supabase.from("profiles").select("name,is_admin").eq("id", session.user.id).single();
         if (!mounted) return;
-        const name = prof?.name || session.user.email;
-        setUser({ id: session.user.id, name, isAdmin: !!prof?.is_admin, email: session.user.email });
-        if (greet) toast(`Bem-vinda, ${(name||"").split(" ")[0]}!`, "info");
+        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, email: session.user.email };
+        const isNewLogin = userIdRef.current !== next.id;
+        userIdRef.current = next.id;
+        // Mantém a MESMA referência do usuário se nada mudou — evita recarregar
+        // a tela (e fechar modais) quando o app volta do foco / renova o token.
+        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin) ? prev : next);
+        if (greet && isNewLogin) toast(`Bem-vinda, ${(next.name||"").split(" ")[0]}!`, "info");
       } else if (mounted) {
+        userIdRef.current = null;
         setUser(null);
       }
     }
