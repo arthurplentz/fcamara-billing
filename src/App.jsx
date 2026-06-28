@@ -59,6 +59,22 @@ const SAMPLE_RECORDS = [
   { responsavel:"Layza Arruda",empresa:"BR02", tipo:"Time & Expenses", codCliente:"1002418", cliente:"Grupo Casas Bahia S.A.",       pep:"BR02CLP00042.0.3", inicio:"01/05/2026", fim:"31/05/2026", profissional:"Amanda Penido",            valorVenda:127.68, hrsAprovadas:168, valorTotal:21450.24, valorLiquido:20045.25, competencia:"05/2026" },
 ];
 
+// ─── KANBAN — colunas e tarefas de exemplo ───────────────────────────────────
+
+const TASK_COLUMNS = [
+  { id:"inbox", title:"Inbox",   color:"#6b7280", accent:"#9ca3af", hint:"Crie e organize novas tarefas" },
+  { id:"todo",  title:"A fazer", color:"#b45309", accent:"#f59e0b" },
+  { id:"doing", title:"Fazendo", color:"#1d4ed8", accent:"#3b82f6" },
+  { id:"done",  title:"Feito",   color:"#15803d", accent:"#22c55e" },
+];
+
+const SAMPLE_TASKS = [
+  { title:"Extrair base de T&E de junho",                desc:"Baixar relatório no FC Team e validar as colunas antes de montar o racional.", dueDate:"2026-07-03", assignee:"Fernanda",     status:"todo"  },
+  { title:"Cobrar retorno do comercial — Casas Bahia",   desc:"Acompanhar aprovação dos valores ajustados com o time comercial.",             dueDate:"2026-07-01", assignee:"Layza Arruda", status:"doing" },
+  { title:"Fechar NFs dentro do corte",                  desc:"Garantir a emissão das notas aprovadas antes da data de corte.",               dueDate:"2026-06-30", assignee:"Daniela",      status:"inbox" },
+  { title:"Revisar dashboard de faturamento de maio",    desc:"Validar os números do mês com a Daniela.",                                     dueDate:"2026-06-26", assignee:"Daniela",      status:"done"  },
+];
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 const fmtShort = (n) => n == null ? "—" : "R$ " + Math.round(n).toLocaleString("pt-BR");
@@ -97,15 +113,17 @@ const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Agu
 function initState() {
   const now = nowISO();
   const records = SAMPLE_RECORDS.map(r => ({ ...r, id: genId(), progress: makeProgress(), nfNumero: "", obs: "", updatedAt: now }));
+  const tasks = SAMPLE_TASKS.map(t => ({ ...t, id: genId(), createdAt: now, updatedAt: now }));
   return {
     records,
     competenciaAtual: "05/2026",
     importHistory: [{ id: genId(), date: now, competencia:"05/2026", empresa:"BR02", tipo:"Time & Expenses", mode:"add", count: records.length, user: ADMIN_NAME, note:"Carga inicial de exemplo" }],
+    tasks,
   };
 }
 
 function loadState() {
-  try { const r = localStorage.getItem(LS_KEY); if (r) return JSON.parse(r); } catch {}
+  try { const r = localStorage.getItem(LS_KEY); if (r) { const p = JSON.parse(r); if (!Array.isArray(p.tasks)) p.tasks = []; return p; } } catch {}
   return initState();
 }
 
@@ -714,6 +732,207 @@ function Dashboard({ records, analista, isAdmin }) {
   );
 }
 
+// ─── SIDEBAR ─────────────────────────────────────────────────────────────────
+
+function Sidebar({ page, setPage }) {
+  const sections = [
+    { group:"Faturamento", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"} ] },
+    { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
+  ];
+  return (
+    <aside style={{width:212,flexShrink:0,background:"#fff",borderRight:"1px solid #e5e7eb",padding:"18px 12px"}}>
+      {sections.map(sec=>(
+        <div key={sec.group} style={{marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".5px",padding:"0 8px",marginBottom:6}}>{sec.group}</div>
+          {sec.links.map(l=>{
+            const active = page===l.id;
+            return (
+              <button key={l.id} onClick={()=>setPage(l.id)} style={{
+                width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 10px",marginBottom:2,
+                border:"none",borderRadius:8,cursor:"pointer",textAlign:"left",fontSize:13,
+                fontWeight:active?700:500,
+                background:active?"#eff6ff":"transparent",
+                color:active?"#1d4ed8":"#374151",
+              }}>
+                <span style={{fontSize:15}}>{l.icon}</span>{l.label}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </aside>
+  );
+}
+
+// ─── TASK MODAL (criar / editar) ─────────────────────────────────────────────
+
+function TaskModal({ task, responsaveis, onSave, onDelete, onClose }) {
+  const isNew = !task.id;
+  const [title,setTitle]       = useState(task.title || "");
+  const [desc,setDesc]         = useState(task.desc || "");
+  const [dueDate,setDueDate]   = useState(task.dueDate || "");
+  const [assignee,setAssignee] = useState(task.assignee || "");
+  const [status,setStatus]     = useState(task.status || "inbox");
+  const [err,setErr]           = useState("");
+
+  function save() {
+    if (!title.trim()) { setErr("Informe um título para a tarefa."); return; }
+    const now = nowISO();
+    if (isNew) onSave({ id:genId(), title:title.trim(), desc:desc.trim(), dueDate, assignee, status, createdAt:now, updatedAt:now });
+    else       onSave({ ...task, title:title.trim(), desc:desc.trim(), dueDate, assignee, status, updatedAt:now });
+    onClose();
+  }
+
+  return (
+    <Modal title={isNew?"Nova tarefa":"Editar tarefa"} onClose={onClose}>
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:12,color:"#6b7280",display:"block",marginBottom:4}}>Título *</label>
+        <input style={inp} placeholder="Ex: Extrair base de T&E de junho" value={title} onChange={e=>{setTitle(e.target.value);setErr("");}} autoFocus/>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:12,color:"#6b7280",display:"block",marginBottom:4}}>Descrição</label>
+        <textarea style={{...inp,minHeight:70,resize:"vertical"}} placeholder="Breve descrição da tarefa..." value={desc} onChange={e=>setDesc(e.target.value)}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        <div>
+          <label style={{fontSize:12,color:"#6b7280",display:"block",marginBottom:4}}>Data de entrega</label>
+          <input type="date" style={inp} value={dueDate} onChange={e=>setDueDate(e.target.value)}/>
+        </div>
+        <div>
+          <label style={{fontSize:12,color:"#6b7280",display:"block",marginBottom:4}}>Responsável</label>
+          <select style={inp} value={assignee} onChange={e=>setAssignee(e.target.value)}>
+            <option value="">Não atribuído</option>
+            {responsaveis.map(r=><option key={r}>{r}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <label style={{fontSize:12,color:"#6b7280",display:"block",marginBottom:4}}>Coluna</label>
+        <select style={inp} value={status} onChange={e=>setStatus(e.target.value)}>
+          {TASK_COLUMNS.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}
+        </select>
+      </div>
+      {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:8,background:"#fef2f2",color:"#991b1b",border:"1px solid #fca5a5"}}>{err}</div>}
+      <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
+        <div>{!isNew&&<Btn danger small onClick={()=>{onDelete(task.id);onClose();}}>🗑 Excluir</Btn>}</div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn primary onClick={save}>{isNew?"Criar tarefa":"Salvar"}</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── TASK CARD ───────────────────────────────────────────────────────────────
+
+function dueInfo(dueDate, status) {
+  if (!dueDate) return null;
+  const [y,m,d] = dueDate.split("-");
+  const label = `${d}/${m}`;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(+y, +m-1, +d);
+  const diff = Math.round((due - today) / 86400000);
+  if (status==="done") return { label, color:"gray" };
+  if (diff < 0)  return { label:`${label} · atrasada`, color:"red" };
+  if (diff === 0) return { label:`${label} · hoje`,    color:"orange" };
+  if (diff <= 2) return { label:`${label} · ${diff}d`, color:"yellow" };
+  return { label, color:"gray" };
+}
+
+function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd }) {
+  const idx = TASK_COLUMNS.findIndex(c=>c.id===task.status);
+  const di = dueInfo(task.dueDate, task.status);
+  return (
+    <div
+      draggable
+      onDragStart={()=>onDragStart(task.id)}
+      onDragEnd={onDragEnd}
+      onClick={()=>onOpen(task)}
+      style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}}
+    >
+      <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:task.desc?4:8,lineHeight:1.35}}>{task.title}</div>
+      {task.desc&&<div style={{fontSize:11.5,color:"#6b7280",marginBottom:8,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{task.desc}</div>}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+        {di&&<Badge label={"📅 "+di.label} color={di.color} small/>}
+        <Badge label={task.assignee||"Não atribuído"} color={task.assignee?"purple":"gray"} small/>
+        <div style={{flex:1}}/>
+        <button title="Mover para a esquerda" disabled={idx<=0} onClick={e=>{e.stopPropagation();onMove(task,TASK_COLUMNS[idx-1].id);}}
+          style={{border:"none",background:"none",cursor:idx<=0?"default":"pointer",color:idx<=0?"#e5e7eb":"#9ca3af",fontSize:14,padding:"0 2px"}}>◀</button>
+        <button title="Mover para a direita" disabled={idx>=TASK_COLUMNS.length-1} onClick={e=>{e.stopPropagation();onMove(task,TASK_COLUMNS[idx+1].id);}}
+          style={{border:"none",background:"none",cursor:idx>=TASK_COLUMNS.length-1?"default":"pointer",color:idx>=TASK_COLUMNS.length-1?"#e5e7eb":"#9ca3af",fontSize:14,padding:"0 2px"}}>▶</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── KANBAN ──────────────────────────────────────────────────────────────────
+
+function Kanban({ tasks, responsaveis, onAdd, onUpdate, onDelete }) {
+  const [editing, setEditing]       = useState(null);  // task object, ou {status} para novo
+  const [dragId, setDragId]         = useState(null);
+  const [dragOverCol, setDragOver]  = useState(null);
+  const [filterResp, setFilterResp] = useState("todos");
+
+  const visible = filterResp==="todos" ? tasks : tasks.filter(t=>t.assignee===filterResp);
+
+  const moveTo = (task, status) => { if (task.status!==status) onUpdate({ ...task, status, updatedAt:nowISO() }); };
+  const onDropCol = (status) => { if (dragId) { const t=tasks.find(x=>x.id===dragId); if (t) moveTo(t,status); } setDragId(null); setDragOver(null); };
+  const saveTask = (t) => { if (t.id && tasks.some(x=>x.id===t.id)) onUpdate(t); else onAdd(t); };
+
+  return (
+    <div>
+      {editing && <TaskModal task={editing} responsaveis={responsaveis} onSave={saveTask} onDelete={onDelete} onClose={()=>setEditing(null)}/>}
+
+      {/* Cabeçalho */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <h2 style={{fontSize:18,fontWeight:800,margin:0}}>✅ Tarefas do time</h2>
+          <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>{tasks.length} tarefa(s) · arraste os cards entre as colunas ou use as setas</div>
+        </div>
+        <select style={{...inp,width:"auto"}} value={filterResp} onChange={e=>setFilterResp(e.target.value)}>
+          <option value="todos">Todos os responsáveis</option>
+          {responsaveis.map(r=><option key={r}>{r}</option>)}
+        </select>
+        <Btn primary onClick={()=>setEditing({ status:"inbox" })}>+ Nova tarefa</Btn>
+      </div>
+
+      {/* Colunas */}
+      <div style={{display:"grid",gridTemplateColumns:`repeat(${TASK_COLUMNS.length},minmax(240px,1fr))`,gap:14,alignItems:"start"}}>
+        {TASK_COLUMNS.map(col=>{
+          const colTasks = visible.filter(t=>t.status===col.id);
+          const isOver = dragOverCol===col.id;
+          return (
+            <div key={col.id}
+              onDragOver={e=>{e.preventDefault();setDragOver(col.id);}}
+              onDragLeave={()=>setDragOver(o=>o===col.id?null:o)}
+              onDrop={()=>onDropCol(col.id)}
+              style={{background:isOver?"#eff6ff":"#f3f4f6",border:`1px solid ${isOver?col.accent:"#e5e7eb"}`,borderRadius:12,padding:"10px 10px 4px",minHeight:120,transition:"background .12s"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"2px 4px"}}>
+                <span style={{width:9,height:9,borderRadius:"50%",background:col.accent}}/>
+                <span style={{fontSize:13,fontWeight:700,color:col.color}}>{col.title}</span>
+                <span style={{fontSize:11,color:"#9ca3af",background:"#fff",borderRadius:20,padding:"1px 8px",border:"1px solid #e5e7eb"}}>{colTasks.length}</span>
+              </div>
+
+              {col.id==="inbox"&&<button onClick={()=>setEditing({ status:"inbox" })}
+                style={{width:"100%",marginBottom:10,padding:"8px",border:"1.5px dashed #c7cdd6",borderRadius:8,background:"#fff",color:"#6b7280",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                + Criar tarefa aqui
+              </button>}
+
+              {colTasks.map(t=>(
+                <TaskCard key={t.id} task={t} onOpen={setEditing} onMove={moveTo} onDragStart={setDragId} onDragEnd={()=>{setDragId(null);setDragOver(null);}}/>
+              ))}
+
+              {colTasks.length===0&&col.id!=="inbox"&&<div style={{textAlign:"center",color:"#c7cdd6",fontSize:11.5,padding:"14px 4px"}}>Solte tarefas aqui</div>}
+              {colTasks.length===0&&col.id==="inbox"&&<div style={{textAlign:"center",color:"#c7cdd6",fontSize:11.5,padding:"4px"}}>{col.hint}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -722,7 +941,7 @@ export default function App() {
   const [loginName, setLN]      = useState("");
   const [loginPass, setLP]      = useState("");
   const [loginErr, setLE]       = useState("");
-  const [activeTab, setTab]     = useState("time");
+  const [page, setPage]         = useState("time");
   const [showImport, setImp]    = useState(false);
   const [showExport, setExp]    = useState(false);
   const [showHistory, setHist]  = useState(false);
@@ -760,6 +979,13 @@ export default function App() {
     setState(s=>({...s, competenciaAtual:val}));
   }
 
+  // ── Tarefas (Kanban) ──
+  function handleTaskAdd(t)    { setState(s=>({...s, tasks:[...(s.tasks||[]), t]})); }
+  function handleTaskUpdate(u) { setState(s=>({...s, tasks:(s.tasks||[]).map(t=>t.id===u.id?u:t)})); }
+  function handleTaskDelete(id){ setState(s=>({...s, tasks:(s.tasks||[]).filter(t=>t.id!==id)})); }
+
+  const responsaveis = [...new Set([...USERS.map(u=>u.name), ...state.records.map(r=>r.responsavel)])].sort();
+
   // ── LOGIN ──
   if (!user) {
     return (
@@ -790,7 +1016,7 @@ export default function App() {
 
   // ── APP ──
   return (
-    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:"#111827",minHeight:"100vh",background:"#f8fafc"}}>
+    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:"#111827",minHeight:"100vh",background:"#f8fafc",display:"flex",flexDirection:"column"}}>
       {showImport  && <ImportModal onImport={handleImport} onClose={()=>setImp(false)}/>}
       {showExport  && <ExportModal records={state.records} onClose={()=>setExp(false)}/>}
       {showHistory && <HistoryModal history={state.importHistory} onClose={()=>setHist(false)}/>}
@@ -813,18 +1039,22 @@ export default function App() {
         Admin — acesso completo a todos os analistas, empresas e competências.
       </div>}
 
-      {/* Tabs */}
-      <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",padding:"0 20px",display:"flex",gap:4}}>
-        {[{id:"time",label:"Minha visão"},{id:"dash",label:"Dashboard"}].map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"14px 18px",border:"none",background:"transparent",cursor:"pointer",fontSize:13,fontWeight:activeTab===t.id?700:400,color:activeTab===t.id?"#1d4ed8":"#6b7280",borderBottom:activeTab===t.id?"2px solid #1d4ed8":"2px solid transparent"}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{maxWidth:1100,margin:"0 auto",padding:"24px 20px"}}>
-        {activeTab==="time"&&<MyView records={state.records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
-        {activeTab==="dash"&&<Dashboard records={state.records} analista={user.name} isAdmin={isAdmin}/>}
+      {/* Corpo: sidebar + conteúdo */}
+      <div style={{display:"flex",flex:1,minHeight:0}}>
+        <Sidebar page={page} setPage={setPage}/>
+        <main style={{flex:1,overflowX:"auto"}}>
+          {(page==="time"||page==="dash")&&(
+            <div style={{maxWidth:1100,margin:"0 auto",padding:"24px 20px"}}>
+              {page==="time"&&<MyView records={state.records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="dash"&&<Dashboard records={state.records} analista={user.name} isAdmin={isAdmin}/>}
+            </div>
+          )}
+          {page==="tasks"&&(
+            <div style={{padding:"24px 20px"}}>
+              <Kanban tasks={state.tasks||[]} responsaveis={responsaveis} onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}/>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );
