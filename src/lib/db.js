@@ -92,3 +92,21 @@ export async function insertHistory(h) {
   });
   if (error) throw error;
 }
+
+// ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
+export async function fetchProfiles() {
+  const { data, error } = await supabase.from("profiles").select("id,name,is_admin").order("name", { ascending: true });
+  if (error) throw error;
+  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin }));
+}
+export async function updateProfile({ id, name, isAdmin }) {
+  const patch = {};
+  if (name != null) patch.name = name;
+  if (isAdmin != null) patch.is_admin = isAdmin;
+  const { error } = await supabase.from("profiles").update(patch).eq("id", id);
+  if (error) throw error;
+}
+export async function deleteProfile(id) {
+  const { error } = await supabase.from("profiles").delete().eq("id", id);
+  if (error) throw error;
+}
