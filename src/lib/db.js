@@ -93,6 +93,39 @@ export async function insertHistory(h) {
   if (error) throw error;
 }
 
+// ─── CLIENTS (perfil de faturamento) ─────────────────────────────────────────
+const CLIENT_FIELDS = ["nome","cod_sap","grupo_empresa","tipos_contrato","proposta_url","periodo_faturamento","calendario","tem_portal","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","account_manager"];
+const camel = s => s.replace(/_([a-z])/g, (_,c)=>c.toUpperCase());
+function dbToClient(row) {
+  const o = { id: row.id };
+  CLIENT_FIELDS.forEach(f => { o[camel(f)] = f==="tem_portal" ? !!row[f] : (row[f] ?? ""); });
+  return o;
+}
+function clientToDb(c) {
+  const o = {};
+  CLIENT_FIELDS.forEach(f => { const v = c[camel(f)]; o[f] = f==="tem_portal" ? !!v : (v || null); });
+  o.updated_at = nowISO();
+  return o;
+}
+export async function fetchClients() {
+  const { data, error } = await supabase.from("clients").select("*").order("nome", { ascending: true });
+  if (error) throw error;
+  return data.map(dbToClient);
+}
+export async function insertClient(c) {
+  const { data, error } = await supabase.from("clients").insert(clientToDb(c)).select().single();
+  if (error) throw error;
+  return dbToClient(data);
+}
+export async function updateClient(c) {
+  const { error } = await supabase.from("clients").update(clientToDb(c)).eq("id", c.id);
+  if (error) throw error;
+}
+export async function deleteClient(id) {
+  const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
 export async function fetchProfiles() {
   const { data, error } = await supabase.from("profiles").select("id,name,is_admin").order("name", { ascending: true });
