@@ -925,7 +925,9 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
   const [bulkTarget, setBulk]       = useState(null);
   const [nfTarget, setNf]           = useState(null);
 
-  const myRecords = isAdmin ? records : records.filter(r=>r.responsavel===analista);
+  // O banco (RLS) já entrega apenas os registros do analista, vinculados pelo
+  // "Responsável na base". Não refiltramos pelo nome de exibição.
+  const myRecords = records;
   const competencias = [...new Set(records.map(r=>r.competencia))].sort();
   const analistas = [...new Set(records.map(r=>r.responsavel))].sort();
   const empresasUsed = [...new Set(myRecords.map(r=>r.empresa))];
@@ -1105,7 +1107,8 @@ function Dashboard({ records, analista, isAdmin }) {
   const comps     = [...new Set(records.map(r=>r.competencia))].sort();
   const analistas = [...new Set(records.map(r=>r.responsavel))].sort();
 
-  let base = isAdmin ? records : records.filter(r=>r.responsavel===analista);
+  // RLS já restringe os registros do analista; usamos o que veio do banco.
+  let base = records;
   let f = base;
   if (filterEmpresa!=="todas") f=f.filter(r=>r.empresa===filterEmpresa);
   if (filterComp!=="todas")    f=f.filter(r=>r.competencia===filterComp);
