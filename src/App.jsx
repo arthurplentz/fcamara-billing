@@ -1042,7 +1042,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
   const competencias = [...new Set(records.map(r=>r.competencia))].sort();
   const analistas = [...new Set(records.map(r=>r.responsavel))].sort();
   const empresasUsed = [...new Set(myRecords.map(r=>r.empresa))];
-  const tiposUsed = empresa ? [...new Set(myRecords.filter(r=>r.empresa===empresa).map(r=>r.tipo))] : [];
+  const tiposUsed = [...new Set((empresa?myRecords.filter(r=>r.empresa===empresa):myRecords).map(r=>r.tipo))].filter(Boolean).sort();
 
   let filtered = myRecords;
   if (empresa) filtered = filtered.filter(r=>r.empresa===empresa);
@@ -1052,6 +1052,11 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
   if (filterEtapa!=="todas") filtered = filtered.filter(r=>calcStatus(r.progress)===filterEtapa);
   if (searchCliente) filtered = filtered.filter(r=>r.cliente.toLowerCase().includes(searchCliente.toLowerCase()));
   if (searchProf)    filtered = filtered.filter(r=>r.profissional.toLowerCase().includes(searchProf.toLowerCase()));
+
+  // Resumo por tipo de contrato
+  const porTipo = {};
+  filtered.forEach(r=>{ const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=(r.valorTotal||0); if(r.progress?.p5_nf) porTipo[t].fat+=(r.valorTotal||0); });
+  const tipoColors = { "Time & Expenses":"blue", "Fee":"purple", "WIP":"teal", "Usage Based":"orange" };
 
   const grouped = {};
   filtered.forEach(r=>{
@@ -1076,6 +1081,23 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
         <span style={Ty.small}>{groups.length} cliente(s) · {filtered.length} registro(s)</span>
       </div>
 
+      {/* Resumo por tipo de contrato */}
+      {Object.keys(porTipo).length>0 && <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+        {Object.entries(porTipo).sort((a,b)=>b[1].total-a[1].total).map(([t,d])=>{
+          const c=C[tipoColors[t]||"gray"]||C.gray;
+          return (
+            <div key={t} style={{flex:"1 1 170px",border:`1px solid ${c.border}`,background:c.bg,borderRadius:T.rLg,padding:"10px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
+                <span style={{fontSize:12,fontWeight:700,color:c.text}}>{t}</span>
+                <span style={{fontSize:11,color:c.text,opacity:.8}}>{d.count} reg.</span>
+              </div>
+              <div style={{fontSize:16,fontWeight:800,color:c.text}}>{fmtShort(d.total)}</div>
+              <div style={{fontSize:11,color:c.text,opacity:.85}}>Faturado: {fmtShort(d.fat)}</div>
+            </div>
+          );
+        })}
+      </div>}
+
       {/* Filtros */}
       <Card style={{ padding:"12px 14px", marginBottom:16 }}>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -1087,10 +1109,10 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
             <option value="">Todas as empresas</option>
             {(isAdmin?EMPRESAS:EMPRESAS.filter(e=>empresasUsed.includes(e.cod))).map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}
           </select>
-          {empresa&&<select style={{...inp,width:selW}} value={tipo} onChange={e=>setTipo(e.target.value)} aria-label="Tipo">
-            <option value="">Todos os tipos</option>
+          <select style={{...inp,width:selW,minWidth:150}} value={tipo} onChange={e=>setTipo(e.target.value)} aria-label="Tipo de contrato">
+            <option value="">Todos os contratos</option>
             {tiposUsed.map(t=><option key={t}>{t}</option>)}
-          </select>}
+          </select>
           {isAdmin&&<select style={{...inp,width:selW}} value={filterAnalista} onChange={e=>setFA(e.target.value)} aria-label="Analista">
             <option value="todos">Todos os analistas</option>
             {analistas.map(a=><option key={a}>{a}</option>)}
@@ -1217,14 +1239,17 @@ function Dashboard({ records, analista, isAdmin }) {
   const [filterComp,    setFC] = useState("todas");
   const [filterAnalista,setFA] = useState(isAdmin?"todos":analista);
   const [filterEtapa,   setFEt]= useState("todas");
+  const [filterTipo,    setFTi]= useState("todas");
 
   const comps     = [...new Set(records.map(r=>r.competencia))].sort();
   const analistas = [...new Set(records.map(r=>r.responsavel))].sort();
+  const tipos     = [...new Set(records.map(r=>r.tipo))].filter(Boolean).sort();
 
   // RLS já restringe os registros do analista; usamos o que veio do banco.
   let base = records;
   let f = base;
   if (filterEmpresa!=="todas") f=f.filter(r=>r.empresa===filterEmpresa);
+  if (filterTipo!=="todas")    f=f.filter(r=>r.tipo===filterTipo);
   if (filterComp!=="todas")    f=f.filter(r=>r.competencia===filterComp);
   if (isAdmin&&filterAnalista!=="todos") f=f.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa!=="todas")   f=f.filter(r=>calcStatus(r.progress)===filterEtapa);
@@ -1251,6 +1276,9 @@ function Dashboard({ records, analista, isAdmin }) {
   const byEmpresa = {};
   f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=(r.valorTotal||0); if(r.progress?.p5_nf)byEmpresa[r.empresa].fat+=(r.valorTotal||0); });
 
+  const byTipo = {};
+  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=(r.valorTotal||0); byTipo[t].cnt++; if(r.progress?.p5_nf)byTipo[t].fat+=(r.valorTotal||0); });
+
   const naoFatByCliente = {};
   naoFat.forEach(r=>{
     const key=r.cliente+"|"+r.pep;
@@ -1276,6 +1304,7 @@ function Dashboard({ records, analista, isAdmin }) {
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select style={{...inp,width:"auto",flex:"1 1 150px"}} value={filterComp} onChange={e=>setFC(e.target.value)} aria-label="Competência"><option value="todas">Todas as competências</option>{comps.map(c=><option key={c}>{c}</option>)}</select>
           <select style={{...inp,width:"auto",flex:"1 1 150px"}} value={filterEmpresa} onChange={e=>setFE(e.target.value)} aria-label="Empresa"><option value="todas">Todas as empresas</option>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select>
+          <select style={{...inp,width:"auto",flex:"1 1 150px"}} value={filterTipo} onChange={e=>setFTi(e.target.value)} aria-label="Tipo de contrato"><option value="todas">Todos os contratos</option>{tipos.map(t=><option key={t}>{t}</option>)}</select>
           {isAdmin&&<select style={{...inp,width:"auto",flex:"1 1 150px"}} value={filterAnalista} onChange={e=>setFA(e.target.value)} aria-label="Analista"><option value="todos">Todos os analistas</option>{analistas.map(a=><option key={a}>{a}</option>)}</select>}
           <select style={{...inp,width:"auto",flex:"1 1 150px"}} value={filterEtapa} onChange={e=>setFEt(e.target.value)} aria-label="Etapa"><option value="todas">Todas as etapas</option>{STATUS_ORDER.map(s=><option key={s}>{s}</option>)}</select>
         </div>
@@ -1338,6 +1367,19 @@ function Dashboard({ records, analista, isAdmin }) {
             return <div key={cod} style={{marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{fontWeight:600,color:T.ink}}>{cod} — {emp?.nome}</span><span style={{color:T.muted}}>{fmtShort(d.total)} · {pct}%</span></div>
               <div style={{height:7,background:T.lineSoft,borderRadius:4}}><div style={{height:7,borderRadius:4,width:`${pct}%`,background:T.brand,transition:"width .4s"}}/></div>
+            </div>;
+          })}
+        </Card>
+
+        <Card style={{padding:16}}>
+          <SectionTitle>Por tipo de contrato</SectionTitle>
+          {Object.keys(byTipo).length===0 && <div style={{fontSize:13,color:T.muted}}>Sem dados.</div>}
+          {Object.entries(byTipo).sort((a,b)=>b[1].total-a[1].total).map(([t,d])=>{
+            const pct=d.total>0?Math.round((d.fat/d.total)*100):0;
+            const c=C[({ "Time & Expenses":"blue","Fee":"purple","WIP":"teal","Usage Based":"orange" })[t]||"gray"]||C.gray;
+            return <div key={t} style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{fontWeight:600,color:T.ink}}>{t} <span style={{fontWeight:400,color:T.muted}}>· {d.cnt} reg.</span></span><span style={{color:T.muted}}>{fmtShort(d.total)} · {pct}%</span></div>
+              <div style={{height:7,background:T.lineSoft,borderRadius:4}}><div style={{height:7,borderRadius:4,width:`${pct}%`,background:c.solid,transition:"width .4s"}}/></div>
             </div>;
           })}
         </Card>
