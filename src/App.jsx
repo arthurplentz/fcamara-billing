@@ -107,6 +107,23 @@ const makeProgress = () => Object.fromEntries(STEPS.map(s => [s.id, s.type==="da
 const initials = (name="") => name.trim().split(/\s+/).slice(0,2).map(p=>p[0]||"").join("").toUpperCase();
 const parseJSON = (str, fallback) => { try { const v = JSON.parse(str); return v ?? fallback; } catch { return fallback; } };
 
+// ─── CSV helpers ──────────────────────────────────────────────────────────────
+const csvEscape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+function downloadCSV(filename, headers, rows) {
+  const csv = "﻿" + [headers.map(csvEscape).join(","), ...rows.map(r => r.map(csvEscape).join(","))].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  a.download = filename; a.click();
+}
+function fmtPepsCSV(json)      { const m = parseJSON(json, {}); if (!m || typeof m !== "object") return ""; return Object.entries(m).map(([k, v]) => `${k}: ${(Array.isArray(v) ? v : []).join(", ")}`).join(" | "); }
+function fmtPropostasCSV(json) { const a = parseJSON(json, []); return Array.isArray(a) ? a.join(" ; ") : ""; }
+function fmtCalendarioCSV(json){ const a = parseJSON(json, []); return Array.isArray(a) ? a.map((p, i) => `${i+1}) ${p.quando || ""} - ${p.etapa || ""}: ${p.oQueFazer || ""}`).join(" | ") : ""; }
+function exportClientsCSV(clients) {
+  const headers = ["Nome","Cód SAP","Grupo de empresa","Tipos de contrato","PEPs","Propostas","Período faturamento","Calendário (passo a passo)","Tem portal","Classificação portal","Link portal","Usuário portal","Senha portal","Passo a passo portal","Prazo vencimento","Forma de pagamento","Contato financeiro (nome)","Contato financeiro (e-mail)","Account manager (nome)","Account manager (e-mail)"];
+  const rows = clients.map(c => [c.nome, c.codSap, c.grupoEmpresa, c.tiposContrato, fmtPepsCSV(c.tiposPeps), fmtPropostasCSV(c.propostas), c.periodoFaturamento, fmtCalendarioCSV(c.calendario), c.temPortal ? "Sim" : "Não", c.portalTipo, c.portalLink, c.portalUsuario, c.portalSenha, c.portalPassoUrl, c.prazoVencimento, c.formaPagamento, c.contatoFinanceiro, c.contatoFinanceiroEmail, c.accountManager, c.accountManagerEmail]);
+  downloadCSV(`FCamara_Clientes_${clients.length}.csv`, headers, rows);
+}
+
 const PORTAL_TIPOS = ["Inclusão de notas", "Medição de serviços"];
 
 function calcStatus(prog) {
@@ -1259,7 +1276,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"access",icon:"🔐",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"📥",label:"Importar / Exportar"}, {id:"access",icon:"🔐",label:"Gestão de acessos"} ] };
 
 function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -1968,10 +1985,34 @@ function ClientsView({ clients, onSave, onDelete }) {
   );
 }
 
+// ─── IMPORTAR / EXPORTAR (admin) ─────────────────────────────────────────────
+
+function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory, onExportClients }) {
+  const Tile = ({ icon, title, desc, btn, onClick, primary }) => (
+    <Card style={{ padding:"18px 20px", display:"flex", flexDirection:"column" }}>
+      <div style={{ fontSize:26, marginBottom:8 }} aria-hidden="true">{icon}</div>
+      <div style={{ fontSize:15, fontWeight:700, color:T.ink }}>{title}</div>
+      <div style={{ fontSize:12, color:T.muted, margin:"4px 0 14px", lineHeight:1.5, flex:1 }}>{desc}</div>
+      <div><Btn primary={primary} onClick={onClick}>{btn}</Btn></div>
+    </Card>
+  );
+  return (
+    <div>
+      <h1 style={{ ...Ty.h1, marginBottom:6 }}>📥 Importar / Exportar</h1>
+      <div style={{ ...Ty.small, marginBottom:18 }}>Carga de dados de reconhecimento e exportações</div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
+        <Tile icon="⬆️" title="Importar receitas" primary desc={`Carregar a planilha de T&E (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
+        <Tile icon="⬇️" title="Exportar receitas" desc="Baixar os registros de faturamento em CSV, com filtros." btn="Exportar receitas" onClick={onExport}/>
+        <Tile icon="🏢" title="Exportar clientes" desc={`Baixar os cadastros completos de clientes em CSV. ${clientsCount} cliente(s).`} btn="Exportar clientes" onClick={onExportClients}/>
+        <Tile icon="🕐" title="Histórico de importações" desc="Ver o log de todas as importações realizadas." btn="Ver histórico" onClick={onHistory}/>
+      </div>
+    </div>
+  );
+}
+
 // ─── TOPBAR ──────────────────────────────────────────────────────────────────
 
-function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory, onLogout }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+function Topbar({ user, isAdmin, isMobile, onMenu, onLogout }) {
   const ghostBtn = { background:"rgba(255,255,255,.16)", border:"none", color:"#fff", borderRadius:T.rMd, padding:"6px 12px", fontSize:12, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:5 };
   return (
     <div style={{background:T.brand,color:"#fff",padding:"0 16px",display:"flex",alignItems:"center",gap:10,height:54,boxShadow:T.shSm}}>
@@ -1979,21 +2020,6 @@ function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory
       <span style={{fontSize:14,fontWeight:800,flex:1,display:"flex",alignItems:"center",gap:9}}>
         <FcamaraLogo size={30}/>{isMobile ? "Faturamento" : "Faturamento Grupo Fcamara"}
       </span>
-
-      {isAdmin && !isMobile && <>
-        <button className="fc-btn" onClick={onImport}  style={ghostBtn}>⬆ Importar</button>
-        <button className="fc-btn" onClick={onExport}  style={ghostBtn}>⬇ Exportar</button>
-        <button className="fc-btn" onClick={onHistory} style={ghostBtn}>🕐 Histórico</button>
-      </>}
-
-      {isAdmin && isMobile && <div style={{ position:"relative" }}>
-        <button onClick={()=>setMenuOpen(o=>!o)} aria-label="Ações de admin" style={{...ghostBtn, padding:"6px 10px"}}>⋯</button>
-        {menuOpen && <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:"#fff", borderRadius:T.rMd, boxShadow:T.shLg, padding:6, minWidth:160, zIndex:120 }}>
-          {[["⬆ Importar",onImport],["⬇ Exportar",onExport],["🕐 Histórico",onHistory]].map(([l,fn])=>(
-            <button key={l} onClick={()=>{setMenuOpen(false);fn();}} style={{ width:"100%", textAlign:"left", background:"none", border:"none", padding:"9px 10px", borderRadius:6, fontSize:13, color:T.inkSoft, cursor:"pointer" }}>{l}</button>
-          ))}
-        </div>}
-      </div>}
 
       {!isMobile && <span style={{display:"flex",alignItems:"center",gap:7,fontSize:12,opacity:.95,paddingLeft:4}}>
         <Avatar name={user.name} size={26} admin={isAdmin}/>{user.name}{isAdmin?" · Admin":""}
@@ -2302,8 +2328,7 @@ function AppInner() {
       {showHistory && <HistoryModal history={history} onClose={()=>setHist(false)}/>}
       {confirmLogout && <ConfirmDialog title="Sair da plataforma" message="Deseja realmente encerrar a sessão?" confirmLabel="Sair" onConfirm={()=>{ supabase.auth.signOut(); setUser(null); }} onClose={()=>setCL(false)}/>}
 
-      <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)}
-        onImport={()=>setImp(true)} onExport={()=>setExp(true)} onHistory={()=>setHist(true)} onLogout={()=>setCL(true)}/>
+      <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)} onLogout={()=>setCL(true)}/>
 
       {isAdmin&&<div style={{background:T.warnBg,borderBottom:`1px solid ${T.warnLine}`,padding:"7px 20px",fontSize:12,color:T.warn,display:"flex",alignItems:"center",gap:8}}>
         <Badge label="Admin" color="blue" small/> Acesso completo a todos os analistas, empresas e competências.
@@ -2318,6 +2343,13 @@ function AppInner() {
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
               {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin}/>}
+            </div>
+          )}
+          {page==="dados"&&isAdmin&&(
+            <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <DataIOView recordsCount={records.length} clientsCount={clients.length}
+                onImport={()=>setImp(true)} onExport={()=>setExp(true)} onHistory={()=>setHist(true)}
+                onExportClients={()=>{ exportClientsCSV(clients); toast(`Clientes exportados — ${clients.length} cadastro(s)`); }}/>
             </div>
           )}
           {page==="clients"&&(
