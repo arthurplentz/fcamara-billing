@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
+import { supabase, SITE_URL } from "./lib/supabase";
 
 const APP_VERSION = "v3.1";
 const LS_KEY = "fcamara_billing_v3";
@@ -1409,56 +1410,95 @@ function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory
 
 // ─── LOGIN ───────────────────────────────────────────────────────────────────
 
-function ForgotPasswordModal({ users, onReset, onClose }) {
-  const [name, setName]     = useState("");
-  const [pass, setPass]     = useState("");
-  const [confirm, setConf]  = useState("");
-  const [err, setErr]       = useState("");
+function ForgotPasswordModal({ onClose }) {
+  const [email, setEmail] = useState("");
+  const [sent, setSent]   = useState(false);
+  const [err, setErr]     = useState("");
+  const [busy, setBusy]   = useState(false);
 
-  function submit(e) {
+  async function submit(e) {
     e?.preventDefault();
-    const nm = name.trim();
-    const found = users.find(u => u.name.toLowerCase() === nm.toLowerCase());
-    if (!found) { setErr("Não encontramos nenhum acesso com esse nome. Confira com a administração."); return; }
-    if (pass.trim().length < 3) { setErr("A nova senha precisa ter ao menos 3 caracteres."); return; }
-    if (pass.trim() !== confirm.trim()) { setErr("A confirmação não confere com a nova senha."); return; }
-    onReset(found.name, pass.trim().toLowerCase());
-    onClose();
+    if (!email.trim()) { setErr("Informe o e-mail do seu acesso."); return; }
+    setBusy(true); setErr("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: SITE_URL });
+    setBusy(false);
+    if (error) setErr("Não foi possível enviar agora. Tente novamente em instantes."); else setSent(true);
   }
 
   return (
-    <Modal title="Redefinir senha" subtitle="Informe seu nome e escolha uma nova senha" onClose={onClose}>
-      <form onSubmit={submit}>
-        <div style={{marginBottom:14}}><Field label="Seu nome *"><input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="Como aparece no seu acesso" autoFocus/></Field></div>
-        <div style={{marginBottom:14}}><Field label="Nova senha *"><input style={inp} type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} placeholder="Nova senha"/></Field></div>
-        <div style={{marginBottom:16}}><Field label="Confirmar nova senha *"><input style={inp} type="password" value={confirm} onChange={e=>{setConf(e.target.value);setErr("");}} placeholder="Repita a nova senha"/></Field></div>
+    <Modal title="Redefinir senha" subtitle="Enviaremos um link de redefinição para o seu e-mail" onClose={onClose}>
+      {sent ? (
+        <div>
+          <div style={{padding:"12px 14px",borderRadius:T.rMd,background:T.okBg,border:`1px solid ${T.okLine}`,color:T.ok,fontSize:13,marginBottom:16}}>
+            ✓ Link enviado para <b>{email}</b>. Abra o e-mail e clique no link para escolher uma nova senha.
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end"}}><Btn primary onClick={onClose}>Entendi</Btn></div>
+        </div>
+      ) : (
+        <form onSubmit={submit}>
+          <div style={{marginBottom:14}}><Field label="E-mail *"><input style={inp} type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} placeholder="seu.email@empresa.com" autoFocus/></Field></div>
+          {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
+          <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Se você não reconhece nenhum acesso, fale com a administração (Daniela ou Luana).</div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn primary onClick={submit} disabled={busy}>{busy ? "Enviando..." : "Enviar link"}</Btn>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+// Tela exibida quando o usuário chega pelo link de redefinição de senha.
+function RecoveryModal({ onClose }) {
+  const [pass, setPass]   = useState("");
+  const [conf, setConf]   = useState("");
+  const [err, setErr]     = useState("");
+  const [busy, setBusy]   = useState(false);
+
+  async function save(e) {
+    e?.preventDefault();
+    if (pass.length < 6) { setErr("A nova senha precisa ter ao menos 6 caracteres."); return; }
+    if (pass !== conf)   { setErr("A confirmação não confere."); return; }
+    setBusy(true); setErr("");
+    const { error } = await supabase.auth.updateUser({ password: pass });
+    setBusy(false);
+    if (error) setErr(error.message); else onClose();
+  }
+
+  return (
+    <Modal title="Escolher nova senha" subtitle="Defina a senha que você usará para entrar" onClose={onClose}>
+      <form onSubmit={save}>
+        <div style={{marginBottom:14}}><Field label="Nova senha *"><input style={inp} type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} placeholder="Mínimo 6 caracteres" autoFocus/></Field></div>
+        <div style={{marginBottom:16}}><Field label="Confirmar nova senha *"><input style={inp} type="password" value={conf} onChange={e=>{setConf(e.target.value);setErr("");}} placeholder="Repita a nova senha"/></Field></div>
         {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
-        <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Ambiente de demonstração: a redefinição é feita localmente neste navegador. Se você não reconhece nenhum acesso, fale com a administração (Daniela ou Luana).</div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn primary onClick={submit}>Redefinir senha</Btn>
+          <Btn primary onClick={save} disabled={busy}>{busy ? "Salvando..." : "Salvar senha"}</Btn>
         </div>
       </form>
     </Modal>
   );
 }
 
-function Login({ onLogin, users, onResetPassword }) {
-  const [loginName, setLN] = useState("");
-  const [loginPass, setLP] = useState("");
+function Login() {
+  const [email, setEmail]  = useState("");
+  const [pass, setPass]    = useState("");
   const [loginErr, setLE]  = useState("");
+  const [busy, setBusy]    = useState(false);
   const [showForgot, setSF]= useState(false);
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    const found = users.find(u=>u.name.toLowerCase()===loginName.trim().toLowerCase()&&u.password===loginPass.trim().toLowerCase());
-    if (!found) { setLE("Nome ou senha incorretos."); return; }
-    onLogin({ name: found.name, isAdmin: found.isAdmin });
+    setBusy(true); setLE("");
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass });
+    setBusy(false);
+    if (error) setLE("E-mail ou senha incorretos.");
+    // Em caso de sucesso, o onAuthStateChange no AppInner cuida de entrar.
   }
 
   return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,fontFamily:"system-ui,sans-serif",padding:16}}>
-      {showForgot && <ForgotPasswordModal users={users} onReset={onResetPassword} onClose={()=>setSF(false)}/>}
+      {showForgot && <ForgotPasswordModal onClose={()=>setSF(false)}/>}
       <div style={{background:"#fff",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
         <div style={{textAlign:"center",marginBottom:24}}>
           <div style={{ display:"inline-flex", marginBottom:12 }}><FcamaraLogo size={62}/></div>
@@ -1467,13 +1507,13 @@ function Login({ onLogin, users, onResetPassword }) {
           <p style={{fontSize:11,color:T.muted,marginTop:6}}>{APP_VERSION}</p>
         </div>
         <form onSubmit={submit}>
-          <div style={{marginBottom:12}}><Field label="Nome"><input style={inp} placeholder="Seu nome" value={loginName} onChange={e=>{setLN(e.target.value);setLE("");}} autoFocus/></Field></div>
-          <div style={{marginBottom:8}}><Field label="Senha"><input style={inp} type="password" placeholder="Sua senha" value={loginPass} onChange={e=>{setLP(e.target.value);setLE("");}}/></Field></div>
+          <div style={{marginBottom:12}}><Field label="E-mail"><input style={inp} type="email" placeholder="seu.email@empresa.com" value={email} onChange={e=>{setEmail(e.target.value);setLE("");}} autoFocus/></Field></div>
+          <div style={{marginBottom:8}}><Field label="Senha"><input style={inp} type="password" placeholder="Sua senha" value={pass} onChange={e=>{setPass(e.target.value);setLE("");}}/></Field></div>
           <div style={{textAlign:"right",marginBottom:16}}>
             <button type="button" onClick={()=>setSF(true)} style={{background:"none",border:"none",padding:0,fontSize:12,color:T.brand,fontWeight:600,cursor:"pointer"}}>Esqueci minha senha</button>
           </div>
           {loginErr&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{loginErr}</div>}
-          <button type="submit" className="fc-btn" style={{width:"100%",padding:"11px",borderRadius:T.rMd,border:"none",background:T.brand,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>Entrar</button>
+          <button type="submit" disabled={busy} className="fc-btn" style={{width:"100%",padding:"11px",borderRadius:T.rMd,border:"none",background:T.brand,color:"#fff",fontSize:14,fontWeight:700,cursor:busy?"wait":"pointer",opacity:busy?.7:1}}>{busy ? "Entrando..." : "Entrar"}</button>
         </form>
       </div>
     </div>
@@ -1487,6 +1527,8 @@ function AppInner() {
   const isMobile = useIsMobile();
   const [state, setState]       = useState(()=>loadState());
   const [user, setUser]         = useState(null);
+  const [authReady, setAuthRdy] = useState(false);
+  const [recovery, setRecovery] = useState(false);
   const [page, setPage]         = useState("time");
   const [showImport, setImp]    = useState(false);
   const [showExport, setExp]    = useState(false);
@@ -1495,6 +1537,28 @@ function AppInner() {
   const [drawer, setDrawer]     = useState(false);
 
   useEffect(()=>saveState(state),[state]);
+
+  // ─ Autenticação (Supabase) ─
+  useEffect(() => {
+    let mounted = true;
+    async function applySession(session, greet) {
+      if (session?.user) {
+        const { data: prof } = await supabase.from("profiles").select("name,is_admin").eq("id", session.user.id).single();
+        if (!mounted) return;
+        const name = prof?.name || session.user.email;
+        setUser({ name, isAdmin: !!prof?.is_admin, email: session.user.email });
+        if (greet) toast(`Bem-vinda, ${(name||"").split(" ")[0]}!`, "info");
+      } else if (mounted) {
+        setUser(null);
+      }
+    }
+    supabase.auth.getSession().then(({ data }) => { applySession(data.session, false).finally(()=>{ if (mounted) setAuthRdy(true); }); });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      applySession(session, event === "SIGNED_IN");
+    });
+    return () => { mounted = false; sub.subscription.unsubscribe(); };
+  }, []);
 
   const isAdmin = user?.isAdmin || false;
 
@@ -1548,21 +1612,29 @@ function AppInner() {
     });
     toast(`Acesso removido`,"info");
   }
-  function handleResetPassword(name, newPass) {
-    setState(s=>({...s, users:(s.users||[]).map(u=>u.name.toLowerCase()===name.toLowerCase()?{...u,password:newPass}:u)}));
-    toast(`Senha de ${name.split(" ")[0]} redefinida. Faça login com a nova senha.`);
-  }
-
   const responsaveis = [...new Set([...users.map(u=>u.name), ...state.records.map(r=>r.responsavel)])].sort();
 
-  if (!user) return <Login users={users} onResetPassword={handleResetPassword} onLogin={(u)=>{ setUser(u); toast(`Bem-vinda, ${u.name.split(" ")[0]}!`,"info"); }}/>;
+  if (recovery) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,padding:16}}>
+      <RecoveryModal onClose={()=>{ setRecovery(false); }}/>
+    </div>
+  );
+
+  if (!authReady) return (
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:"system-ui,sans-serif"}}>
+      <FcamaraLogo size={54}/>
+      <div style={{fontSize:13}}>Carregando…</div>
+    </div>
+  );
+
+  if (!user) return <Login/>;
 
   return (
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,minHeight:"100vh",background:T.canvas,display:"flex",flexDirection:"column"}}>
       {showImport  && <ImportModal onImport={handleImport} onClose={()=>setImp(false)}/>}
       {showExport  && <ExportModal records={state.records} onClose={()=>setExp(false)} onDone={(n)=>toast(`CSV exportado — ${n} registros`)}/>}
       {showHistory && <HistoryModal history={state.importHistory} onClose={()=>setHist(false)}/>}
-      {confirmLogout && <ConfirmDialog title="Sair da plataforma" message="Deseja realmente encerrar a sessão?" confirmLabel="Sair" onConfirm={()=>setUser(null)} onClose={()=>setCL(false)}/>}
+      {confirmLogout && <ConfirmDialog title="Sair da plataforma" message="Deseja realmente encerrar a sessão?" confirmLabel="Sair" onConfirm={()=>{ supabase.auth.signOut(); setUser(null); }} onClose={()=>setCL(false)}/>}
 
       <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)}
         onImport={()=>setImp(true)} onExport={()=>setExp(true)} onHistory={()=>setHist(true)} onLogout={()=>setCL(true)}/>
