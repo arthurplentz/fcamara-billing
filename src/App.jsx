@@ -511,9 +511,9 @@ const FEEWIP_COL_MAP = {
   pep:          ["PEP"],
   inicio:       ["INICIO","INÍCIO"],
   fim:          ["FIM"],
-  valorTotal:   ["RECEITA PLANEJADA"],
-  valorLiquido: ["Formula Líquido","FORMULA LIQUIDO","Formula Liquido"],
-  obs:          ["OBSERVAÇÃO","OBSERVACAO"],
+  valorTotal:   ["RECEITA PLANEJADA","VALOR TOTAL"],
+  valorLiquido: ["Formula Líquido","FORMULA LIQUIDO","Formula Liquido","Valor Liquido :)","VALOR LIQUIDO","Valor Liquido"],
+  obs:          ["OBSERVAÇÃO","OBSERVACAO","Projeto","PROJETO"],
 };
 // Aceita competência como "05/2026" ou "052026" → "05/2026" (vazio se inválida).
 function normComp(v) {
