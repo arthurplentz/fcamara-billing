@@ -1976,9 +1976,10 @@ function AppInner() {
   const reloadClients  = useCallback(async () => { try { setClients(await db.fetchClients()); } catch(e){ toast("Erro ao carregar clientes: "+e.message, "error"); } }, [toast]);
 
   useEffect(() => {
-    if (!user) { setDataRdy(false); setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); return; }
     let active = true;
-    setDataRdy(false);
+    // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
+    // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
     Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[])])
       .then(([r, t, h, p, c]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
