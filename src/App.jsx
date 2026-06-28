@@ -40,6 +40,16 @@ const STEP_GROUPS = [
   { num: 5, title: "Faturamento",          short: "NF",        steps: ["p5_nf","p5_data_nf","p5_no_corte"] },
 ];
 
+// Funil por tipo de projeto. Fee e WIP não passam por comercial nem cliente:
+// apenas Extração de dados → Racional → Faturamento (emissão).
+const FUNNELS = {
+  "Time & Expenses": [1, 2, 3, 4, 5],
+  "Usage Based":     [1, 2, 3, 4, 5],
+  "Fee":             [1, 2, 5],
+  "WIP":             [1, 2, 5],
+};
+const funnelGroups = (tipo) => { const nums = FUNNELS[tipo] || [1, 2, 3, 4, 5]; return STEP_GROUPS.filter(g => nums.includes(g.num)); };
+
 // "Etapa concluída" por grupo considera apenas os passos do tipo check obrigatórios.
 const GROUP_DONE_KEYS = {
   1: ["p1_extrair"],
@@ -365,14 +375,14 @@ function SectionTitle({ children, count }) {
 }
 
 // Stepper visual do funil P1→P5
-function PipelineStepper({ states, size="md", showLabels }) {
-  // states: array de 5 valores 'done' | 'partial' | 'todo'
+function PipelineStepper({ states, groups=STEP_GROUPS, size="md", showLabels }) {
+  // states: array alinhado a `groups`, com 'done' | 'partial' | 'todo'
   const dot = size==="sm" ? 14 : 18;
   const colorFor  = (st) => st==="done" ? T.ok : st==="partial" ? C.blue.solid : "#fff";
   const borderFor = (st) => st==="done" ? T.ok : st==="partial" ? C.blue.solid : "#cbd2dc";
   return (
-    <div style={{ display:"flex", alignItems:"flex-start" }} role="img" aria-label={"Funil: " + STEP_GROUPS.map((g,i)=>`${g.short} ${states[i]}`).join(", ")}>
-      {STEP_GROUPS.map((g, i) => {
+    <div style={{ display:"flex", alignItems:"flex-start" }} role="img" aria-label={"Funil: " + groups.map((g,i)=>`${g.short} ${states[i]}`).join(", ")}>
+      {groups.map((g, i) => {
         const st = states[i];
         return (
           <div key={g.num} style={{ display:"flex", flexDirection:"column", alignItems:"center", flex: showLabels ? 1 : "0 0 auto" }}>
@@ -381,7 +391,7 @@ function PipelineStepper({ states, size="md", showLabels }) {
               <div title={g.title} style={{ width:dot, height:dot, borderRadius:"50%", flexShrink:0, background:colorFor(st), border:`2px solid ${borderFor(st)}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:dot*0.5, color:st==="todo"?T.faint:"#fff", fontWeight:700 }}>
                 {st==="done" ? "✓" : g.num}
               </div>
-              {i<STEP_GROUPS.length-1 && <div style={{ flex:1, height:2, background: st==="done" ? T.ok : "#e2e6ec", minWidth: showLabels?0:16 }} />}
+              {i<groups.length-1 && <div style={{ flex:1, height:2, background: st==="done" ? T.ok : "#e2e6ec", minWidth: showLabels?0:16 }} />}
             </div>
             {showLabels && <span style={{ fontSize:10, color: st==="todo"?T.faint:T.inkSoft, marginTop:4, fontWeight: st==="done"?700:500, textAlign:"center" }}>{g.short}</span>}
           </div>
@@ -391,9 +401,9 @@ function PipelineStepper({ states, size="md", showLabels }) {
   );
 }
 
-function recordStates(prog) { return STEP_GROUPS.map(g => groupState(prog, g.num)); }
-function aggregateStates(records) {
-  return STEP_GROUPS.map(g => {
+function recordStates(prog, tipo) { return funnelGroups(tipo).map(g => groupState(prog, g.num)); }
+function aggregateStates(records, tipo) {
+  return funnelGroups(tipo).map(g => {
     const sts = records.map(r => groupState(r.progress, g.num));
     if (sts.every(s => s==="done")) return "done";
     if (sts.some(s => s!=="todo")) return "partial";
@@ -491,7 +501,55 @@ function parseSheetRows(rows, empresa, tipo, competencia) {
   return { records, errors };
 }
 
+// Layout Fee/WIP: tipo e empresa vêm de cada linha; sem profissional/horas.
+const FEEWIP_COL_MAP = {
+  responsavel:  ["RESPONSÁVEL","RESPONSAVEL"],
+  tipo:         ["TIPO"],
+  empresa:      ["EMPRESA"],
+  codCliente:   ["COD CLIENTE"],
+  cliente:      ["NOME CLIENTE"],
+  pep:          ["PEP"],
+  inicio:       ["INICIO","INÍCIO"],
+  fim:          ["FIM"],
+  valorTotal:   ["RECEITA PLANEJADA"],
+  valorLiquido: ["Formula Líquido","FORMULA LIQUIDO","Formula Liquido"],
+  obs:          ["OBSERVAÇÃO","OBSERVACAO"],
+};
+function normTipo(t) {
+  const s = String(t||"").trim().toLowerCase();
+  if (s==="fee") return "Fee";
+  if (s==="wip") return "WIP";
+  if (s.includes("time")) return "Time & Expenses";
+  if (s.includes("usage")) return "Usage Based";
+  return String(t||"").trim();
+}
+function parseFeeWipRows(rows, competencia) {
+  let hi=0;
+  for (let i=0;i<Math.min(6,rows.length);i++) { if(rows[i].some(c=>(c||"").toString().toUpperCase().includes("RESPONSAV"))) { hi=i; break; } }
+  const headers = rows[hi].map(h=>(h||"").toString());
+  const colIdx={};
+  for (const [key,cands] of Object.entries(FEEWIP_COL_MAP)) { const i=findCol(headers,cands); if(i!==-1) colIdx[key]=i; }
+  const need=["responsavel","cliente","pep","tipo","valorTotal"];
+  const missing=need.filter(k=>colIdx[k]==null);
+  if (missing.length) return { records:[], errors:[`Cabeçalhos não encontrados (${missing.join(", ")}). A planilha precisa ter: RESPONSÁVEL, TIPO, NOME CLIENTE, PEP, RECEITA PLANEJADA.`] };
+  const records=[]; const skipped=[];
+  for (let i=hi+1;i<rows.length;i++) {
+    const row=rows[i];
+    if(!row||row.every(c=>c==null||c==="")) continue;
+    const get=k=>colIdx[k]!=null?(row[colIdx[k]]??""):"";
+    const getNum=k=>parseFloat(String(get(k)).replace(",","."))||0;
+    const getStr=k=>String(get(k)).trim();
+    const cliente=getStr("cliente"), pep=getStr("pep"), responsavel=getStr("responsavel"), tipo=normTipo(get("tipo"));
+    if(!cliente||!pep||!responsavel||!tipo){skipped.push(i+1);continue;}
+    records.push({ id:genId(), responsavel, empresa:getStr("empresa")||"BR02", tipo, codCliente:getStr("codCliente"), cliente, pep, inicio:excelDateToStr(get("inicio")), fim:excelDateToStr(get("fim")), profissional:"", valorVenda:0, hrsAprovadas:0, valorTotal:getNum("valorTotal"), valorLiquido:getNum("valorLiquido"), competencia, progress:makeProgress(), nfNumero:"", obs:getStr("obs"), updatedAt:nowISO() });
+  }
+  const errors=[];
+  if(skipped.length) errors.push(`${skipped.length} linha(s) ignorada(s) por falta de dados.`);
+  return { records, errors };
+}
+
 function ImportModal({ onImport, onClose }) {
+  const [layout,setLayout]=useState("te"); // te | feewip
   const [competencia,setComp]=useState("");
   const [empresa,setEmpresa]=useState("BR02");
   const [tipo,setTipo]=useState("Time & Expenses");
@@ -513,12 +571,12 @@ function ImportModal({ onImport, onClose }) {
     reader.onload=e=>{
       try {
         const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array",cellDates:false});
-        const sheetName=wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0];
+        const sheetName=layout==="feewip" ? wb.SheetNames[0] : (wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0]);
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:""});
-        const {records,errors}=parseSheetRows(rows,empresa,tipo,competencia);
+        const {records,errors}=layout==="feewip" ? parseFeeWipRows(rows,competencia) : parseSheetRows(rows,empresa,tipo,competencia);
         const m=[];
         errors.forEach(e=>m.push({type:"warn",text:e}));
-        if(records.length===0){m.push({type:"error",text:"Nenhum registro válido. Verifique a aba '📥 Time & Expenses'."});setMsgs(m);}
+        if(records.length===0){m.push({type:"error",text:"Nenhum registro válido. Confira as colunas da planilha."});setMsgs(m);}
         else{m.push({type:"ok",text:`${records.length} registros encontrados na aba "${sheetName}".`});setMsgs(m);setPreview(records);}
       } catch(err){setMsgs([{type:"error",text:"Erro ao ler o arquivo: "+err.message}]);}
       setLoading(false);
@@ -526,18 +584,33 @@ function ImportModal({ onImport, onClose }) {
     reader.readAsArrayBuffer(file);
   }
 
-  const onDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);},[competencia,empresa,tipo]);
+  const onDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);},[layout,competencia,empresa,tipo]);
   const mc={ok:{bg:T.okBg,text:T.ok,border:T.okLine},warn:{bg:T.warnBg,text:T.warn,border:T.warnLine},error:{bg:T.dangerBg,text:T.danger,border:T.dangerLine}};
 
   return (
-    <Modal title="Importar — Time & Expenses" subtitle="Lê a aba 📥 Time & Expenses do arquivo .xlsm/.xlsx" onClose={onClose} wide>
+    <Modal title="Importar dados" subtitle="Carrega a planilha .xlsm/.xlsx de receitas" onClose={onClose} wide>
       <div style={{background:T.warnBg,border:`1px solid ${T.warnLine}`,borderRadius:T.rMd,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.warn,display:"flex",gap:8}}>
-        <span aria-hidden="true">🔒</span><span>Apenas a Daniela pode importar dados.</span>
+        <span aria-hidden="true">🔒</span><span>Apenas administradores podem importar dados.</span>
       </div>
+
+      {/* Layout da planilha */}
+      <div style={{marginBottom:14}}>
+        <label style={Ty.label}>Layout da planilha</label>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          {[{v:"te",l:"Time & Expenses",d:"Por profissional, com horas e valores."},{v:"feewip",l:"Fee / WIP",d:"Por PEP, com receita planejada. Tipo vem da planilha."}].map(opt=>(
+            <label key={opt.v} style={{flex:"1 1 220px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${layout===opt.v?T.brand:T.line}`,cursor:"pointer",background:layout===opt.v?T.brandBg:"#fff"}}>
+              <input type="radio" name="layout" checked={layout===opt.v} onChange={()=>{setLayout(opt.v);reset();}} style={{marginTop:2}}/>
+              <div><div style={{fontSize:13,fontWeight:700,color:layout===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:14}}>
         <Field label="Competência *" hint="(preencha primeiro)"><input style={inp} placeholder="05/2026" value={competencia} onChange={e=>{setComp(e.target.value);reset();}}/></Field>
-        <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
-        <Field label="Tipo de projeto"><select style={inp} value={tipo} onChange={e=>{setTipo(e.target.value);reset();}}>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>
+        {layout==="te" && <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>}
+        {layout==="te" && <Field label="Tipo de projeto"><select style={inp} value={tipo} onChange={e=>{setTipo(e.target.value);reset();}}>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>}
+        {layout==="feewip" && <Field label="Tipo / Empresa"><input style={{...inp,color:T.muted}} value="Vêm da planilha (Fee/WIP)" disabled/></Field>}
       </div>
       <div style={{marginBottom:14}}>
         <label style={Ty.label}>Modo de importação</label>
@@ -632,6 +705,8 @@ function HistoryModal({ history, onClose }) {
 // Atualiza passos de múltiplos profissionais de um cliente de uma só vez
 
 function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF }) {
+  const tipo = records[0]?.tipo;
+  const grupos = funnelGroups(tipo);
   const [selected, setSelected] = useState(new Set(records.map(r=>r.id)));
   const [sharedProg, setSharedProg] = useState(() => ({ ...records[0]?.progress } || makeProgress()));
   const [obs, setObs] = useState("");
@@ -641,8 +716,8 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
   const toggle = (id) => setSelected(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
   const setVal = (id, val) => setSharedProg(p=>({...p,[id]:val}));
 
-  // Sequência obrigatória dos passos do tipo "check": só avança com o anterior concluído.
-  const FLOW = ["p1_extrair","p2_racional","p3_envio_com","p3_retorno_com","p4_envio_cli","p4_aprovacao","p5_nf","p5_no_corte"];
+  // Sequência obrigatória dos passos do tipo "check" — derivada do funil do tipo.
+  const FLOW = grupos.flatMap(g => STEPS.filter(s=>g.steps.includes(s.id) && s.type==="check").map(s=>s.id));
   const stepName = (id) => STEPS.find(s=>s.id===id)?.name || id;
   function setCheck(id, val) {
     setError("");
@@ -678,7 +753,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
     <Modal title={`Atualizar passos — ${cliente}`} subtitle={`${pep} · ${records.length} profissionais`} onClose={onClose} extraWide>
       {/* Pré-visualização do funil compartilhado */}
       <div style={{ background:T.canvas, border:`1px solid ${T.line}`, borderRadius:T.rLg, padding:"14px 16px", marginBottom:18 }}>
-        <PipelineStepper states={recordStates(sharedProg)} showLabels/>
+        <PipelineStepper states={recordStates(sharedProg, tipo)} groups={grupos} showLabels/>
       </div>
 
       {/* Seleção de profissionais */}
@@ -703,7 +778,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
 
       {/* Passos */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:16}}>
-        {STEP_GROUPS.map(g=>{
+        {grupos.map(g=>{
           const gs = groupState(sharedProg, g.num);
           return (
           <div key={g.num} style={{background:T.canvas,borderRadius:T.rLg,padding:"12px 14px",border:`1px solid ${gs==="done"?T.okLine:T.line}`}}>
@@ -758,6 +833,11 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
 // Permite NF X para um grupo e NF Y para outro, mostrando o valor somado de cada.
 
 function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
+  const tipo = records[0]?.tipo;
+  // Pré-requisito para emitir a NF: a última etapa "check" antes da emissão no
+  // funil do tipo (T&E: aprovação do cliente; Fee/WIP: racional).
+  const preReqId = (() => { const flow = funnelGroups(tipo).flatMap(g => STEPS.filter(s=>g.steps.includes(s.id) && s.type==="check").map(s=>s.id)); const i = flow.indexOf("p5_nf"); return i>0 ? flow[i-1] : null; })();
+  const preReqName = STEPS.find(s=>s.id===preReqId)?.name || "etapa anterior";
   const [localRecs, setLocalRecs] = useState(records);
   const [dirty, setDirty]   = useState(new Set());
   const [selected, setSel]  = useState(new Set());
@@ -782,10 +862,10 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
     if (emitida && !num) { setError("Informe o número da NF para marcar como emitida."); return; }
     // Não é possível incluir número de NF sem marcar como emitida.
     if (num && !emitida) { setError("Para incluir o número da NF, marque “Marcar como emitida (P5)”."); return; }
-    // Não é possível emitir a NF sem a aprovação do cliente (P4) de cada selecionado.
-    if (num && emitida) {
-      const semOk = selRecs.filter(r => !r.progress?.p4_aprovacao);
-      if (semOk.length) { setError(`Sem aprovação do cliente: ${semOk.map(r=>r.profissional).join(", ")}. Conclua a etapa de aprovação antes de emitir a NF.`); return; }
+    // Não é possível emitir a NF sem concluir a etapa anterior do funil do tipo.
+    if (num && emitida && preReqId) {
+      const semOk = selRecs.filter(r => !r.progress?.[preReqId]);
+      if (semOk.length) { setError(`Conclua "${preReqName}" antes de emitir a NF para: ${semOk.map(r=>r.profissional||r.pep).join(", ")}.`); return; }
     }
     const now = nowISO();
     setLocalRecs(list => list.map(r => {
@@ -1032,7 +1112,10 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
         const isOpen  = expandedCliente===(g.cliente+g.pep);
         const overallStatus = g.records.every(r=>r.progress?.p5_no_corte)?"Faturado no corte":g.records.every(r=>r.progress?.p5_nf)?"NF emitida":g.records.some(r=>r.progress?.p5_nf)?"Faturado parcialmente":"Em andamento";
         const overallColor  = g.records.every(r=>r.progress?.p5_no_corte)?"green":g.records.every(r=>r.progress?.p5_nf)?"teal":g.records.some(r=>r.progress?.p5_nf)?"orange":"yellow";
-        const agg = aggregateStates(g.records);
+        const gtipo = g.records[0]?.tipo;
+        const ggrupos = funnelGroups(gtipo);
+        const agg = aggregateStates(g.records, gtipo);
+        const temProf = g.records.some(r=>r.profissional);
 
         return (
           <Card key={g.cliente+g.pep} interactive style={{marginBottom:10,overflow:"hidden"}}>
@@ -1043,9 +1126,9 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                   <span style={{fontSize:14,fontWeight:700,color:T.ink}}>🏦 {g.cliente}</span>
                   <Badge label={overallStatus} color={overallColor} small dot/>
                 </div>
-                <div style={{fontSize:11,color:T.muted}}>{g.pep} · {g.records.length} profissionais · {fmtShort(total)}</div>
+                <div style={{fontSize:11,color:T.muted}}>{g.pep} · {gtipo} · {g.records.length} {temProf?"profissionais":"registro(s)"} · {fmtShort(total)}</div>
               </div>
-              {!isMobile && <div style={{ width:230 }}><PipelineStepper states={agg} showLabels/></div>}
+              {!isMobile && <div style={{ width:230 }}><PipelineStepper states={agg} groups={ggrupos} showLabels/></div>}
               <div style={{textAlign:"center"}}>
                 <div style={{fontSize:18,fontWeight:800,color:pct===100?T.ok:pct>50?T.brand:C.orange.solid}}>{pct}%</div>
                 <div style={{fontSize:10,color:T.muted}}>faturado</div>
@@ -1055,7 +1138,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
               <span style={{fontSize:16,color:T.faint}} aria-hidden="true">{isOpen?"▲":"▼"}</span>
             </div>
 
-            {isMobile && <div style={{ padding:"0 18px 12px" }}><PipelineStepper states={agg} showLabels/></div>}
+            {isMobile && <div style={{ padding:"0 18px 12px" }}><PipelineStepper states={agg} groups={ggrupos} showLabels/></div>}
 
             {/* Detalhe dos profissionais */}
             {isOpen&&<div style={{borderTop:`1px solid ${T.lineSoft}`,padding:"0 18px 14px"}}>
@@ -1071,7 +1154,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                     <tr key={r.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
                       {isAdmin&&<td style={{padding:"7px 10px"}}><Badge label={r.responsavel} color="purple" small/></td>}
                       <td style={{padding:"7px 10px",fontWeight:500,color:T.ink}}>{r.profissional}</td>
-                      <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress)} size="sm"/></td>
+                      <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} size="sm"/></td>
                       <td style={{padding:"7px 10px",color:T.muted,whiteSpace:"nowrap"}}>{r.inicio} → {r.fim}</td>
                       <td style={{padding:"7px 10px",fontWeight:500}}>{fmtShort(r.valorTotal)}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
@@ -2228,9 +2311,15 @@ function AppInner() {
 
   async function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
     try {
-      if (mode==="replace") await db.deleteRecordsBy({ competencia, empresa, tipo });
+      if (mode==="replace") {
+        // Substitui apenas os recortes (competência+empresa+tipo) presentes na carga.
+        const combos = [...new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`))];
+        for (const c of combos) { const [cmp,emp,tp]=c.split("|"); await db.deleteRecordsBy({ competencia:cmp, empresa:emp, tipo:tp }); }
+      }
       await db.insertRecords(newRecs);
-      try { await db.insertHistory({ competencia, empresa, tipo, mode, count:newRecs.length, user:user.name, note }); } catch {}
+      const tipoLog = [...new Set(newRecs.map(r=>r.tipo))].join("/") || tipo;
+      const empLog  = [...new Set(newRecs.map(r=>r.empresa))].join("/") || empresa;
+      try { await db.insertHistory({ competencia, empresa:empLog, tipo:tipoLog, mode, count:newRecs.length, user:user.name, note }); } catch {}
       await Promise.all([reloadRecords(), reloadHistory()]);
       setState(s=>({...s, competenciaAtual:competencia}));
       toast(`${newRecs.length} registros importados (${mode==="replace"?"substituição":"adição"})`);
