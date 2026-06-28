@@ -15,6 +15,7 @@ function dbToRec(row) {
     valorTotal: Number(row.valor_total) || 0, valorLiquido: Number(row.valor_liquido) || 0,
     competencia: row.competencia, progress: row.progress || {},
     nfNumero: row.nf_numero || "", obs: row.obs || "", updatedAt: row.updated_at,
+    importId: row.import_id || null,
   };
 }
 function recToDb(r, withId) {
@@ -26,6 +27,7 @@ function recToDb(r, withId) {
     valor_total: r.valorTotal || 0, valor_liquido: r.valorLiquido || 0,
     competencia: r.competencia, progress: r.progress || {},
     nf_numero: r.nfNumero || "", obs: r.obs || "", updated_at: r.updatedAt || nowISO(),
+    import_id: r.importId || null,
   };
   if (withId && r.id) o.id = r.id;
   return o;
@@ -52,6 +54,11 @@ export async function deleteRecordsBy({ competencia, empresa, tipo }) {
 export async function deleteRecord(id) {
   const { error } = await supabase.from("records").delete().eq("id", id);
   if (error) throw error;
+}
+export async function deleteRecordsByImport(importId) {
+  const { error, count } = await supabase.from("records").delete({ count: "exact" }).eq("import_id", importId);
+  if (error) throw error;
+  return count || 0;
 }
 
 // ─── TASKS ───────────────────────────────────────────────────────────────────
@@ -83,12 +90,17 @@ function dbToHist(row) {
   return {
     id: row.id, date: row.date, competencia: row.competencia, empresa: row.empresa,
     tipo: row.tipo, mode: row.mode, count: row.count, user: row.user_name, note: row.note,
+    importId: row.import_id || null,
   };
 }
 export async function fetchHistory() {
   const { data, error } = await supabase.from("import_history").select("*").order("date", { ascending: true });
   if (error) throw error;
   return data.map(dbToHist);
+}
+export async function deleteHistory(id) {
+  const { error } = await supabase.from("import_history").delete().eq("id", id);
+  if (error) throw error;
 }
 // ─── ENTREGAS (modelos recorrentes + geração mensal) ─────────────────────────
 export async function fetchTemplates() {
@@ -138,7 +150,7 @@ export async function generateDelivery(template, competencia, allAnalysts) {
 export async function insertHistory(h) {
   const { error } = await supabase.from("import_history").insert({
     competencia: h.competencia, empresa: h.empresa, tipo: h.tipo,
-    mode: h.mode, count: h.count, user_name: h.user, note: h.note,
+    mode: h.mode, count: h.count, user_name: h.user, note: h.note, import_id: h.importId || null,
   });
   if (error) throw error;
 }

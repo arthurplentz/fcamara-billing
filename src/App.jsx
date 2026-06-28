@@ -113,6 +113,8 @@ const fmtShort = (n) => n == null ? "—" : "R$ " + Math.round(n).toLocaleString
 const nowISO   = () => new Date().toISOString();
 const fmtDT    = (iso) => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }); };
 const genId    = () => "r" + Date.now() + Math.random().toString(36).slice(2,7);
+const uuid     = () => (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID()
+  : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&0x3|0x8)).toString(16);});
 const makeProgress = () => Object.fromEntries(STEPS.map(s => [s.id, s.type==="date" ? "" : false]));
 const initials = (name="") => name.trim().split(/\s+/).slice(0,2).map(p=>p[0]||"").join("").toUpperCase();
 const parseJSON = (str, fallback) => { try { const v = JSON.parse(str); return v ?? fallback; } catch { return fallback; } };
@@ -693,12 +695,16 @@ function ExportModal({ records, onClose, onDone }) {
 
 // ─── HISTORY (admin) ─────────────────────────────────────────────────────────
 
-function HistoryModal({ history, onClose }) {
+function HistoryModal({ history, onClose, onUndo }) {
+  const [confirm, setConfirm] = useState(null);
   return(
     <Modal title="Histórico de importações" onClose={onClose} wide>
+      {confirm && <ConfirmDialog title="Desfazer importação" danger confirmLabel="Desfazer importação"
+        message={`Remover os ${confirm.count} registro(s) importados em ${fmtDT(confirm.date)} (${confirm.competencia} · ${confirm.tipo})? Os registros dessa carga serão apagados de uma vez. Não afeta outras importações.`}
+        onConfirm={()=>onUndo(confirm)} onClose={()=>setConfirm(null)}/>}
       {history.length===0?<p style={{fontSize:13,color:T.muted}}>Nenhuma importação.</p>:
       <div className="fc-scroll" style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-        <thead><tr style={{background:T.canvas}}>{["Data/Hora","Usuário","Competência","Empresa","Tipo","Modo","Registros","Nota"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+        <thead><tr style={{background:T.canvas}}>{["Data/Hora","Usuário","Competência","Empresa","Tipo","Modo","Registros","Nota",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
         <tbody>{[...history].reverse().map(h=><tr key={h.id} style={{borderBottom:`1px solid ${T.lineSoft}`}}>
           <td style={{padding:"8px 10px",whiteSpace:"nowrap"}}>{fmtDT(h.date)}</td>
           <td style={{padding:"8px 10px"}}><Badge label={h.user} color="purple" small/></td>
@@ -708,6 +714,11 @@ function HistoryModal({ history, onClose }) {
           <td style={{padding:"8px 10px"}}><Badge label={h.mode==="replace"?"Substituição":"Adição"} color={h.mode==="replace"?"red":"green"} small/></td>
           <td style={{padding:"8px 10px",fontWeight:700}}>{h.count}</td>
           <td style={{padding:"8px 10px",color:T.muted}}>{h.note}</td>
+          <td style={{padding:"8px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
+            {h.importId
+              ? <Btn small danger onClick={()=>setConfirm(h)}>↩ Desfazer</Btn>
+              : <span style={{fontSize:11,color:T.faint}} title="Importações anteriores a este recurso não têm como ser desfeitas automaticamente">—</span>}
+          </td>
         </tr>)}</tbody>
       </table></div>}
       <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}><Btn onClick={onClose}>Fechar</Btn></div>
@@ -2372,14 +2383,26 @@ function AppInner() {
         const combos = [...new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`))];
         for (const c of combos) { const [cmp,emp,tp]=c.split("|"); await db.deleteRecordsBy({ competencia:cmp, empresa:emp, tipo:tp }); }
       }
-      await db.insertRecords(newRecs);
+      const importId = uuid();
+      const tagged = newRecs.map(r=>({ ...r, importId }));
+      await db.insertRecords(tagged);
       const tipoLog = [...new Set(newRecs.map(r=>r.tipo))].join("/") || tipo;
       const empLog  = [...new Set(newRecs.map(r=>r.empresa))].join("/") || empresa;
-      try { await db.insertHistory({ competencia, empresa:empLog, tipo:tipoLog, mode, count:newRecs.length, user:user.name, note }); } catch {}
+      try { await db.insertHistory({ competencia, empresa:empLog, tipo:tipoLog, mode, count:newRecs.length, user:user.name, note, importId }); } catch {}
       await Promise.all([reloadRecords(), reloadHistory()]);
       setState(s=>({...s, competenciaAtual:competencia}));
       toast(`${newRecs.length} registros importados (${mode==="replace"?"substituição":"adição"})`);
     } catch(e) { toast("Erro na importação: "+e.message, "error"); }
+  }
+
+  async function handleUndoImport(entry) {
+    if (!entry?.importId) { toast("Esta importação é antiga e não pode ser desfeita automaticamente.", "error"); return; }
+    try {
+      const removed = await db.deleteRecordsByImport(entry.importId);
+      await db.deleteHistory(entry.id);
+      await Promise.all([reloadRecords(), reloadHistory()]);
+      toast(`Importação desfeita — ${removed} registro(s) removido(s)`, "info");
+    } catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
   }
 
   function handleCompetencia(val) { setState(s=>({...s, competenciaAtual:val})); }
@@ -2470,7 +2493,7 @@ function AppInner() {
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,minHeight:"100vh",background:T.canvas,display:"flex",flexDirection:"column"}}>
       {showImport  && <ImportModal onImport={handleImport} onClose={()=>setImp(false)}/>}
       {showExport  && <ExportModal records={records} onClose={()=>setExp(false)} onDone={(n)=>toast(`CSV exportado — ${n} registros`)}/>}
-      {showHistory && <HistoryModal history={history} onClose={()=>setHist(false)}/>}
+      {showHistory && <HistoryModal history={history} onClose={()=>setHist(false)} onUndo={(entry)=>handleUndoImport(entry)}/>}
       {confirmLogout && <ConfirmDialog title="Sair da plataforma" message="Deseja realmente encerrar a sessão?" confirmLabel="Sair" onConfirm={()=>{ supabase.auth.signOut(); setUser(null); }} onClose={()=>setCL(false)}/>}
 
       <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)} onLogout={()=>setCL(true)}/>
