@@ -621,8 +621,28 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
   const toggle = (id) => setSelected(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
   const setVal = (id, val) => setSharedProg(p=>({...p,[id]:val}));
 
+  // Sequência obrigatória dos passos do tipo "check": só avança com o anterior concluído.
+  const FLOW = ["p1_extrair","p2_racional","p3_envio_com","p3_retorno_com","p4_envio_cli","p4_aprovacao","p5_nf","p5_no_corte"];
+  const stepName = (id) => STEPS.find(s=>s.id===id)?.name || id;
+  function setCheck(id, val) {
+    setError("");
+    setSharedProg(p => {
+      const idx = FLOW.indexOf(id);
+      if (val) {
+        for (let i=0;i<idx;i++) if (!p[FLOW[i]]) { setError(`Conclua antes: “${stepName(FLOW[i])}”.`); return p; }
+        return { ...p, [id]: true };
+      }
+      // Ao desmarcar, desmarca também os passos posteriores (mantém a sequência coerente).
+      const np = { ...p };
+      for (let i=idx;i<FLOW.length;i++) np[FLOW[i]] = false;
+      return np;
+    });
+  }
+
   function handleSave() {
     if (selected.size === 0) { setError("Selecione ao menos um profissional."); return; }
+    if (sharedProg.p3_retorno_com && !(sharedProg.p3_data_retorno||"").trim()) { setError("Marcou “Retorno do Comercial”: informe a Data Retorno."); return; }
+    if (sharedProg.p4_aprovacao   && !(sharedProg.p4_data_aprov||"").trim())   { setError("Marcou “Aprovação do Cliente”: informe a Data Aprovação."); return; }
     const now = nowISO();
     // A emissão da NF (p5_nf / data / número) é gerida na tela "Notas fiscais".
     // Aqui preservamos esses campos por profissional e atualizamos só o restante do funil.
@@ -686,7 +706,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
                   <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
                   {s.type==="check"
                     ? <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>
-                        <input type="checkbox" checked={!!sharedProg[s.id]} onChange={e=>setVal(s.id,e.target.checked)} style={{width:15,height:15}}/>
+                        <input type="checkbox" checked={!!sharedProg[s.id]} onChange={e=>setCheck(s.id,e.target.checked)} style={{width:15,height:15}}/>
                         <span style={{color:sharedProg[s.id]?T.ok:T.muted}}>{sharedProg[s.id]?"✓ Feito":"Pendente"}</span>
                       </label>
                     : <input type="date" value={sharedProg[s.id]||""} onChange={e=>setVal(s.id,e.target.value)} style={{...inp,width:150}}/>
@@ -740,6 +760,13 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
     if (selected.size === 0) { setError("Selecione ao menos um profissional."); return; }
     const num = nf.trim();
     if (emitida && !num) { setError("Informe o número da NF para marcar como emitida."); return; }
+    // Não é possível incluir número de NF sem marcar como emitida.
+    if (num && !emitida) { setError("Para incluir o número da NF, marque “Marcar como emitida (P5)”."); return; }
+    // Não é possível emitir a NF sem a aprovação do cliente (P4) de cada selecionado.
+    if (num && emitida) {
+      const semOk = selRecs.filter(r => !r.progress?.p4_aprovacao);
+      if (semOk.length) { setError(`Sem aprovação do cliente: ${semOk.map(r=>r.profissional).join(", ")}. Conclua a etapa de aprovação antes de emitir a NF.`); return; }
+    }
     const now = nowISO();
     setLocalRecs(list => list.map(r => {
       if (!selected.has(r.id)) return r;
@@ -1178,7 +1205,8 @@ function Dashboard({ records, analista, isAdmin }) {
 // ─── SIDEBAR / NAV ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
-  { group:"Faturamento", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"} ] },
+  { group:"Cadastros", links:[ {id:"clients",icon:"🏢",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
 ];
 
@@ -1512,6 +1540,124 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
   );
 }
 
+// ─── CLIENTES (perfil de faturamento) ────────────────────────────────────────
+
+function ClientModal({ client, onSave, onDelete, onClose }) {
+  const isNew = !client?.id;
+  const [f, setF] = useState(client || { temPortal:false });
+  const [err, setErr] = useState("");
+  const set = (k,v) => setF(p=>({...p,[k]:v}));
+
+  function save() {
+    if (!(f.nome||"").trim()) { setErr("Informe o nome do cliente."); return; }
+    onSave({ ...f, nome:f.nome.trim() });
+    onClose();
+  }
+
+  const Sec = ({title, children}) => (
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>{title}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>{children}</div>
+    </div>
+  );
+
+  return (
+    <Modal title={isNew?"Novo cliente":`Cliente — ${client.nome}`} subtitle="Perfil de faturamento do cliente" onClose={onClose} wide>
+      <Sec title="Identificação">
+        <Field label="Nome do cliente *"><input style={inp} value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
+        <Field label="Cód. SAP"><input style={inp} value={f.codSap||""} onChange={e=>set("codSap",e.target.value)}/></Field>
+        <Field label="Grupo de empresa"><input style={inp} value={f.grupoEmpresa||""} onChange={e=>set("grupoEmpresa",e.target.value)}/></Field>
+        <Field label="Tipos de contrato"><input style={inp} placeholder="Ex: Time & Expenses, Fee" value={f.tiposContrato||""} onChange={e=>set("tiposContrato",e.target.value)}/></Field>
+      </Sec>
+
+      <Sec title="Proposta">
+        <Field label="Link da proposta"><input style={inp} placeholder="Cole o link (Drive, SharePoint...)" value={f.propostaUrl||""} onChange={e=>set("propostaUrl",e.target.value)}/></Field>
+      </Sec>
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>Faturamento</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:12}}>
+          <Field label="Período de faturamento"><input style={inp} placeholder="Ex: 01 a 31 (ou outro)" value={f.periodoFaturamento||""} onChange={e=>set("periodoFaturamento",e.target.value)}/></Field>
+          <Field label="Prazo de vencimento acordado"><input style={inp} placeholder="Ex: 30 dias" value={f.prazoVencimento||""} onChange={e=>set("prazoVencimento",e.target.value)}/></Field>
+          <Field label="Forma de pagamento"><input style={inp} placeholder="Ex: Boleto, transferência" value={f.formaPagamento||""} onChange={e=>set("formaPagamento",e.target.value)}/></Field>
+        </div>
+        <Field label="Calendário de faturamento — passo a passo"><textarea style={{...inp,minHeight:80,resize:"vertical"}} placeholder="Descreva o passo a passo do faturamento deste cliente..." value={f.calendario||""} onChange={e=>set("calendario",e.target.value)}/></Field>
+      </div>
+
+      <div style={{marginBottom:16,padding:"12px 14px",borderRadius:T.rLg,background:T.canvas,border:`1px solid ${T.line}`}}>
+        <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:T.ink,cursor:"pointer",marginBottom:f.temPortal?12:0}}>
+          <input type="checkbox" checked={!!f.temPortal} onChange={e=>set("temPortal",e.target.checked)} style={{width:16,height:16}}/>
+          Tem portal?
+        </label>
+        {f.temPortal && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+          <Field label="Link do portal"><input style={inp} value={f.portalLink||""} onChange={e=>set("portalLink",e.target.value)}/></Field>
+          <Field label="Usuário"><input style={inp} value={f.portalUsuario||""} onChange={e=>set("portalUsuario",e.target.value)}/></Field>
+          <Field label="Senha"><input style={inp} value={f.portalSenha||""} onChange={e=>set("portalSenha",e.target.value)}/></Field>
+          <Field label="Link do passo a passo do portal"><input style={inp} placeholder="Cole o link" value={f.portalPassoUrl||""} onChange={e=>set("portalPassoUrl",e.target.value)}/></Field>
+        </div>}
+      </div>
+
+      <Sec title="Contatos">
+        <Field label="Contato financeiro"><input style={inp} value={f.contatoFinanceiro||""} onChange={e=>set("contatoFinanceiro",e.target.value)}/></Field>
+        <Field label="Account manager (comercial)"><input style={inp} value={f.accountManager||""} onChange={e=>set("accountManager",e.target.value)}/></Field>
+      </Sec>
+
+      {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
+
+      <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
+        <div>{!isNew && <Btn danger small onClick={()=>{onDelete(client.id);onClose();}}>🗑 Excluir</Btn>}</div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn primary onClick={save}>{isNew?"Criar cliente":"Salvar"}</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ClientsView({ clients, onSave, onDelete }) {
+  const [editing, setEditing] = useState(null);
+  const [q, setQ] = useState("");
+  const filtered = clients.filter(c => !q || (c.nome||"").toLowerCase().includes(q.toLowerCase()) || (c.codSap||"").toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <div>
+      {editing && <ClientModal client={editing.id?editing:null} onSave={onSave} onDelete={onDelete} onClose={()=>setEditing(null)}/>}
+
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <h1 style={Ty.h1}>🏢 Clientes</h1>
+          <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s) cadastrado(s) · perfil de faturamento com as peculiaridades de cada um</div>
+        </div>
+        <input style={{...inp,width:200}} placeholder="🔎 Nome ou Cód. SAP..." value={q} onChange={e=>setQ(e.target.value)}/>
+        <Btn primary onClick={()=>setEditing({ temPortal:false })}>+ Novo cliente</Btn>
+      </div>
+
+      {filtered.length===0
+        ? <Card style={{textAlign:"center",padding:"3rem"}}>
+            <div style={{fontSize:32,marginBottom:10}}>🏢</div>
+            <div style={{fontSize:14,color:T.muted}}>{clients.length===0?"Nenhum cliente cadastrado ainda. Clique em “+ Novo cliente”.":"Nenhum cliente encontrado para a busca."}</div>
+          </Card>
+        : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+            {filtered.map(c=>(
+              <Card key={c.id} interactive style={{padding:"14px 16px",cursor:"pointer"}} onClick={()=>setEditing(c)}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
+                  <span style={{fontSize:14,fontWeight:700,color:T.ink}}>{c.nome}</span>
+                  {c.temPortal && <Badge label="Portal" color="purple" small/>}
+                </div>
+                <div style={{fontSize:11,color:T.muted,lineHeight:1.6}}>
+                  {c.codSap && <div>SAP: {c.codSap}</div>}
+                  {c.grupoEmpresa && <div>Grupo: {c.grupoEmpresa}</div>}
+                  {c.periodoFaturamento && <div>Período: {c.periodoFaturamento}</div>}
+                  {c.accountManager && <div>AM: {c.accountManager}</div>}
+                </div>
+              </Card>
+            ))}
+          </div>}
+    </div>
+  );
+}
+
 // ─── TOPBAR ──────────────────────────────────────────────────────────────────
 
 function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory, onLogout }) {
@@ -1668,7 +1814,7 @@ function AppInner() {
   const [user, setUser]         = useState(null);
   const [authReady, setAuthRdy] = useState(false);
   const [recovery, setRecovery] = useState(false);
-  const [page, setPage]         = useState("time");
+  const [page, setPage]         = useState("dash");
   const [showImport, setImp]    = useState(false);
   const [showExport, setExp]    = useState(false);
   const [showHistory, setHist]  = useState(false);
@@ -1678,6 +1824,7 @@ function AppInner() {
   const [tasks, setTasks]       = useState([]);
   const [history, setHistory]   = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [clients, setClients]   = useState([]);
   const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
@@ -1687,13 +1834,14 @@ function AppInner() {
   const reloadTasks   = useCallback(async () => { try { setTasks(await db.fetchTasks()); }     catch(e){ toast("Erro ao carregar tarefas: "+e.message, "error"); } }, [toast]);
   const reloadHistory  = useCallback(async () => { try { setHistory(await db.fetchHistory()); } catch(e){ /* histórico é só p/ admin */ } }, []);
   const reloadProfiles = useCallback(async () => { try { setProfiles(await db.fetchProfiles()); } catch(e){ toast("Erro ao carregar acessos: "+e.message, "error"); } }, [toast]);
+  const reloadClients  = useCallback(async () => { try { setClients(await db.fetchClients()); } catch(e){ toast("Erro ao carregar clientes: "+e.message, "error"); } }, [toast]);
 
   useEffect(() => {
-    if (!user) { setDataRdy(false); setRecords([]); setTasks([]); setHistory([]); setProfiles([]); return; }
+    if (!user) { setDataRdy(false); setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); return; }
     let active = true;
     setDataRdy(false);
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[])])
-      .then(([r, t, h, p]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[])])
+      .then(([r, t, h, p, c]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -1772,6 +1920,19 @@ function AppInner() {
       toast("Acesso removido", "info");
     } catch(e) { toast("Erro ao remover acesso: "+e.message, "error"); }
   }
+  // ─ Clientes ─
+  async function handleClientSave(c) {
+    try {
+      if (c.id) { await db.updateClient(c); toast("Cliente atualizado"); }
+      else { await db.insertClient(c); toast("Cliente cadastrado"); }
+      await reloadClients();
+    } catch(e) { toast("Erro ao salvar cliente: "+e.message, "error"); }
+  }
+  async function handleClientDelete(id) {
+    try { await db.deleteClient(id); await reloadClients(); toast("Cliente excluído", "info"); }
+    catch(e) { toast("Erro ao excluir cliente: "+e.message, "error"); }
+  }
+
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
   if (recovery) return (
@@ -1819,6 +1980,11 @@ function AppInner() {
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
               {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin}/>}
+            </div>
+          )}
+          {page==="clients"&&(
+            <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ClientsView clients={clients} onSave={handleClientSave} onDelete={handleClientDelete}/>
             </div>
           )}
           {page==="tasks"&&(
