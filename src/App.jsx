@@ -1260,36 +1260,40 @@ function Kanban({ tasks, responsaveis, onAdd, onUpdate, onDelete }) {
 
 // ─── GESTÃO DE ACESSOS (admin) ───────────────────────────────────────────────
 
-function AccessUserModal({ user, existingNames, onSave, onClose }) {
-  const isNew = !user;
-  const [name, setName]         = useState(user?.name || "");
-  const [password, setPassword] = useState("");
-  const [isAdmin, setIsAdmin]   = useState(user?.isAdmin || false);
-  const [err, setErr]           = useState("");
+function NewAccessInfoModal({ onClose }) {
+  return (
+    <Modal title="Adicionar novo acesso" subtitle="Como criar um login novo (analista ou admin)" onClose={onClose}>
+      <p style={{...Ty.body, lineHeight:1.55, marginTop:0}}>
+        Por segurança, criar um <b>login novo</b> (e-mail + senha) é feito no painel do Supabase.
+        Depois que a pessoa existir, você ajusta o papel (admin/analista) e remove o acesso aqui mesmo nesta tela.
+      </p>
+      <ol style={{...Ty.body, lineHeight:1.7, paddingLeft:18}}>
+        <li>No Supabase, abra <b>Authentication → Users → Add user</b>.</li>
+        <li>Informe o <b>e-mail</b> e uma <b>senha</b> inicial e marque <b>Auto Confirm User</b>.</li>
+        <li>Volte aqui e clique em <b>Atualizar lista</b>: a pessoa aparece como <b>Analista</b>.</li>
+        <li>Ajuste o <b>nome</b> (para casar com o "Responsável" das planilhas) e, se precisar, marque como <b>Administrador</b>.</li>
+      </ol>
+      <div style={{fontSize:12,color:T.muted,marginTop:6}}>💡 No próximo marco dá para trazer essa criação para dentro do app (função no servidor).</div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:18}}><Btn primary onClick={onClose}>Entendi</Btn></div>
+    </Modal>
+  );
+}
 
+function AccessEditModal({ profile, onSave, onClose }) {
+  const [name, setName]       = useState(profile.name || "");
+  const [isAdmin, setIsAdmin] = useState(!!profile.isAdmin);
+  const [err, setErr]         = useState("");
   function save() {
     const nm = name.trim();
-    if (!nm) { setErr("Informe o nome do usuário."); return; }
-    if (isNew && existingNames.some(n => n.toLowerCase() === nm.toLowerCase())) { setErr("Já existe um acesso com esse nome."); return; }
-    if (isNew && !password.trim()) { setErr("Defina uma senha inicial."); return; }
-    const payload = { name: nm, isAdmin };
-    if (password.trim()) payload.password = password.trim().toLowerCase();
-    onSave(payload, isNew);
+    if (!nm) { setErr("Informe o nome de exibição."); return; }
+    onSave({ id: profile.id, name: nm, isAdmin });
     onClose();
   }
-
   return (
-    <Modal title={isNew ? "Novo acesso" : `Editar acesso — ${user.name}`} subtitle={isNew ? "Cadastre um analista ou administrador" : "Atualize o papel ou redefina a senha"} onClose={onClose}>
+    <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome de exibição e o papel" onClose={onClose}>
       <div style={{marginBottom:14}}>
-        <Field label="Nome *">
-          <input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} disabled={!isNew} placeholder="Nome completo"/>
-        </Field>
-        {!isNew && <div style={{fontSize:11,color:T.muted,marginTop:4}}>O nome não pode ser alterado (vincula registros e tarefas).</div>}
-      </div>
-      <div style={{marginBottom:14}}>
-        <Field label={isNew ? "Senha inicial *" : "Nova senha"}>
-          <input style={inp} value={password} onChange={e=>{setPassword(e.target.value);setErr("");}} placeholder={isNew ? "Senha de acesso" : "Deixe em branco para manter a atual"}/>
-        </Field>
+        <Field label="Nome de exibição *"><input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="Ex: Fernanda"/></Field>
+        <div style={{fontSize:11,color:T.muted,marginTop:4}}>Use o mesmo nome que aparece na coluna "Responsável" das planilhas, para a pessoa ver os registros dela.</div>
       </div>
       <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",marginBottom:16,padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${isAdmin?T.brand:T.line}`,background:isAdmin?T.brandBg:"#fff"}}>
         <input type="checkbox" checked={isAdmin} onChange={e=>setIsAdmin(e.target.checked)} style={{width:16,height:16,marginTop:1}}/>
@@ -1298,50 +1302,50 @@ function AccessUserModal({ user, existingNames, onSave, onClose }) {
       {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary onClick={save}>{isNew ? "Criar acesso" : "Salvar"}</Btn>
+        <Btn primary onClick={save}>Salvar</Btn>
       </div>
     </Modal>
   );
 }
 
-function AccessManagement({ users, currentName, onAdd, onUpdate, onDelete }) {
-  const isMobile = useIsMobile();
-  const [editing, setEditing]     = useState(null); // user | {} (novo)
-  const [confirmDel, setConfirm]  = useState(null);
-  const adminCount = users.filter(u => u.isAdmin).length;
-  const sorted = [...users].sort((a,b) => (b.isAdmin - a.isAdmin) || a.name.localeCompare(b.name));
+function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefresh }) {
+  const [editing, setEditing]    = useState(null);
+  const [confirmDel, setConfirm] = useState(null);
+  const [showNew, setShowNew]    = useState(false);
+  const adminCount = profiles.filter(u => u.isAdmin).length;
+  const sorted = [...profiles].sort((a,b) => (Number(b.isAdmin) - Number(a.isAdmin)) || (a.name||"").localeCompare(b.name||""));
 
   return (
     <div>
-      {editing && <AccessUserModal user={editing.name ? editing : null} existingNames={users.map(u=>u.name)}
-        onSave={(data,isNew)=>{ isNew ? onAdd(data) : onUpdate(data); }} onClose={()=>setEditing(null)}/>}
+      {showNew && <NewAccessInfoModal onClose={()=>setShowNew(false)}/>}
+      {editing && <AccessEditModal profile={editing} onSave={onUpdate} onClose={()=>setEditing(null)}/>}
       {confirmDel && <ConfirmDialog title="Remover acesso" danger confirmLabel="Remover"
-        message={`Remover o acesso de "${confirmDel.name}"? A pessoa não conseguirá mais entrar na plataforma. Os registros já lançados por ela são mantidos.`}
-        onConfirm={()=>onDelete(confirmDel.name)} onClose={()=>setConfirm(null)}/>}
+        message={`Remover o acesso de "${confirmDel.name}"? A pessoa deixa de ver os dados na plataforma. Os registros já lançados são mantidos. (Para apagar o login por completo, use o painel do Supabase.)`}
+        onConfirm={()=>onRemove(confirmDel)} onClose={()=>setConfirm(null)}/>}
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
           <h1 style={Ty.h1}>🔐 Gestão de acessos</h1>
-          <div style={{...Ty.small, marginTop:3}}>{users.length} usuário(s) · {adminCount} administrador(es). Cadastre novos analistas ou ajuste papéis e senhas.</div>
+          <div style={{...Ty.small, marginTop:3}}>{profiles.length} usuário(s) · {adminCount} administrador(es). Ajuste papéis e remova acessos.</div>
         </div>
-        <Btn primary onClick={()=>setEditing({})}>+ Novo acesso</Btn>
+        <Btn onClick={onRefresh}>↻ Atualizar lista</Btn>
+        <Btn primary onClick={()=>setShowNew(true)}>+ Novo acesso</Btn>
       </div>
 
       <Card style={{padding:0,overflow:"hidden"}}>
         <div className="fc-scroll" style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead><tr style={{background:T.canvas}}>
-              {["Usuário","Papel","Senha",""].map((h,i)=>
-                <th key={i} style={{padding:"10px 14px",textAlign:i===3?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
+              {["Usuário","Papel",""].map((h,i)=>
+                <th key={i} style={{padding:"10px 14px",textAlign:i===2?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
               )}
             </tr></thead>
             <tbody>
               {sorted.map(u=>{
-                const isSelf = u.name.toLowerCase() === currentName.toLowerCase();
+                const isSelf = u.id === currentUserId;
                 const lastAdmin = u.isAdmin && adminCount <= 1;
-                const noDelete = isSelf || lastAdmin;
                 return (
-                  <tr key={u.name} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
+                  <tr key={u.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
                     <td style={{padding:"10px 14px"}}>
                       <span style={{display:"inline-flex",alignItems:"center",gap:9}}>
                         <Avatar name={u.name} size={28} admin={u.isAdmin}/>
@@ -1349,15 +1353,15 @@ function AccessManagement({ users, currentName, onAdd, onUpdate, onDelete }) {
                       </span>
                     </td>
                     <td style={{padding:"10px 14px"}}><Badge label={u.isAdmin?"Administrador":"Analista"} color={u.isAdmin?"blue":"gray"} small dot/></td>
-                    <td style={{padding:"10px 14px",color:T.faint,letterSpacing:2}}>••••••</td>
                     <td style={{padding:"10px 14px",textAlign:"right",whiteSpace:"nowrap"}}>
                       <Btn small onClick={()=>setEditing(u)} style={{marginRight:6}}>✎ Editar</Btn>
-                      <Btn small danger disabled={noDelete} onClick={()=>setConfirm(u)}
+                      <Btn small danger disabled={isSelf||lastAdmin} onClick={()=>setConfirm(u)}
                         title={isSelf?"Você não pode remover o próprio acesso":lastAdmin?"É preciso ao menos um administrador":"Remover acesso"}>🗑 Remover</Btn>
                     </td>
                   </tr>
                 );
               })}
+              {sorted.length===0 && <tr><td colSpan={3} style={{padding:"18px 14px",textAlign:"center",color:T.muted}}>Nenhum usuário encontrado. Clique em "Atualizar lista".</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1365,7 +1369,7 @@ function AccessManagement({ users, currentName, onAdd, onUpdate, onDelete }) {
 
       <div style={{marginTop:14,fontSize:12,color:T.muted,display:"flex",gap:8,alignItems:"flex-start"}}>
         <span aria-hidden="true">ℹ️</span>
-        <span>As senhas ficam armazenadas localmente neste navegador (ambiente de demonstração). Sempre deve existir pelo menos um administrador, e você não pode remover o seu próprio acesso.</span>
+        <span>Os acessos ficam no banco (Supabase) e valem para todos. Sempre deve existir ao menos um administrador, e você não pode remover o seu próprio acesso. Para criar um login novo, use "+ Novo acesso".</span>
       </div>
     </div>
   );
@@ -1536,6 +1540,7 @@ function AppInner() {
   const [records, setRecords]   = useState([]);
   const [tasks, setTasks]       = useState([]);
   const [history, setHistory]   = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
@@ -1543,14 +1548,15 @@ function AppInner() {
   // ─ Carrega os dados do banco quando o usuário entra ─
   const reloadRecords = useCallback(async () => { try { setRecords(await db.fetchRecords()); } catch(e){ toast("Erro ao carregar registros: "+e.message, "error"); } }, [toast]);
   const reloadTasks   = useCallback(async () => { try { setTasks(await db.fetchTasks()); }     catch(e){ toast("Erro ao carregar tarefas: "+e.message, "error"); } }, [toast]);
-  const reloadHistory = useCallback(async () => { try { setHistory(await db.fetchHistory()); } catch(e){ /* histórico é só p/ admin */ } }, []);
+  const reloadHistory  = useCallback(async () => { try { setHistory(await db.fetchHistory()); } catch(e){ /* histórico é só p/ admin */ } }, []);
+  const reloadProfiles = useCallback(async () => { try { setProfiles(await db.fetchProfiles()); } catch(e){ toast("Erro ao carregar acessos: "+e.message, "error"); } }, [toast]);
 
   useEffect(() => {
-    if (!user) { setDataRdy(false); setRecords([]); setTasks([]); setHistory([]); return; }
+    if (!user) { setDataRdy(false); setRecords([]); setTasks([]); setHistory([]); setProfiles([]); return; }
     let active = true;
     setDataRdy(false);
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[])])
-      .then(([r, t, h]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[])])
+      .then(([r, t, h, p]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -1564,7 +1570,7 @@ function AppInner() {
         const { data: prof } = await supabase.from("profiles").select("name,is_admin").eq("id", session.user.id).single();
         if (!mounted) return;
         const name = prof?.name || session.user.email;
-        setUser({ name, isAdmin: !!prof?.is_admin, email: session.user.email });
+        setUser({ id: session.user.id, name, isAdmin: !!prof?.is_admin, email: session.user.email });
         if (greet) toast(`Bem-vinda, ${(name||"").split(" ")[0]}!`, "info");
       } else if (mounted) {
         setUser(null);
@@ -1605,36 +1611,31 @@ function AppInner() {
   async function handleTaskUpdate(u) { try { await db.updateTask(u); await reloadTasks(); } catch(e){ toast("Erro ao atualizar tarefa: "+e.message,"error"); } }
   async function handleTaskDelete(id){ try { await db.deleteTask(id); await reloadTasks(); toast("Tarefa excluída","info"); } catch(e){ toast("Erro ao excluir tarefa: "+e.message,"error"); } }
 
-  // ─ Gestão de acessos ─
-  const users = state.users || [];
-  function handleUserAdd(data) {
-    setState(s=>({...s, users:[...(s.users||[]), { name:data.name, password:data.password||"123", isAdmin:!!data.isAdmin }]}));
-    toast(`Acesso criado para ${data.name.split(" ")[0]}`);
+  // ─ Gestão de acessos (Supabase) ─
+  async function handleProfileUpdate(data) {
+    // Impede rebaixar o último administrador.
+    if (data.isAdmin === false) {
+      const target = profiles.find(p => p.id === data.id);
+      if (target?.isAdmin && profiles.filter(p => p.isAdmin).length <= 1) { toast("É preciso manter ao menos um administrador.", "error"); return; }
+    }
+    try {
+      await db.updateProfile(data);
+      await reloadProfiles();
+      // Se o admin alterou o próprio papel/nome, reflete na sessão atual.
+      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin }));
+      toast(`Acesso de ${(data.name||"").split(" ")[0]} atualizado`);
+    } catch(e) { toast("Erro ao atualizar acesso: "+e.message, "error"); }
   }
-  function handleUserUpdate(data) {
-    setState(s=>{
-      const list = s.users||[];
-      // Impede remover o último administrador via rebaixamento.
-      if (data.isAdmin===false) {
-        const target = list.find(u=>u.name.toLowerCase()===data.name.toLowerCase());
-        if (target?.isAdmin && list.filter(u=>u.isAdmin).length<=1) { toast("É preciso manter ao menos um administrador.","error"); return s; }
-      }
-      return {...s, users:list.map(u=>u.name.toLowerCase()===data.name.toLowerCase()
-        ? { ...u, isAdmin:data.isAdmin, ...(data.password ? { password:data.password } : {}) } : u)};
-    });
-    toast(`Acesso de ${data.name.split(" ")[0]} atualizado`);
+  async function handleProfileRemove(profile) {
+    if (profile.id === user.id) { toast("Você não pode remover o próprio acesso.", "error"); return; }
+    if (profile.isAdmin && profiles.filter(p => p.isAdmin).length <= 1) { toast("É preciso manter ao menos um administrador.", "error"); return; }
+    try {
+      await db.deleteProfile(profile.id);
+      await reloadProfiles();
+      toast("Acesso removido", "info");
+    } catch(e) { toast("Erro ao remover acesso: "+e.message, "error"); }
   }
-  function handleUserDelete(name) {
-    setState(s=>{
-      const list = s.users||[];
-      const target = list.find(u=>u.name.toLowerCase()===name.toLowerCase());
-      if (name.toLowerCase()===(user?.name||"").toLowerCase()) { toast("Você não pode remover o próprio acesso.","error"); return s; }
-      if (target?.isAdmin && list.filter(u=>u.isAdmin).length<=1) { toast("É preciso manter ao menos um administrador.","error"); return s; }
-      return {...s, users:list.filter(u=>u.name.toLowerCase()!==name.toLowerCase())};
-    });
-    toast(`Acesso removido`,"info");
-  }
-  const responsaveis = [...new Set([...users.map(u=>u.name), ...records.map(r=>r.responsavel)])].sort();
+  const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
   if (recovery) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,padding:16}}>
@@ -1690,7 +1691,7 @@ function AppInner() {
           )}
           {page==="access"&&isAdmin&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <AccessManagement users={users} currentName={user.name} onAdd={handleUserAdd} onUpdate={handleUserUpdate} onDelete={handleUserDelete}/>
+              <AccessManagement profiles={profiles} currentUserId={user.id} onUpdate={handleProfileUpdate} onRemove={handleProfileRemove} onRefresh={reloadProfiles}/>
             </div>
           )}
         </main>
