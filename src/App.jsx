@@ -745,6 +745,18 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
     setSel(new Set()); setNf(""); setDataNf(""); setError("");
   }
 
+  function clearNF(num) {
+    const now = nowISO();
+    const ids = [];
+    setLocalRecs(list => list.map(r => {
+      if ((r.nfNumero||"").trim() !== num) return r;
+      ids.push(r.id);
+      const prog = { ...(r.progress||{}), p5_nf: false, p5_data_nf: "" };
+      return { ...r, nfNumero: "", progress: prog, updatedAt: now };
+    }));
+    setDirty(d => { const n=new Set(d); ids.forEach(id=>n.add(id)); return n; });
+  }
+
   function handleSave() {
     const changed = localRecs.filter(r => dirty.has(r.id));
     if (changed.length) onSave(changed);
@@ -768,7 +780,11 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
                     <span style={{fontSize:15,fontWeight:800,color:T.ink}}>{fmtShort(g.total)}</span>
                   </div>
                   <div style={{fontSize:11,color:T.muted,lineHeight:1.5}}>{g.recs.map(r=>r.profissional).join(", ")}</div>
-                  <div style={{fontSize:11,color:T.faint,marginTop:4}}>{g.recs.length} profissional(is)</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:6,gap:8}}>
+                    <span style={{fontSize:11,color:T.faint}}>{g.recs.length} profissional(is)</span>
+                    <button onClick={()=>clearNF(g.nf)} title="Excluir esta NF (limpa o número dos profissionais)"
+                      style={{display:"inline-flex",alignItems:"center",gap:4,background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:11,fontWeight:600,padding:0}}>✕ Excluir NF</button>
+                  </div>
                 </div>
               ))}
             </div>}
