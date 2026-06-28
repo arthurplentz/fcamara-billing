@@ -105,6 +105,9 @@ const fmtDT    = (iso) => { if (!iso) return "—"; const d = new Date(iso); ret
 const genId    = () => "r" + Date.now() + Math.random().toString(36).slice(2,7);
 const makeProgress = () => Object.fromEntries(STEPS.map(s => [s.id, s.type==="date" ? "" : false]));
 const initials = (name="") => name.trim().split(/\s+/).slice(0,2).map(p=>p[0]||"").join("").toUpperCase();
+const parseJSON = (str, fallback) => { try { const v = JSON.parse(str); return v ?? fallback; } catch { return fallback; } };
+
+const PORTAL_TIPOS = ["Inclusão de notas", "Medição de serviços"];
 
 function calcStatus(prog) {
   if (!prog) return "Não iniciado";
@@ -1598,12 +1601,28 @@ function CSec({ title, children, grid=true }) {
 function ClientModal({ client, onSave, onDelete, onClose }) {
   const isNew = !client?.id;
   const [f, setF] = useState(client || { temPortal:false });
-  const [passos, setPassos] = useState(() => { try { const v=JSON.parse(client?.calendario||"[]"); return Array.isArray(v)?v:[]; } catch { return []; } });
+  const [passos, setPassos] = useState(() => { const v=parseJSON(client?.calendario, []); return Array.isArray(v)?v:[]; });
+  const [peps, setPeps] = useState(() => { const m=parseJSON(client?.tiposPeps, {}); return (m && typeof m==="object" && !Array.isArray(m))?m:{}; });
+  const [propostas, setPropostas] = useState(() => { const a=parseJSON(client?.propostas, null); if(Array.isArray(a)) return a.length?a:[""]; return client?.propostaUrl?[client.propostaUrl]:[""]; });
   const [err, setErr] = useState("");
   const set = (k,v) => setF(p=>({...p,[k]:v}));
 
   const selTipos = (f.tiposContrato||"").split(",").map(s=>s.trim()).filter(Boolean);
-  const toggleTipo = (t) => set("tiposContrato", (selTipos.includes(t) ? selTipos.filter(x=>x!==t) : [...selTipos,t]).join(", "));
+  function toggleTipo(t) {
+    const has = selTipos.includes(t);
+    set("tiposContrato", (has ? selTipos.filter(x=>x!==t) : [...selTipos,t]).join(", "));
+    setPeps(m => { const n={...m}; if(has) delete n[t]; else if(!Array.isArray(n[t])||!n[t].length) n[t]=[""]; return n; });
+  }
+  const setPep = (t,i,v) => setPeps(m=>({...m,[t]:(m[t]||[]).map((p,j)=>j===i?v:p)}));
+  const addPep = (t) => setPeps(m=>({...m,[t]:[...(m[t]||[]),""]}));
+  const delPep = (t,i) => setPeps(m=>({...m,[t]:(m[t]||[]).filter((_,j)=>j!==i)}));
+
+  const selPortalTipos = (f.portalTipo||"").split(",").map(s=>s.trim()).filter(Boolean);
+  const togglePortalTipo = (t) => set("portalTipo", (selPortalTipos.includes(t)?selPortalTipos.filter(x=>x!==t):[...selPortalTipos,t]).join(", "));
+
+  const setProp = (i,v) => setPropostas(a=>a.map((p,j)=>j===i?v:p));
+  const addProp = () => setPropostas(a=>[...a,""]);
+  const delProp = (i) => setPropostas(a=>a.filter((_,j)=>j!==i));
 
   const addPasso = () => setPassos(a=>[...a,{quando:"",etapa:"",oQueFazer:""}]);
   const setPasso = (i,k,v) => setPassos(a=>a.map((p,j)=>j===i?{...p,[k]:v}:p));
@@ -1611,7 +1630,9 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
 
   function save() {
     if (!(f.nome||"").trim()) { setErr("Informe o nome do cliente."); return; }
-    onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos) });
+    const cleanPeps = {}; selTipos.forEach(t=>{ const arr=(peps[t]||[]).map(s=>s.trim()).filter(Boolean); if(arr.length) cleanPeps[t]=arr; });
+    const cleanProp = propostas.map(s=>s.trim()).filter(Boolean);
+    onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos), tiposPeps: JSON.stringify(cleanPeps), propostas: JSON.stringify(cleanProp) });
     onClose();
   }
 
@@ -1619,22 +1640,42 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
     <Modal title={isNew?"Novo cliente":`Cliente — ${client.nome}`} subtitle="Perfil de faturamento do cliente" onClose={onClose} wide>
       <CSec title="Identificação">
         <Field label="Nome do cliente *"><input style={inp} value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
-        <Field label="Cód. SAP"><input style={inp} value={f.codSap||""} onChange={e=>set("codSap",e.target.value)}/></Field>
+        <Field label="Cód. SAP"><input style={inp} inputMode="numeric" maxLength={7} placeholder="7 dígitos" value={f.codSap||""} onChange={e=>set("codSap", e.target.value.replace(/\D/g,"").slice(0,7))}/></Field>
         <Field label="Grupo de empresa"><input style={inp} value={f.grupoEmpresa||""} onChange={e=>set("grupoEmpresa",e.target.value)}/></Field>
       </CSec>
 
       <CSec title="Tipos de contrato" grid={false}>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:selTipos.length?12:0}}>
           {TIPOS_PROJETO.map(t=>{ const on=selTipos.includes(t); return (
             <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
               <input type="checkbox" checked={on} onChange={()=>toggleTipo(t)} style={{width:15,height:15}}/>{t}
             </label>
           );})}
         </div>
+        {selTipos.map(t=>(
+          <div key={t} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,background:"#fff"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+              <span style={{fontSize:12,fontWeight:700,color:T.brand}}>PEPs · {t}</span>
+              <Btn small onClick={()=>addPep(t)}>+ PEP</Btn>
+            </div>
+            {(peps[t]||[""]).map((pep,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <input style={inp} placeholder="Ex: BR02CLP00005.1.1" value={pep} onChange={e=>setPep(t,i,e.target.value)}/>
+                {(peps[t]||[]).length>1 && <button onClick={()=>delPep(t,i)} title="Remover PEP" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px",flexShrink:0}}>✕</button>}
+              </div>
+            ))}
+          </div>
+        ))}
       </CSec>
 
-      <CSec title="Proposta" grid={false}>
-        <Field label="Link da proposta"><input style={inp} placeholder="Cole o link (Drive, SharePoint...)" value={f.propostaUrl||""} onChange={e=>set("propostaUrl",e.target.value)}/></Field>
+      <CSec title="Propostas" grid={false}>
+        {propostas.map((p,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <input style={inp} placeholder="Cole o link da proposta (Drive, SharePoint...)" value={p} onChange={e=>setProp(i,e.target.value)}/>
+            {propostas.length>1 && <button onClick={()=>delProp(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px",flexShrink:0}}>✕</button>}
+          </div>
+        ))}
+        <Btn small onClick={addProp}>+ Adicionar proposta</Btn>
       </CSec>
 
       <CSec title="Faturamento">
@@ -1670,11 +1711,23 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
           <input type="checkbox" checked={!!f.temPortal} onChange={e=>set("temPortal",e.target.checked)} style={{width:16,height:16}}/>
           Tem portal?
         </label>
-        {f.temPortal && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
-          <Field label="Link do portal"><input style={inp} value={f.portalLink||""} onChange={e=>set("portalLink",e.target.value)}/></Field>
-          <Field label="Usuário"><input style={inp} value={f.portalUsuario||""} onChange={e=>set("portalUsuario",e.target.value)}/></Field>
-          <Field label="Senha"><input style={inp} value={f.portalSenha||""} onChange={e=>set("portalSenha",e.target.value)}/></Field>
-          <Field label="Link do passo a passo do portal"><input style={inp} placeholder="Cole o link" value={f.portalPassoUrl||""} onChange={e=>set("portalPassoUrl",e.target.value)}/></Field>
+        {f.temPortal && <div>
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:12,fontWeight:600,color:T.inkSoft,display:"block",marginBottom:6}}>Classificação do portal</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {PORTAL_TIPOS.map(t=>{ const on=selPortalTipos.includes(t); return (
+                <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
+                  <input type="checkbox" checked={on} onChange={()=>togglePortalTipo(t)} style={{width:15,height:15}}/>{t}
+                </label>
+              );})}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+            <Field label="Link do portal"><input style={inp} value={f.portalLink||""} onChange={e=>set("portalLink",e.target.value)}/></Field>
+            <Field label="Usuário"><input style={inp} value={f.portalUsuario||""} onChange={e=>set("portalUsuario",e.target.value)}/></Field>
+            <Field label="Senha"><input style={inp} value={f.portalSenha||""} onChange={e=>set("portalSenha",e.target.value)}/></Field>
+            <Field label="Link do passo a passo do portal"><input style={inp} placeholder="Cole o link" value={f.portalPassoUrl||""} onChange={e=>set("portalPassoUrl",e.target.value)}/></Field>
+          </div>
         </div>}
       </div>
 
