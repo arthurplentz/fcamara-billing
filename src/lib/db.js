@@ -49,6 +49,10 @@ export async function deleteRecordsBy({ competencia, empresa, tipo }) {
     .eq("competencia", competencia).eq("empresa", empresa).eq("tipo", tipo);
   if (error) throw error;
 }
+export async function deleteRecord(id) {
+  const { error } = await supabase.from("records").delete().eq("id", id);
+  if (error) throw error;
+}
 
 // ─── TASKS ───────────────────────────────────────────────────────────────────
 function dbToTask(row) {
