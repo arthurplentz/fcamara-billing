@@ -60,6 +60,7 @@ function dbToTask(row) {
     id: row.id, title: row.title, desc: row.descricao || "",
     dueDate: row.due_date || "", assignee: row.assignee || "",
     status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+    deliveryId: row.delivery_id || null, recorrente: !!row.recorrente, competencia: row.competencia || "",
   };
 }
 function taskToDb(t) {
@@ -89,6 +90,47 @@ export async function fetchHistory() {
   if (error) throw error;
   return data.map(dbToHist);
 }
+// ─── ENTREGAS (modelos recorrentes + geração mensal) ─────────────────────────
+export async function fetchTemplates() {
+  const { data, error } = await supabase.from("delivery_templates").select("*").order("created_at", { ascending: true });
+  if (error) throw error;
+  return data.map(r => ({ id: r.id, title: r.title, items: Array.isArray(r.items) ? r.items : [] }));
+}
+export async function insertTemplate(t) {
+  const { error } = await supabase.from("delivery_templates").insert({ title: t.title, items: t.items || [] });
+  if (error) throw error;
+}
+export async function updateTemplate(t) {
+  const { error } = await supabase.from("delivery_templates").update({ title: t.title, items: t.items || [] }).eq("id", t.id);
+  if (error) throw error;
+}
+export async function deleteTemplate(id) {
+  const { error } = await supabase.from("delivery_templates").delete().eq("id", id);
+  if (error) throw error;
+}
+export async function fetchDeliveries() {
+  const { data, error } = await supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(r => ({ id: r.id, templateId: r.template_id, title: r.title, competencia: r.competencia }));
+}
+// Gera uma entrega do mês: cria a delivery e dispara as tarefas para os analistas.
+export async function generateDelivery(template, competencia, analysts) {
+  const { data: dv, error } = await supabase.from("deliveries")
+    .insert({ template_id: template.id, title: `${template.title} — ${competencia}`, competencia })
+    .select().single();
+  if (error) throw error;
+  const rows = [];
+  (template.items || []).forEach(item => {
+    const alvo = item.assignee && item.assignee.trim() ? [item.assignee] : (analysts.length ? analysts : [null]);
+    alvo.forEach(a => rows.push({
+      title: item.title, descricao: item.desc || "", assignee: a, status: "todo",
+      delivery_id: dv.id, recorrente: true, competencia,
+    }));
+  });
+  if (rows.length) { const { error: e2 } = await supabase.from("tasks").insert(rows); if (e2) throw e2; }
+  return { delivery: dv, count: rows.length };
+}
+
 export async function insertHistory(h) {
   const { error } = await supabase.from("import_history").insert({
     competencia: h.competencia, empresa: h.empresa, tipo: h.tipo,
