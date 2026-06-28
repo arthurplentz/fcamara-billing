@@ -711,6 +711,122 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
   );
 }
 
+// ─── NOTAS FISCAIS POR CLIENTE ───────────────────────────────────────────────
+// Agrupa profissionais de um cliente em NFs (sem regra fixa: 1, 2, 3...).
+// Permite NF X para um grupo e NF Y para outro, mostrando o valor somado de cada.
+
+function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
+  const [localRecs, setLocalRecs] = useState(records);
+  const [dirty, setDirty]   = useState(new Set());
+  const [selected, setSel]  = useState(new Set());
+  const [nf, setNf]         = useState("");
+  const [dataNf, setDataNf] = useState("");
+  const [emitida, setEmit]  = useState(true);
+  const [error, setError]   = useState("");
+
+  const toggle = (id) => setSel(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const selRecs = localRecs.filter(r => selected.has(r.id));
+  const valorFinal = selRecs.reduce((a,r)=>a+(r.valorTotal||0), 0);
+
+  // Agrupa por número de NF já atribuído
+  const groupsMap = {};
+  localRecs.forEach(r => { const k=(r.nfNumero||"").trim(); if(!k) return; (groupsMap[k]=groupsMap[k]||{nf:k,recs:[],total:0}); groupsMap[k].recs.push(r); groupsMap[k].total+=(r.valorTotal||0); });
+  const groups = Object.values(groupsMap);
+  const semNf = localRecs.filter(r => !(r.nfNumero||"").trim());
+
+  function assign() {
+    if (selected.size === 0) { setError("Selecione ao menos um profissional."); return; }
+    const num = nf.trim();
+    if (emitida && !num) { setError("Informe o número da NF para marcar como emitida."); return; }
+    const now = nowISO();
+    setLocalRecs(list => list.map(r => {
+      if (!selected.has(r.id)) return r;
+      const prog = { ...(r.progress||{}) };
+      if (num) { if (emitida) { prog.p5_nf = true; if (dataNf) prog.p5_data_nf = dataNf; } }
+      else { prog.p5_nf = false; prog.p5_data_nf = ""; }
+      return { ...r, nfNumero: num, progress: prog, updatedAt: now };
+    }));
+    setDirty(d => { const n=new Set(d); selected.forEach(id=>n.add(id)); return n; });
+    setSel(new Set()); setNf(""); setDataNf(""); setError("");
+  }
+
+  function handleSave() {
+    const changed = localRecs.filter(r => dirty.has(r.id));
+    if (changed.length) onSave(changed);
+    onClose();
+  }
+
+  const palette = ["blue","green","teal","purple","orange","yellow"];
+
+  return (
+    <Modal title={`Notas fiscais — ${cliente}`} subtitle={`${pep} · ${localRecs.length} profissionais`} onClose={onClose} extraWide>
+      {/* NFs já montadas */}
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.ink,marginBottom:8}}>NFs montadas neste cliente</div>
+        {groups.length===0
+          ? <div style={{fontSize:12,color:T.muted,padding:"10px 12px",background:T.canvas,borderRadius:T.rMd,border:`1px dashed ${T.line}`}}>Nenhuma NF montada ainda. Selecione os profissionais abaixo, informe o número e clique em “Atribuir NF”.</div>
+          : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
+              {groups.map((g,i)=>(
+                <div key={g.nf} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",background:"#fff"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8}}>
+                    <Badge label={`NF ${g.nf}`} color={palette[i%palette.length]} small/>
+                    <span style={{fontSize:15,fontWeight:800,color:T.ink}}>{fmtShort(g.total)}</span>
+                  </div>
+                  <div style={{fontSize:11,color:T.muted,lineHeight:1.5}}>{g.recs.map(r=>r.profissional).join(", ")}</div>
+                  <div style={{fontSize:11,color:T.faint,marginTop:4}}>{g.recs.length} profissional(is)</div>
+                </div>
+              ))}
+            </div>}
+        {groups.length>0 && semNf.length>0 && <div style={{fontSize:11,color:T.warn,marginTop:8}}>⚠ {semNf.length} profissional(is) ainda sem NF.</div>}
+      </div>
+
+      {/* Montar nova NF */}
+      <div style={{background:T.canvas,border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"14px 16px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.ink,marginBottom:10}}>Atribuir NF a profissionais</div>
+
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+          {localRecs.map(r=>{
+            const on = selected.has(r.id);
+            const cur = (r.nfNumero||"").trim();
+            return (
+              <label key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13}}>
+                <input type="checkbox" checked={on} onChange={()=>toggle(r.id)} style={{width:15,height:15}}/>
+                <span style={{fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>{r.profissional}</span>
+                <span style={{fontSize:12,color:T.muted}}>{fmtShort(r.valorTotal)}</span>
+                {cur && <Badge label={`NF ${cur}`} color="gray" small/>}
+              </label>
+            );
+          })}
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,alignItems:"end"}}>
+          <Field label="Número da NF"><input style={inp} value={nf} onChange={e=>{setNf(e.target.value);setError("");}} placeholder="Ex: 123456 (vazio = limpar)"/></Field>
+          <Field label="Data de emissão"><input type="date" style={inp} value={dataNf} onChange={e=>setDataNf(e.target.value)}/></Field>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",paddingBottom:8}}>
+            <input type="checkbox" checked={emitida} onChange={e=>setEmit(e.target.checked)} style={{width:16,height:16}}/>
+            Marcar como emitida (P5)
+          </label>
+        </div>
+
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginTop:12,flexWrap:"wrap"}}>
+          <div style={{fontSize:13,color:T.inkSoft}}>
+            Valor final da NF: <b style={{fontSize:16,color:T.ink}}>{fmtShort(valorFinal)}</b>
+            <span style={{fontSize:12,color:T.muted}}> · {selected.size} selecionado(s)</span>
+          </div>
+          <Btn primary onClick={assign} disabled={selected.size===0}>🧾 Atribuir NF aos selecionados</Btn>
+        </div>
+      </div>
+
+      {error&&<div style={{marginTop:12,fontSize:13,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{error}</div>}
+
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:18}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary onClick={handleSave} disabled={dirty.size===0}>Salvar alterações</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
 function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, onCompetenciaChange }) {
@@ -724,6 +840,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
   const [searchProf, setSP]         = useState("");
   const [expandedCliente, setExp]   = useState(null);
   const [bulkTarget, setBulk]       = useState(null);
+  const [nfTarget, setNf]           = useState(null);
 
   const myRecords = isAdmin ? records : records.filter(r=>r.responsavel===analista);
   const competencias = [...new Set(records.map(r=>r.competencia))].sort();
@@ -752,6 +869,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
   return (
     <div>
       {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
+      {nfTarget&&<NFGroupModal {...nfTarget} onClose={()=>setNf(null)} onSave={updated=>{onUpdateBulk(updated);setNf(null);}}/>}
 
       <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
         <h1 style={Ty.h1}>📋 Minha visão</h1>
@@ -826,6 +944,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
                 <div style={{fontSize:18,fontWeight:800,color:pct===100?T.ok:pct>50?T.brand:C.orange.solid}}>{pct}%</div>
                 <div style={{fontSize:10,color:T.muted}}>faturado</div>
               </div>
+              <Btn small onClick={e=>{e.stopPropagation();setNf({cliente:g.cliente,pep:g.pep,records:g.records});}}>🧾 Notas fiscais</Btn>
               <Btn small onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>✎ Atualizar passos</Btn>
               <span style={{fontSize:16,color:T.faint}} aria-hidden="true">{isOpen?"▲":"▼"}</span>
             </div>
