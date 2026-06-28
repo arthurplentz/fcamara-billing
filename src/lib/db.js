@@ -114,17 +114,21 @@ export async function fetchDeliveries() {
   return data.map(r => ({ id: r.id, templateId: r.template_id, title: r.title, competencia: r.competencia }));
 }
 // Gera uma entrega do mês: cria a delivery e dispara as tarefas para os analistas.
-export async function generateDelivery(template, competencia, analysts) {
+// Cada item pode ter: dia (do mês → vira data) e assignees (lista; vazio = todos).
+export async function generateDelivery(template, competencia, allAnalysts) {
   const { data: dv, error } = await supabase.from("deliveries")
     .insert({ template_id: template.id, title: `${template.title} — ${competencia}`, competencia })
     .select().single();
   if (error) throw error;
+  const [mm, yyyy] = String(competencia || "").split("/");
   const rows = [];
   (template.items || []).forEach(item => {
-    const alvo = item.assignee && item.assignee.trim() ? [item.assignee] : (analysts.length ? analysts : [null]);
-    alvo.forEach(a => rows.push({
+    const list = (Array.isArray(item.assignees) && item.assignees.length) ? item.assignees
+               : (item.assignee ? [item.assignee] : (allAnalysts.length ? allAnalysts : [null]));
+    const due = (item.dia && mm && yyyy) ? `${yyyy}-${String(mm).padStart(2,"0")}-${String(item.dia).padStart(2,"0")}` : null;
+    list.forEach(a => rows.push({
       title: item.title, descricao: item.desc || "", assignee: a, status: "todo",
-      delivery_id: dv.id, recorrente: true, competencia,
+      due_date: due, delivery_id: dv.id, recorrente: true, competencia,
     }));
   });
   if (rows.length) { const { error: e2 } = await supabase.from("tasks").insert(rows); if (e2) throw e2; }
@@ -174,14 +178,15 @@ export async function deleteClient(id) {
 
 // ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
 export async function fetchProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id,name,is_admin").order("name", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,responsavel").order("name", { ascending: true });
   if (error) throw error;
-  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin }));
+  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, responsavel: p.responsavel || "" }));
 }
-export async function updateProfile({ id, name, isAdmin }) {
+export async function updateProfile({ id, name, isAdmin, responsavel }) {
   const patch = {};
   if (name != null) patch.name = name;
   if (isAdmin != null) patch.is_admin = isAdmin;
+  if (responsavel !== undefined) patch.responsavel = responsavel || null;
   const { error } = await supabase.from("profiles").update(patch).eq("id", id);
   if (error) throw error;
 }

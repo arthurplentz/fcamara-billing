@@ -1409,14 +1409,18 @@ function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd }) {
 function DeliveryTemplateModal({ template, responsaveis, onSave, onDelete, onClose }) {
   const isNew = !template?.id;
   const [title, setTitle] = useState(template?.title || "");
-  const [items, setItems] = useState(() => template?.items?.length ? template.items : [{title:"",desc:"",assignee:""}]);
+  const [items, setItems] = useState(() => {
+    const src = template?.items?.length ? template.items : [{title:"",desc:"",dia:"",assignees:[]}];
+    return src.map(it => ({ title:it.title||"", desc:it.desc||"", dia:it.dia||"", assignees: Array.isArray(it.assignees)?it.assignees:(it.assignee?[it.assignee]:[]) }));
+  });
   const [err, setErr] = useState("");
   const setItem = (i,k,v) => setItems(a=>a.map((it,j)=>j===i?{...it,[k]:v}:it));
-  const addItem = () => setItems(a=>[...a,{title:"",desc:"",assignee:""}]);
+  const addItem = () => setItems(a=>[...a,{title:"",desc:"",dia:"",assignees:[]}]);
   const delItem = (i) => setItems(a=>a.filter((_,j)=>j!==i));
+  const toggleAssignee = (i,r) => setItems(a=>a.map((it,j)=>{ if(j!==i) return it; const has=it.assignees.includes(r); return {...it, assignees: has?it.assignees.filter(x=>x!==r):[...it.assignees,r]}; }));
   function save() {
     if (!title.trim()) { setErr("Informe o nome da entrega."); return; }
-    const clean = items.filter(it=>(it.title||"").trim()).map(it=>({title:it.title.trim(),desc:(it.desc||"").trim(),assignee:it.assignee||""}));
+    const clean = items.filter(it=>(it.title||"").trim()).map(it=>({title:it.title.trim(),desc:(it.desc||"").trim(),dia:it.dia?Number(it.dia):"",assignees:it.assignees}));
     if (!clean.length) { setErr("Inclua ao menos uma tarefa na entrega."); return; }
     onSave({ ...(template||{}), title:title.trim(), items:clean });
     onClose();
@@ -1434,14 +1438,22 @@ function DeliveryTemplateModal({ template, responsaveis, onSave, onDelete, onClo
             <span style={{fontSize:12,fontWeight:700,color:T.brand}}>Tarefa {i+1}</span>
             {items.length>1 && <button onClick={()=>delItem(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 200px",gap:10,marginBottom:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 130px",gap:10,marginBottom:8}}>
             <Field label="Título"><input style={inp} placeholder="Ex: Extrair base de T&E" value={it.title} onChange={e=>setItem(i,"title",e.target.value)}/></Field>
-            <Field label="Responsável"><select style={inp} value={it.assignee} onChange={e=>setItem(i,"assignee",e.target.value)}>
-              <option value="">👥 Todos os analistas</option>
-              {responsaveis.map(r=><option key={r} value={r}>{r}</option>)}
-            </select></Field>
+            <Field label="Dia do mês" hint="(vira a data)"><input style={inp} inputMode="numeric" placeholder="Ex: 25" value={it.dia} onChange={e=>setItem(i,"dia", e.target.value.replace(/\D/g,"").slice(0,2))}/></Field>
           </div>
           <Field label="Descrição (opcional)"><input style={inp} placeholder="Detalhe da tarefa..." value={it.desc} onChange={e=>setItem(i,"desc",e.target.value)}/></Field>
+          <div style={{marginTop:10}}>
+            <label style={{...Ty.label}}>Enviar para quais analistas? <span style={{fontWeight:500,color:T.muted}}>(nenhum marcado = todos)</span></label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {responsaveis.map(r=>{ const on=it.assignees.includes(r); return (
+                <label key={r} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:T.rPill,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:12,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
+                  <input type="checkbox" checked={on} onChange={()=>toggleAssignee(i,r)} style={{width:13,height:13}}/>{r}
+                </label>
+              );})}
+              {responsaveis.length===0 && <span style={{fontSize:12,color:T.muted}}>Nenhum analista cadastrado ainda.</span>}
+            </div>
+          </div>
         </div>
       ))}
       {err&&<div style={{margin:"12px 0",fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
@@ -1616,19 +1628,23 @@ function NewAccessInfoModal({ onClose }) {
 
 function AccessEditModal({ profile, onSave, onClose }) {
   const [name, setName]       = useState(profile.name || "");
+  const [responsavel, setResp]= useState(profile.responsavel || "");
   const [isAdmin, setIsAdmin] = useState(!!profile.isAdmin);
   const [err, setErr]         = useState("");
   function save() {
     const nm = name.trim();
     if (!nm) { setErr("Informe o nome de exibição."); return; }
-    onSave({ id: profile.id, name: nm, isAdmin });
+    onSave({ id: profile.id, name: nm, isAdmin, responsavel: responsavel.trim() });
     onClose();
   }
   return (
-    <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome de exibição e o papel" onClose={onClose}>
+    <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome, o vínculo de receitas e o papel" onClose={onClose}>
       <div style={{marginBottom:14}}>
         <Field label="Nome de exibição *"><input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="Ex: Fernanda"/></Field>
-        <div style={{fontSize:11,color:T.muted,marginTop:4}}>Use o mesmo nome que aparece na coluna "Responsável" das planilhas, para a pessoa ver os registros dela.</div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <Field label="Responsável na base de receitas"><input style={inp} value={responsavel} onChange={e=>setResp(e.target.value)} placeholder="Ex: Juliana Teles"/></Field>
+        <div style={{fontSize:11,color:T.muted,marginTop:4}}>Cole aqui o nome <b>exatamente</b> como aparece na coluna "Responsável" do Excel. É isso que faz a pessoa ver as receitas dela. (Se ficar vazio, usamos o nome de exibição.)</div>
       </div>
       <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",marginBottom:16,padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${isAdmin?T.brand:T.line}`,background:isAdmin?T.brandBg:"#fff"}}>
         <input type="checkbox" checked={isAdmin} onChange={e=>setIsAdmin(e.target.checked)} style={{width:16,height:16,marginTop:1}}/>
