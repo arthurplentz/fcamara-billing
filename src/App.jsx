@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
 import { supabase, SITE_URL } from "./lib/supabase";
+import * as db from "./lib/db";
 
 const APP_VERSION = "v3.1";
 const LS_KEY = "fcamara_billing_v3";
@@ -132,15 +133,12 @@ const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Agu
 
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 
+// Os DADOS (registros, tarefas, histórico) agora ficam no Supabase.
+// O localStorage guarda apenas preferências de UI + a lista local de usuários
+// (a gestão de acessos no banco é um marco posterior).
 function initState() {
-  const now = nowISO();
-  const records = SAMPLE_RECORDS.map(r => ({ ...r, id: genId(), progress: makeProgress(), nfNumero: "", obs: "", updatedAt: now }));
-  const tasks = SAMPLE_TASKS.map(t => ({ ...t, id: genId(), createdAt: now, updatedAt: now }));
   return {
-    records,
     competenciaAtual: "05/2026",
-    importHistory: [{ id: genId(), date: now, competencia:"05/2026", empresa:"BR02", tipo:"Time & Expenses", mode:"add", count: records.length, user: ADMIN_NAME, note:"Carga inicial de exemplo" }],
-    tasks,
     users: DEFAULT_USERS.map(u => ({ ...u })),
   };
 }
@@ -150,7 +148,7 @@ function loadState() {
     const r = localStorage.getItem(LS_KEY);
     if (r) {
       const p = JSON.parse(r);
-      if (!Array.isArray(p.tasks)) p.tasks = [];
+      if (!p.competenciaAtual) p.competenciaAtual = "05/2026";
       // Migração: garante a lista de usuários e a presença dos admins-semente.
       if (!Array.isArray(p.users) || p.users.length === 0) p.users = DEFAULT_USERS.map(u => ({ ...u }));
       DEFAULT_USERS.filter(d => d.isAdmin).forEach(d => {
@@ -162,7 +160,7 @@ function loadState() {
   return initState();
 }
 
-function saveState(s) { try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {} }
+function saveState(s) { try { localStorage.setItem(LS_KEY, JSON.stringify({ competenciaAtual: s.competenciaAtual, users: s.users })); } catch {} }
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
 // Fonte única de cores, raios, sombras e tipografia. Mantém o azul da marca.
@@ -1535,8 +1533,28 @@ function AppInner() {
   const [showHistory, setHist]  = useState(false);
   const [confirmLogout, setCL]  = useState(false);
   const [drawer, setDrawer]     = useState(false);
+  const [records, setRecords]   = useState([]);
+  const [tasks, setTasks]       = useState([]);
+  const [history, setHistory]   = useState([]);
+  const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
+
+  // ─ Carrega os dados do banco quando o usuário entra ─
+  const reloadRecords = useCallback(async () => { try { setRecords(await db.fetchRecords()); } catch(e){ toast("Erro ao carregar registros: "+e.message, "error"); } }, [toast]);
+  const reloadTasks   = useCallback(async () => { try { setTasks(await db.fetchTasks()); }     catch(e){ toast("Erro ao carregar tarefas: "+e.message, "error"); } }, [toast]);
+  const reloadHistory = useCallback(async () => { try { setHistory(await db.fetchHistory()); } catch(e){ /* histórico é só p/ admin */ } }, []);
+
+  useEffect(() => {
+    if (!user) { setDataRdy(false); setRecords([]); setTasks([]); setHistory([]); return; }
+    let active = true;
+    setDataRdy(false);
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[])])
+      .then(([r, t, h]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); })
+      .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
+      .finally(() => { if (active) setDataRdy(true); });
+    return () => { active = false; };
+  }, [user, toast]);
 
   // ─ Autenticação (Supabase) ─
   useEffect(() => {
@@ -1562,26 +1580,30 @@ function AppInner() {
 
   const isAdmin = user?.isAdmin || false;
 
-  function handleUpdateBulk(updatedList) {
-    const map = Object.fromEntries(updatedList.map(r=>[r.id,r]));
-    setState(s=>({...s, records:s.records.map(r=>map[r.id]||r)}));
-    toast(`Passos atualizados — ${updatedList.length} profissional(is)`);
+  async function handleUpdateBulk(updatedList) {
+    try {
+      await db.upsertRecords(updatedList);
+      await reloadRecords();
+      toast(`Passos atualizados — ${updatedList.length} profissional(is)`);
+    } catch(e) { toast("Erro ao salvar os passos: "+e.message, "error"); }
   }
 
-  function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
-    setState(s=>{
-      let base = mode==="replace" ? s.records.filter(r=>!(r.competencia===competencia&&r.empresa===empresa&&r.tipo===tipo)) : s.records;
-      const entry={ id:genId(), date:nowISO(), competencia, empresa, tipo, mode, count:newRecs.length, user:ADMIN_NAME, note };
-      return {...s, records:[...base,...newRecs], competenciaAtual:competencia, importHistory:[...s.importHistory,entry]};
-    });
-    toast(`${newRecs.length} registros importados (${mode==="replace"?"substituição":"adição"})`);
+  async function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
+    try {
+      if (mode==="replace") await db.deleteRecordsBy({ competencia, empresa, tipo });
+      await db.insertRecords(newRecs);
+      try { await db.insertHistory({ competencia, empresa, tipo, mode, count:newRecs.length, user:user.name, note }); } catch {}
+      await Promise.all([reloadRecords(), reloadHistory()]);
+      setState(s=>({...s, competenciaAtual:competencia}));
+      toast(`${newRecs.length} registros importados (${mode==="replace"?"substituição":"adição"})`);
+    } catch(e) { toast("Erro na importação: "+e.message, "error"); }
   }
 
   function handleCompetencia(val) { setState(s=>({...s, competenciaAtual:val})); }
 
-  function handleTaskAdd(t)    { setState(s=>({...s, tasks:[...(s.tasks||[]), t]})); toast("Tarefa criada"); }
-  function handleTaskUpdate(u) { setState(s=>({...s, tasks:(s.tasks||[]).map(t=>t.id===u.id?u:t)})); }
-  function handleTaskDelete(id){ setState(s=>({...s, tasks:(s.tasks||[]).filter(t=>t.id!==id)})); toast("Tarefa excluída","info"); }
+  async function handleTaskAdd(t)    { try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
+  async function handleTaskUpdate(u) { try { await db.updateTask(u); await reloadTasks(); } catch(e){ toast("Erro ao atualizar tarefa: "+e.message,"error"); } }
+  async function handleTaskDelete(id){ try { await db.deleteTask(id); await reloadTasks(); toast("Tarefa excluída","info"); } catch(e){ toast("Erro ao excluir tarefa: "+e.message,"error"); } }
 
   // ─ Gestão de acessos ─
   const users = state.users || [];
@@ -1612,7 +1634,7 @@ function AppInner() {
     });
     toast(`Acesso removido`,"info");
   }
-  const responsaveis = [...new Set([...users.map(u=>u.name), ...state.records.map(r=>r.responsavel)])].sort();
+  const responsaveis = [...new Set([...users.map(u=>u.name), ...records.map(r=>r.responsavel)])].sort();
 
   if (recovery) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,padding:16}}>
@@ -1629,11 +1651,18 @@ function AppInner() {
 
   if (!user) return <Login/>;
 
+  if (!dataReady) return (
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:"system-ui,sans-serif"}}>
+      <FcamaraLogo size={54}/>
+      <div style={{fontSize:13}}>Carregando dados…</div>
+    </div>
+  );
+
   return (
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,minHeight:"100vh",background:T.canvas,display:"flex",flexDirection:"column"}}>
       {showImport  && <ImportModal onImport={handleImport} onClose={()=>setImp(false)}/>}
-      {showExport  && <ExportModal records={state.records} onClose={()=>setExp(false)} onDone={(n)=>toast(`CSV exportado — ${n} registros`)}/>}
-      {showHistory && <HistoryModal history={state.importHistory} onClose={()=>setHist(false)}/>}
+      {showExport  && <ExportModal records={records} onClose={()=>setExp(false)} onDone={(n)=>toast(`CSV exportado — ${n} registros`)}/>}
+      {showHistory && <HistoryModal history={history} onClose={()=>setHist(false)}/>}
       {confirmLogout && <ConfirmDialog title="Sair da plataforma" message="Deseja realmente encerrar a sessão?" confirmLabel="Sair" onConfirm={()=>{ supabase.auth.signOut(); setUser(null); }} onClose={()=>setCL(false)}/>}
 
       <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)}
@@ -1650,13 +1679,13 @@ function AppInner() {
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={state.records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
-              {page==="dash"&&<Dashboard records={state.records} analista={user.name} isAdmin={isAdmin}/>}
+              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin}/>}
             </div>
           )}
           {page==="tasks"&&(
             <div style={{padding:isMobile?"18px 14px":"24px 22px"}}>
-              <Kanban tasks={state.tasks||[]} responsaveis={responsaveis} onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}/>
+              <Kanban tasks={tasks} responsaveis={responsaveis} onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}/>
             </div>
           )}
           {page==="access"&&isAdmin&&(
