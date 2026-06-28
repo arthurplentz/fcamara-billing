@@ -98,7 +98,7 @@ export async function insertHistory(h) {
 }
 
 // ─── CLIENTS (perfil de faturamento) ─────────────────────────────────────────
-const CLIENT_FIELDS = ["nome","cod_sap","grupo_empresa","tipos_contrato","proposta_url","periodo_faturamento","calendario","tem_portal","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
+const CLIENT_FIELDS = ["nome","cod_sap","grupo_empresa","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
 const camel = s => s.replace(/_([a-z])/g, (_,c)=>c.toUpperCase());
 function dbToClient(row) {
   const o = { id: row.id };
