@@ -56,9 +56,11 @@ function groupState(prog, num) {
   return "todo";
 }
 
-// Usuários com login/senha (senha = nome em minúsculas sem acento, simplificado)
-const USERS = [
-  { name: "Daniela",     password: "daniela",     isAdmin: true  },
+// Usuários padrão (semente). A lista real fica no estado (localStorage) e pode
+// ser gerida pela administração. Senha inicial = nome em minúsculas.
+const DEFAULT_USERS = [
+  { name: "Daniela",     password: "daniela",      isAdmin: true  },
+  { name: "Luana",       password: "luana",        isAdmin: true  },
   { name: "Fernanda",    password: "fernanda",     isAdmin: false },
   { name: "Layza Arruda",password: "layza arruda", isAdmin: false },
 ];
@@ -138,11 +140,24 @@ function initState() {
     competenciaAtual: "05/2026",
     importHistory: [{ id: genId(), date: now, competencia:"05/2026", empresa:"BR02", tipo:"Time & Expenses", mode:"add", count: records.length, user: ADMIN_NAME, note:"Carga inicial de exemplo" }],
     tasks,
+    users: DEFAULT_USERS.map(u => ({ ...u })),
   };
 }
 
 function loadState() {
-  try { const r = localStorage.getItem(LS_KEY); if (r) { const p = JSON.parse(r); if (!Array.isArray(p.tasks)) p.tasks = []; return p; } } catch {}
+  try {
+    const r = localStorage.getItem(LS_KEY);
+    if (r) {
+      const p = JSON.parse(r);
+      if (!Array.isArray(p.tasks)) p.tasks = [];
+      // Migração: garante a lista de usuários e a presença dos admins-semente.
+      if (!Array.isArray(p.users) || p.users.length === 0) p.users = DEFAULT_USERS.map(u => ({ ...u }));
+      DEFAULT_USERS.filter(d => d.isAdmin).forEach(d => {
+        if (!p.users.some(u => u.name.toLowerCase() === d.name.toLowerCase())) p.users.push({ ...d });
+      });
+      return p;
+    }
+  } catch {}
   return initState();
 }
 
@@ -289,6 +304,22 @@ function Avatar({ name, size=30, admin }) {
     <span style={{ width:size, height:size, borderRadius:"50%", background:admin?T.brandDark:T.brand, color:"#fff", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:size*0.38, fontWeight:700, flexShrink:0 }} aria-hidden="true">
       {initials(name)}
     </span>
+  );
+}
+
+// Marca Fcamara — "F" branca sobre quadrado laranja arredondado (SVG, sem assets externos)
+const FC_ORANGE = "#F1572C";
+function FcamaraLogo({ size = 40 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" role="img" aria-label="Logo Fcamara" style={{ display:"block", flexShrink:0 }}>
+      <rect width="64" height="64" rx="16" fill={FC_ORANGE} />
+      {/* haste vertical */}
+      <rect x="19" y="15" width="11" height="35" rx="5.5" fill="#fff" />
+      {/* braço superior, canto direito arredondado (folha) */}
+      <path d="M25 15 h12 a9 9 0 0 1 0 18 H25 Z" fill="#fff" />
+      {/* braço central */}
+      <rect x="25" y="33" width="18" height="10.5" rx="5.25" fill="#fff" />
+    </svg>
   );
 }
 
@@ -492,14 +523,14 @@ function ImportModal({ onImport, onClose }) {
       <div style={{marginBottom:14}}>
         <label style={Ty.label}>Modo de importação</label>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          {[{v:"add",l:"➕ Incluir novos",d:"Adiciona sem apagar registros existentes."},{v:"replace",l:"🔄 Substituir",d:"Remove TODOS desta competência/empresa/tipo e reimporta."}].map(opt=>(
+          {[{v:"add",l:"➕ Incluir novos",d:"Adiciona sem apagar registros existentes."},{v:"replace",l:"🔄 Substituir",d:"Remove e reimporta SOMENTE a competência (mês) + empresa + tipo informados. Outros meses não são afetados."}].map(opt=>(
             <label key={opt.v} style={{flex:"1 1 200px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${mode===opt.v?T.brand:T.line}`,cursor:"pointer",background:mode===opt.v?T.brandBg:"#fff"}}>
               <input type="radio" name="mode" value={opt.v} checked={mode===opt.v} onChange={()=>setMode(opt.v)} style={{marginTop:2}}/>
               <div><div style={{fontSize:13,fontWeight:700,color:mode===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
             </label>
           ))}
         </div>
-        {mode==="replace"&&<div style={{marginTop:8,fontSize:12,color:T.danger,fontWeight:600}}>⚠ O progresso já registrado para esta competência será perdido.</div>}
+        {mode==="replace"&&<div style={{marginTop:8,fontSize:12,color:T.danger,fontWeight:600}}>⚠ Apenas os registros desta competência (mês), empresa e tipo serão substituídos. O progresso já registrado para esse recorte será perdido; os demais meses permanecem intactos.</div>}
       </div>
       <div style={{marginBottom:14}}><Field label="Nota da importação (opcional)"><input style={inp} placeholder="Ex: Ajuste de valores de maio" value={note} onChange={e=>setNote(e.target.value)}/></Field></div>
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xlsm,.xls" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
@@ -689,6 +720,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
   const [tipo, setTipo]             = useState("");
   const [filterComp, setFilterComp] = useState(competenciaAtual);
   const [filterAnalista, setFA]     = useState("todos");
+  const [filterEtapa, setFEt]       = useState("todas");
   const [searchCliente, setSC]      = useState("");
   const [searchProf, setSP]         = useState("");
   const [expandedCliente, setExp]   = useState(null);
@@ -705,6 +737,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
   if (tipo)    filtered = filtered.filter(r=>r.tipo===tipo);
   if (filterComp!=="todas") filtered = filtered.filter(r=>r.competencia===filterComp);
   if (isAdmin && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
+  if (filterEtapa!=="todas") filtered = filtered.filter(r=>calcStatus(r.progress)===filterEtapa);
   if (searchCliente) filtered = filtered.filter(r=>r.cliente.toLowerCase().includes(searchCliente.toLowerCase()));
   if (searchProf)    filtered = filtered.filter(r=>r.profissional.toLowerCase().includes(searchProf.toLowerCase()));
 
@@ -745,6 +778,10 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
             <option value="todos">Todos os analistas</option>
             {analistas.map(a=><option key={a}>{a}</option>)}
           </select>}
+          <select style={{...inp,width:selW,minWidth:160}} value={filterEtapa} onChange={e=>setFEt(e.target.value)} aria-label="Etapa do funil">
+            <option value="todas">Todas as etapas</option>
+            {STATUS_ORDER.map(s=><option key={s}>{s}</option>)}
+          </select>
           <input style={{...inp,width:isMobile?"100%":160}} placeholder="🔎 Cliente..." value={searchCliente} onChange={e=>setSC(e.target.value)}/>
           <input style={{...inp,width:isMobile?"100%":160}} placeholder="🔎 Profissional..." value={searchProf} onChange={e=>setSP(e.target.value)}/>
         </div>
@@ -1009,10 +1046,13 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
 ];
 
-function NavLinks({ page, setPage, onNavigate }) {
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"access",icon:"🔐",label:"Gestão de acessos"} ] };
+
+function NavLinks({ page, setPage, isAdmin, onNavigate }) {
+  const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
   return (
     <>
-      {NAV_SECTIONS.map(sec=>(
+      {sections.map(sec=>(
         <div key={sec.group} style={{marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".5px",padding:"0 8px",marginBottom:6}}>{sec.group}</div>
           {sec.links.map(l=>{
@@ -1052,7 +1092,7 @@ function Sidebar({ page, setPage, user, isAdmin }) {
   return (
     <aside style={{width:212,flexShrink:0,background:"#fff",borderRight:`1px solid ${T.line}`,padding:"18px 12px",display:"flex",flexDirection:"column"}}>
       <UserChip user={user} isAdmin={isAdmin}/>
-      <NavLinks page={page} setPage={setPage}/>
+      <NavLinks page={page} setPage={setPage} isAdmin={isAdmin}/>
     </aside>
   );
 }
@@ -1064,7 +1104,7 @@ function MobileDrawer({ open, onClose, page, setPage, user, isAdmin }) {
       <div style={{ position:"absolute", inset:0, background:"rgba(15,23,42,.5)", animation:"fcOverlay .15s ease" }} onClick={onClose}/>
       <aside style={{ position:"absolute", top:0, left:0, bottom:0, width:240, background:"#fff", padding:"18px 12px", boxShadow:T.shLg, display:"flex", flexDirection:"column", overflowY:"auto" }}>
         <UserChip user={user} isAdmin={isAdmin}/>
-        <NavLinks page={page} setPage={setPage} onNavigate={onClose}/>
+        <NavLinks page={page} setPage={setPage} isAdmin={isAdmin} onNavigate={onClose}/>
       </aside>
     </div>
   );
@@ -1219,6 +1259,119 @@ function Kanban({ tasks, responsaveis, onAdd, onUpdate, onDelete }) {
   );
 }
 
+// ─── GESTÃO DE ACESSOS (admin) ───────────────────────────────────────────────
+
+function AccessUserModal({ user, existingNames, onSave, onClose }) {
+  const isNew = !user;
+  const [name, setName]         = useState(user?.name || "");
+  const [password, setPassword] = useState("");
+  const [isAdmin, setIsAdmin]   = useState(user?.isAdmin || false);
+  const [err, setErr]           = useState("");
+
+  function save() {
+    const nm = name.trim();
+    if (!nm) { setErr("Informe o nome do usuário."); return; }
+    if (isNew && existingNames.some(n => n.toLowerCase() === nm.toLowerCase())) { setErr("Já existe um acesso com esse nome."); return; }
+    if (isNew && !password.trim()) { setErr("Defina uma senha inicial."); return; }
+    const payload = { name: nm, isAdmin };
+    if (password.trim()) payload.password = password.trim().toLowerCase();
+    onSave(payload, isNew);
+    onClose();
+  }
+
+  return (
+    <Modal title={isNew ? "Novo acesso" : `Editar acesso — ${user.name}`} subtitle={isNew ? "Cadastre um analista ou administrador" : "Atualize o papel ou redefina a senha"} onClose={onClose}>
+      <div style={{marginBottom:14}}>
+        <Field label="Nome *">
+          <input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} disabled={!isNew} placeholder="Nome completo"/>
+        </Field>
+        {!isNew && <div style={{fontSize:11,color:T.muted,marginTop:4}}>O nome não pode ser alterado (vincula registros e tarefas).</div>}
+      </div>
+      <div style={{marginBottom:14}}>
+        <Field label={isNew ? "Senha inicial *" : "Nova senha"}>
+          <input style={inp} value={password} onChange={e=>{setPassword(e.target.value);setErr("");}} placeholder={isNew ? "Senha de acesso" : "Deixe em branco para manter a atual"}/>
+        </Field>
+      </div>
+      <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",marginBottom:16,padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${isAdmin?T.brand:T.line}`,background:isAdmin?T.brandBg:"#fff"}}>
+        <input type="checkbox" checked={isAdmin} onChange={e=>setIsAdmin(e.target.checked)} style={{width:16,height:16,marginTop:1}}/>
+        <span><b style={{color:isAdmin?T.brand:T.inkSoft}}>Administrador</b><br/><span style={{fontSize:11,color:T.muted}}>Acesso completo: importar, exportar, todos os analistas e gestão de acessos.</span></span>
+      </label>
+      {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary onClick={save}>{isNew ? "Criar acesso" : "Salvar"}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function AccessManagement({ users, currentName, onAdd, onUpdate, onDelete }) {
+  const isMobile = useIsMobile();
+  const [editing, setEditing]     = useState(null); // user | {} (novo)
+  const [confirmDel, setConfirm]  = useState(null);
+  const adminCount = users.filter(u => u.isAdmin).length;
+  const sorted = [...users].sort((a,b) => (b.isAdmin - a.isAdmin) || a.name.localeCompare(b.name));
+
+  return (
+    <div>
+      {editing && <AccessUserModal user={editing.name ? editing : null} existingNames={users.map(u=>u.name)}
+        onSave={(data,isNew)=>{ isNew ? onAdd(data) : onUpdate(data); }} onClose={()=>setEditing(null)}/>}
+      {confirmDel && <ConfirmDialog title="Remover acesso" danger confirmLabel="Remover"
+        message={`Remover o acesso de "${confirmDel.name}"? A pessoa não conseguirá mais entrar na plataforma. Os registros já lançados por ela são mantidos.`}
+        onConfirm={()=>onDelete(confirmDel.name)} onClose={()=>setConfirm(null)}/>}
+
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <h1 style={Ty.h1}>🔐 Gestão de acessos</h1>
+          <div style={{...Ty.small, marginTop:3}}>{users.length} usuário(s) · {adminCount} administrador(es). Cadastre novos analistas ou ajuste papéis e senhas.</div>
+        </div>
+        <Btn primary onClick={()=>setEditing({})}>+ Novo acesso</Btn>
+      </div>
+
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <div className="fc-scroll" style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead><tr style={{background:T.canvas}}>
+              {["Usuário","Papel","Senha",""].map((h,i)=>
+                <th key={i} style={{padding:"10px 14px",textAlign:i===3?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
+              )}
+            </tr></thead>
+            <tbody>
+              {sorted.map(u=>{
+                const isSelf = u.name.toLowerCase() === currentName.toLowerCase();
+                const lastAdmin = u.isAdmin && adminCount <= 1;
+                const noDelete = isSelf || lastAdmin;
+                return (
+                  <tr key={u.name} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
+                    <td style={{padding:"10px 14px"}}>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:9}}>
+                        <Avatar name={u.name} size={28} admin={u.isAdmin}/>
+                        <span style={{fontWeight:600,color:T.ink}}>{u.name}{isSelf&&<span style={{fontSize:11,color:T.muted,fontWeight:500}}> (você)</span>}</span>
+                      </span>
+                    </td>
+                    <td style={{padding:"10px 14px"}}><Badge label={u.isAdmin?"Administrador":"Analista"} color={u.isAdmin?"blue":"gray"} small dot/></td>
+                    <td style={{padding:"10px 14px",color:T.faint,letterSpacing:2}}>••••••</td>
+                    <td style={{padding:"10px 14px",textAlign:"right",whiteSpace:"nowrap"}}>
+                      <Btn small onClick={()=>setEditing(u)} style={{marginRight:6}}>✎ Editar</Btn>
+                      <Btn small danger disabled={noDelete} onClick={()=>setConfirm(u)}
+                        title={isSelf?"Você não pode remover o próprio acesso":lastAdmin?"É preciso ao menos um administrador":"Remover acesso"}>🗑 Remover</Btn>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <div style={{marginTop:14,fontSize:12,color:T.muted,display:"flex",gap:8,alignItems:"flex-start"}}>
+        <span aria-hidden="true">ℹ️</span>
+        <span>As senhas ficam armazenadas localmente neste navegador (ambiente de demonstração). Sempre deve existir pelo menos um administrador, e você não pode remover o seu próprio acesso.</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── TOPBAR ──────────────────────────────────────────────────────────────────
 
 function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory, onLogout }) {
@@ -1227,8 +1380,8 @@ function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory
   return (
     <div style={{background:T.brand,color:"#fff",padding:"0 16px",display:"flex",alignItems:"center",gap:10,height:54,boxShadow:T.shSm}}>
       {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", lineHeight:1, padding:4 }}>☰</button>}
-      <span style={{fontSize:14,fontWeight:800,flex:1,display:"flex",alignItems:"center",gap:8}}>
-        <span aria-hidden="true">📊</span>{isMobile ? "Faturamento" : "Faturamento Grupo Fcamara"}
+      <span style={{fontSize:14,fontWeight:800,flex:1,display:"flex",alignItems:"center",gap:9}}>
+        <FcamaraLogo size={30}/>{isMobile ? "Faturamento" : "Faturamento Grupo Fcamara"}
       </span>
 
       {isAdmin && !isMobile && <>
@@ -1256,45 +1409,72 @@ function Topbar({ user, isAdmin, isMobile, onMenu, onImport, onExport, onHistory
 
 // ─── LOGIN ───────────────────────────────────────────────────────────────────
 
-function Login({ onLogin }) {
+function ForgotPasswordModal({ users, onReset, onClose }) {
+  const [name, setName]     = useState("");
+  const [pass, setPass]     = useState("");
+  const [confirm, setConf]  = useState("");
+  const [err, setErr]       = useState("");
+
+  function submit(e) {
+    e?.preventDefault();
+    const nm = name.trim();
+    const found = users.find(u => u.name.toLowerCase() === nm.toLowerCase());
+    if (!found) { setErr("Não encontramos nenhum acesso com esse nome. Confira com a administração."); return; }
+    if (pass.trim().length < 3) { setErr("A nova senha precisa ter ao menos 3 caracteres."); return; }
+    if (pass.trim() !== confirm.trim()) { setErr("A confirmação não confere com a nova senha."); return; }
+    onReset(found.name, pass.trim().toLowerCase());
+    onClose();
+  }
+
+  return (
+    <Modal title="Redefinir senha" subtitle="Informe seu nome e escolha uma nova senha" onClose={onClose}>
+      <form onSubmit={submit}>
+        <div style={{marginBottom:14}}><Field label="Seu nome *"><input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="Como aparece no seu acesso" autoFocus/></Field></div>
+        <div style={{marginBottom:14}}><Field label="Nova senha *"><input style={inp} type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} placeholder="Nova senha"/></Field></div>
+        <div style={{marginBottom:16}}><Field label="Confirmar nova senha *"><input style={inp} type="password" value={confirm} onChange={e=>{setConf(e.target.value);setErr("");}} placeholder="Repita a nova senha"/></Field></div>
+        {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
+        <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Ambiente de demonstração: a redefinição é feita localmente neste navegador. Se você não reconhece nenhum acesso, fale com a administração (Daniela ou Luana).</div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn primary onClick={submit}>Redefinir senha</Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function Login({ onLogin, users, onResetPassword }) {
   const [loginName, setLN] = useState("");
   const [loginPass, setLP] = useState("");
   const [loginErr, setLE]  = useState("");
+  const [showForgot, setSF]= useState(false);
 
   function submit(e) {
     e.preventDefault();
-    const found = USERS.find(u=>u.name.toLowerCase()===loginName.trim().toLowerCase()&&u.password===loginPass.trim().toLowerCase());
+    const found = users.find(u=>u.name.toLowerCase()===loginName.trim().toLowerCase()&&u.password===loginPass.trim().toLowerCase());
     if (!found) { setLE("Nome ou senha incorretos."); return; }
     onLogin({ name: found.name, isAdmin: found.isAdmin });
   }
 
-  function quickFill(u) { setLN(u.name); setLP(u.password); setLE(""); }
-
   return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,fontFamily:"system-ui,sans-serif",padding:16}}>
+      {showForgot && <ForgotPasswordModal users={users} onReset={onResetPassword} onClose={()=>setSF(false)}/>}
       <div style={{background:"#fff",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
         <div style={{textAlign:"center",marginBottom:24}}>
-          <div style={{ width:60, height:60, borderRadius:16, background:T.brandBg, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:30, marginBottom:12 }} aria-hidden="true">📊</div>
+          <div style={{ display:"inline-flex", marginBottom:12 }}><FcamaraLogo size={62}/></div>
           <h1 style={{fontSize:19,fontWeight:800,color:T.ink,lineHeight:1.3,margin:0}}>Controle de Faturamento</h1>
           <p style={{fontSize:13,color:T.brand,fontWeight:600,marginTop:4,marginBottom:0}}>Grupo Fcamara</p>
           <p style={{fontSize:11,color:T.muted,marginTop:6}}>{APP_VERSION}</p>
         </div>
         <form onSubmit={submit}>
           <div style={{marginBottom:12}}><Field label="Nome"><input style={inp} placeholder="Seu nome" value={loginName} onChange={e=>{setLN(e.target.value);setLE("");}} autoFocus/></Field></div>
-          <div style={{marginBottom:16}}><Field label="Senha"><input style={inp} type="password" placeholder="Sua senha" value={loginPass} onChange={e=>{setLP(e.target.value);setLE("");}}/></Field></div>
+          <div style={{marginBottom:8}}><Field label="Senha"><input style={inp} type="password" placeholder="Sua senha" value={loginPass} onChange={e=>{setLP(e.target.value);setLE("");}}/></Field></div>
+          <div style={{textAlign:"right",marginBottom:16}}>
+            <button type="button" onClick={()=>setSF(true)} style={{background:"none",border:"none",padding:0,fontSize:12,color:T.brand,fontWeight:600,cursor:"pointer"}}>Esqueci minha senha</button>
+          </div>
           {loginErr&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{loginErr}</div>}
           <button type="submit" className="fc-btn" style={{width:"100%",padding:"11px",borderRadius:T.rMd,border:"none",background:T.brand,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>Entrar</button>
         </form>
-        <div style={{ marginTop:18, borderTop:`1px solid ${T.lineSoft}`, paddingTop:14 }}>
-          <div style={{ fontSize:11, color:T.muted, marginBottom:8, textAlign:"center" }}>Acesso rápido (ambiente de demonstração)</div>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center" }}>
-            {USERS.map(u=>(
-              <button key={u.name} type="button" onClick={()=>quickFill(u)} style={{ display:"flex", alignItems:"center", gap:6, background:T.canvas, border:`1px solid ${T.line}`, borderRadius:T.rPill, padding:"5px 11px 5px 6px", fontSize:12, color:T.inkSoft, cursor:"pointer" }}>
-                <Avatar name={u.name} size={22} admin={u.isAdmin}/>{u.name.split(" ")[0]}{u.isAdmin&&<span style={{fontSize:9,color:T.brand,fontWeight:700}}>ADMIN</span>}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -1339,9 +1519,43 @@ function AppInner() {
   function handleTaskUpdate(u) { setState(s=>({...s, tasks:(s.tasks||[]).map(t=>t.id===u.id?u:t)})); }
   function handleTaskDelete(id){ setState(s=>({...s, tasks:(s.tasks||[]).filter(t=>t.id!==id)})); toast("Tarefa excluída","info"); }
 
-  const responsaveis = [...new Set([...USERS.map(u=>u.name), ...state.records.map(r=>r.responsavel)])].sort();
+  // ─ Gestão de acessos ─
+  const users = state.users || [];
+  function handleUserAdd(data) {
+    setState(s=>({...s, users:[...(s.users||[]), { name:data.name, password:data.password||"123", isAdmin:!!data.isAdmin }]}));
+    toast(`Acesso criado para ${data.name.split(" ")[0]}`);
+  }
+  function handleUserUpdate(data) {
+    setState(s=>{
+      const list = s.users||[];
+      // Impede remover o último administrador via rebaixamento.
+      if (data.isAdmin===false) {
+        const target = list.find(u=>u.name.toLowerCase()===data.name.toLowerCase());
+        if (target?.isAdmin && list.filter(u=>u.isAdmin).length<=1) { toast("É preciso manter ao menos um administrador.","error"); return s; }
+      }
+      return {...s, users:list.map(u=>u.name.toLowerCase()===data.name.toLowerCase()
+        ? { ...u, isAdmin:data.isAdmin, ...(data.password ? { password:data.password } : {}) } : u)};
+    });
+    toast(`Acesso de ${data.name.split(" ")[0]} atualizado`);
+  }
+  function handleUserDelete(name) {
+    setState(s=>{
+      const list = s.users||[];
+      const target = list.find(u=>u.name.toLowerCase()===name.toLowerCase());
+      if (name.toLowerCase()===(user?.name||"").toLowerCase()) { toast("Você não pode remover o próprio acesso.","error"); return s; }
+      if (target?.isAdmin && list.filter(u=>u.isAdmin).length<=1) { toast("É preciso manter ao menos um administrador.","error"); return s; }
+      return {...s, users:list.filter(u=>u.name.toLowerCase()!==name.toLowerCase())};
+    });
+    toast(`Acesso removido`,"info");
+  }
+  function handleResetPassword(name, newPass) {
+    setState(s=>({...s, users:(s.users||[]).map(u=>u.name.toLowerCase()===name.toLowerCase()?{...u,password:newPass}:u)}));
+    toast(`Senha de ${name.split(" ")[0]} redefinida. Faça login com a nova senha.`);
+  }
 
-  if (!user) return <Login onLogin={(u)=>{ setUser(u); toast(`Bem-vinda, ${u.name.split(" ")[0]}!`,"info"); }}/>;
+  const responsaveis = [...new Set([...users.map(u=>u.name), ...state.records.map(r=>r.responsavel)])].sort();
+
+  if (!user) return <Login users={users} onResetPassword={handleResetPassword} onLogin={(u)=>{ setUser(u); toast(`Bem-vinda, ${u.name.split(" ")[0]}!`,"info"); }}/>;
 
   return (
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,minHeight:"100vh",background:T.canvas,display:"flex",flexDirection:"column"}}>
@@ -1371,6 +1585,11 @@ function AppInner() {
           {page==="tasks"&&(
             <div style={{padding:isMobile?"18px 14px":"24px 22px"}}>
               <Kanban tasks={state.tasks||[]} responsaveis={responsaveis} onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}/>
+            </div>
+          )}
+          {page==="access"&&isAdmin&&(
+            <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <AccessManagement users={users} currentName={user.name} onAdd={handleUserAdd} onUpdate={handleUserUpdate} onDelete={handleUserDelete}/>
             </div>
           )}
         </main>
