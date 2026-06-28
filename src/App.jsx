@@ -1604,6 +1604,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   const [passos, setPassos] = useState(() => { const v=parseJSON(client?.calendario, []); return Array.isArray(v)?v:[]; });
   const [peps, setPeps] = useState(() => { const m=parseJSON(client?.tiposPeps, {}); return (m && typeof m==="object" && !Array.isArray(m))?m:{}; });
   const [propostas, setPropostas] = useState(() => { const a=parseJSON(client?.propostas, null); if(Array.isArray(a)) return a.length?a:[""]; return client?.propostaUrl?[client.propostaUrl]:[""]; });
+  const [tab, setTab] = useState("dados");
   const [err, setErr] = useState("");
   const set = (k,v) => setF(p=>({...p,[k]:v}));
 
@@ -1629,7 +1630,10 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   const delPasso = (i) => setPassos(a=>a.filter((_,j)=>j!==i));
 
   function save() {
-    if (!(f.nome||"").trim()) { setErr("Informe o nome do cliente."); return; }
+    if (!(f.nome||"").trim()) { setTab("dados"); setErr("Informe o nome do cliente."); return; }
+    if (f.temPortal && (!(f.portalLink||"").trim() || !(f.portalUsuario||"").trim() || !(f.portalSenha||"").trim())) {
+      setTab("dados"); setErr("Como o cliente tem portal, preencha o Link, o Usuário e a Senha do portal."); return;
+    }
     const cleanPeps = {}; selTipos.forEach(t=>{ const arr=(peps[t]||[]).map(s=>s.trim()).filter(Boolean); if(arr.length) cleanPeps[t]=arr; });
     const cleanProp = propostas.map(s=>s.trim()).filter(Boolean);
     onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos), tiposPeps: JSON.stringify(cleanPeps), propostas: JSON.stringify(cleanProp) });
@@ -1638,6 +1642,14 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
 
   return (
     <Modal title={isNew?"Novo cliente":`Cliente — ${client.nome}`} subtitle="Perfil de faturamento do cliente" onClose={onClose} wide>
+      {/* Abas: Dados x Calendário (passo a passo) */}
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
+        {[["dados","📋 Dados do cliente"],["calendario","🗓️ Calendário (passo a passo)"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 12px",fontSize:13,fontWeight:tab===id?700:500,color:tab===id?T.brand:T.muted,borderBottom:`2px solid ${tab===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {tab==="dados" && <>
       <CSec title="Identificação">
         <Field label="Nome do cliente *"><input style={inp} value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
         <Field label="Cód. SAP"><input style={inp} inputMode="numeric" maxLength={7} placeholder="7 dígitos" value={f.codSap||""} onChange={e=>set("codSap", e.target.value.replace(/\D/g,"").slice(0,7))}/></Field>
@@ -1684,28 +1696,6 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         <Field label="Forma de pagamento"><input style={inp} placeholder="Ex: Boleto, transferência" value={f.formaPagamento||""} onChange={e=>set("formaPagamento",e.target.value)}/></Field>
       </CSec>
 
-      {/* Calendário de faturamento — passos selecionáveis */}
-      <div style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
-          <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px"}}>Calendário de faturamento — passo a passo</div>
-          <Btn small onClick={addPasso}>+ Incluir etapa</Btn>
-        </div>
-        {passos.length===0 && <div style={{fontSize:12,color:T.muted,padding:"10px 12px",background:T.canvas,borderRadius:T.rMd,border:`1px dashed ${T.line}`}}>Nenhuma etapa adicionada. Clique em “+ Incluir etapa”.</div>}
-        {passos.map((p,i)=>(
-          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <span style={{fontSize:13,fontWeight:700,color:T.brand}}>Passo {i+1}</span>
-              <button onClick={()=>delPasso(i)} title="Remover etapa" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:10}}>
-              <Field label="Quando"><input style={inp} placeholder="Ex: Dia 25" value={p.quando||""} onChange={e=>setPasso(i,"quando",e.target.value)}/></Field>
-              <Field label="Etapa"><input style={inp} placeholder="Ex: Extração de dados" value={p.etapa||""} onChange={e=>setPasso(i,"etapa",e.target.value)}/></Field>
-            </div>
-            <Field label="O que fazer"><textarea style={{...inp,minHeight:50,resize:"vertical"}} placeholder="Descreva a ação desta etapa..." value={p.oQueFazer||""} onChange={e=>setPasso(i,"oQueFazer",e.target.value)}/></Field>
-          </div>
-        ))}
-      </div>
-
       <div style={{marginBottom:16,padding:"12px 14px",borderRadius:T.rLg,background:T.canvas,border:`1px solid ${T.line}`}}>
         <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:T.ink,cursor:"pointer",marginBottom:f.temPortal?12:0}}>
           <input type="checkbox" checked={!!f.temPortal} onChange={e=>set("temPortal",e.target.checked)} style={{width:16,height:16}}/>
@@ -1723,9 +1713,9 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
-            <Field label="Link do portal"><input style={inp} value={f.portalLink||""} onChange={e=>set("portalLink",e.target.value)}/></Field>
-            <Field label="Usuário"><input style={inp} value={f.portalUsuario||""} onChange={e=>set("portalUsuario",e.target.value)}/></Field>
-            <Field label="Senha"><input style={inp} value={f.portalSenha||""} onChange={e=>set("portalSenha",e.target.value)}/></Field>
+            <Field label="Link do portal *"><input style={inp} value={f.portalLink||""} onChange={e=>set("portalLink",e.target.value)}/></Field>
+            <Field label="Usuário *"><input style={inp} value={f.portalUsuario||""} onChange={e=>set("portalUsuario",e.target.value)}/></Field>
+            <Field label="Senha *"><input style={inp} value={f.portalSenha||""} onChange={e=>set("portalSenha",e.target.value)}/></Field>
             <Field label="Link do passo a passo do portal"><input style={inp} placeholder="Cole o link" value={f.portalPassoUrl||""} onChange={e=>set("portalPassoUrl",e.target.value)}/></Field>
           </div>
         </div>}
@@ -1740,6 +1730,37 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         <Field label="Nome"><input style={inp} value={f.accountManager||""} onChange={e=>set("accountManager",e.target.value)}/></Field>
         <Field label="E-mail"><input style={inp} type="email" placeholder="am@grupofcamara.com" value={f.accountManagerEmail||""} onChange={e=>set("accountManagerEmail",e.target.value)}/></Field>
       </CSec>
+      </>}
+
+      {tab==="calendario" && <>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,gap:8,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,color:T.ink}}>Calendário de faturamento</div>
+            <div style={{fontSize:12,color:T.muted}}>Monte o passo a passo deste cliente. Cada etapa tem quando acontece, o nome da etapa e o que fazer.</div>
+          </div>
+          <Btn primary small onClick={addPasso}>+ Incluir etapa</Btn>
+        </div>
+        {passos.length===0 && <div style={{fontSize:13,color:T.muted,padding:"24px 16px",textAlign:"center",background:T.canvas,borderRadius:T.rLg,border:`1px dashed ${T.line}`}}>Nenhuma etapa adicionada ainda.<br/>Clique em “+ Incluir etapa” para começar.</div>}
+        {passos.map((p,i)=>(
+          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,marginBottom:10,background:"#fff",overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:T.brandBg,borderBottom:`1px solid ${T.line}`}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:T.brand}}>
+                <span style={{width:22,height:22,borderRadius:"50%",background:T.brand,color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12}}>{i+1}</span>
+                Passo {i+1}
+              </span>
+              <button onClick={()=>delPasso(i)} title="Remover etapa" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>
+            </div>
+            <div style={{padding:"14px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"160px 1fr",gap:12,marginBottom:12}}>
+                <Field label="Quando"><input style={inp} placeholder="Ex: Dia 25" value={p.quando||""} onChange={e=>setPasso(i,"quando",e.target.value)}/></Field>
+                <Field label="Etapa"><input style={inp} placeholder="Ex: Extração de dados no FC Team" value={p.etapa||""} onChange={e=>setPasso(i,"etapa",e.target.value)}/></Field>
+              </div>
+              <Field label="O que fazer"><textarea style={{...inp,minHeight:64,resize:"vertical",lineHeight:1.5}} placeholder="Descreva a ação desta etapa em detalhe..." value={p.oQueFazer||""} onChange={e=>setPasso(i,"oQueFazer",e.target.value)}/></Field>
+            </div>
+          </div>
+        ))}
+        {passos.length>0 && <div style={{textAlign:"center",marginTop:6}}><Btn small onClick={addPasso}>+ Incluir etapa</Btn></div>}
+      </>}
 
       {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
 
@@ -1777,22 +1798,29 @@ function ClientsView({ clients, onSave, onDelete }) {
             <div style={{fontSize:32,marginBottom:10}}>🏢</div>
             <div style={{fontSize:14,color:T.muted}}>{clients.length===0?"Nenhum cliente cadastrado ainda. Clique em “+ Novo cliente”.":"Nenhum cliente encontrado para a busca."}</div>
           </Card>
-        : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
-            {filtered.map(c=>(
-              <Card key={c.id} interactive style={{padding:"14px 16px",cursor:"pointer"}} onClick={()=>setEditing(c)}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
-                  <span style={{fontSize:14,fontWeight:700,color:T.ink}}>{c.nome}</span>
-                  {c.temPortal && <Badge label="Portal" color="purple" small/>}
-                </div>
-                <div style={{fontSize:11,color:T.muted,lineHeight:1.6}}>
-                  {c.codSap && <div>SAP: {c.codSap}</div>}
-                  {c.grupoEmpresa && <div>Grupo: {c.grupoEmpresa}</div>}
-                  {c.periodoFaturamento && <div>Período: {c.periodoFaturamento}</div>}
-                  {c.accountManager && <div>AM: {c.accountManager}</div>}
-                </div>
-              </Card>
-            ))}
-          </div>}
+        : <Card style={{padding:0,overflow:"hidden"}}>
+            <div className="fc-scroll" style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{background:T.canvas}}>
+                  {["Cliente","Cód. SAP","Grupo","Período","Account manager","Portal"].map((h,i)=>
+                    <th key={i} style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
+                  )}
+                </tr></thead>
+                <tbody>
+                  {filtered.map(c=>(
+                    <tr key={c.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer"}} onClick={()=>setEditing(c)}>
+                      <td style={{padding:"10px 14px",fontWeight:600,color:T.ink,whiteSpace:"nowrap"}}>{c.nome}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace"}}>{c.codSap||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.grupoEmpresa||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft,whiteSpace:"nowrap"}}>{c.periodoFaturamento||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.accountManager||"—"}</td>
+                      <td style={{padding:"10px 14px"}}>{c.temPortal ? <Badge label="Sim" color="purple" small/> : <span style={{color:T.faint}}>—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>}
     </div>
   );
 }
