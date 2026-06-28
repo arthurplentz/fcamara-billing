@@ -1585,46 +1585,84 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
 
 // ─── CLIENTES (perfil de faturamento) ────────────────────────────────────────
 
+// Seção de formulário — definida FORA do modal (evita perda de foco a cada tecla).
+function CSec({ title, children, grid=true }) {
+  return (
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>{title}</div>
+      {grid ? <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>{children}</div> : children}
+    </div>
+  );
+}
+
 function ClientModal({ client, onSave, onDelete, onClose }) {
   const isNew = !client?.id;
   const [f, setF] = useState(client || { temPortal:false });
+  const [passos, setPassos] = useState(() => { try { const v=JSON.parse(client?.calendario||"[]"); return Array.isArray(v)?v:[]; } catch { return []; } });
   const [err, setErr] = useState("");
   const set = (k,v) => setF(p=>({...p,[k]:v}));
 
+  const selTipos = (f.tiposContrato||"").split(",").map(s=>s.trim()).filter(Boolean);
+  const toggleTipo = (t) => set("tiposContrato", (selTipos.includes(t) ? selTipos.filter(x=>x!==t) : [...selTipos,t]).join(", "));
+
+  const addPasso = () => setPassos(a=>[...a,{quando:"",etapa:"",oQueFazer:""}]);
+  const setPasso = (i,k,v) => setPassos(a=>a.map((p,j)=>j===i?{...p,[k]:v}:p));
+  const delPasso = (i) => setPassos(a=>a.filter((_,j)=>j!==i));
+
   function save() {
     if (!(f.nome||"").trim()) { setErr("Informe o nome do cliente."); return; }
-    onSave({ ...f, nome:f.nome.trim() });
+    onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos) });
     onClose();
   }
 
-  const Sec = ({title, children}) => (
-    <div style={{marginBottom:16}}>
-      <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>{title}</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>{children}</div>
-    </div>
-  );
-
   return (
     <Modal title={isNew?"Novo cliente":`Cliente — ${client.nome}`} subtitle="Perfil de faturamento do cliente" onClose={onClose} wide>
-      <Sec title="Identificação">
+      <CSec title="Identificação">
         <Field label="Nome do cliente *"><input style={inp} value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
         <Field label="Cód. SAP"><input style={inp} value={f.codSap||""} onChange={e=>set("codSap",e.target.value)}/></Field>
         <Field label="Grupo de empresa"><input style={inp} value={f.grupoEmpresa||""} onChange={e=>set("grupoEmpresa",e.target.value)}/></Field>
-        <Field label="Tipos de contrato"><input style={inp} placeholder="Ex: Time & Expenses, Fee" value={f.tiposContrato||""} onChange={e=>set("tiposContrato",e.target.value)}/></Field>
-      </Sec>
+      </CSec>
 
-      <Sec title="Proposta">
-        <Field label="Link da proposta"><input style={inp} placeholder="Cole o link (Drive, SharePoint...)" value={f.propostaUrl||""} onChange={e=>set("propostaUrl",e.target.value)}/></Field>
-      </Sec>
-
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>Faturamento</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:12}}>
-          <Field label="Período de faturamento"><input style={inp} placeholder="Ex: 01 a 31 (ou outro)" value={f.periodoFaturamento||""} onChange={e=>set("periodoFaturamento",e.target.value)}/></Field>
-          <Field label="Prazo de vencimento acordado"><input style={inp} placeholder="Ex: 30 dias" value={f.prazoVencimento||""} onChange={e=>set("prazoVencimento",e.target.value)}/></Field>
-          <Field label="Forma de pagamento"><input style={inp} placeholder="Ex: Boleto, transferência" value={f.formaPagamento||""} onChange={e=>set("formaPagamento",e.target.value)}/></Field>
+      <CSec title="Tipos de contrato" grid={false}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {TIPOS_PROJETO.map(t=>{ const on=selTipos.includes(t); return (
+            <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
+              <input type="checkbox" checked={on} onChange={()=>toggleTipo(t)} style={{width:15,height:15}}/>{t}
+            </label>
+          );})}
         </div>
-        <Field label="Calendário de faturamento — passo a passo"><textarea style={{...inp,minHeight:80,resize:"vertical"}} placeholder="Descreva o passo a passo do faturamento deste cliente..." value={f.calendario||""} onChange={e=>set("calendario",e.target.value)}/></Field>
+      </CSec>
+
+      <CSec title="Proposta" grid={false}>
+        <Field label="Link da proposta"><input style={inp} placeholder="Cole o link (Drive, SharePoint...)" value={f.propostaUrl||""} onChange={e=>set("propostaUrl",e.target.value)}/></Field>
+      </CSec>
+
+      <CSec title="Faturamento">
+        <Field label="Período de faturamento"><input style={inp} placeholder="Ex: 01 a 31 (ou outro)" value={f.periodoFaturamento||""} onChange={e=>set("periodoFaturamento",e.target.value)}/></Field>
+        <Field label="Prazo de vencimento acordado"><input style={inp} placeholder="Ex: 30 dias" value={f.prazoVencimento||""} onChange={e=>set("prazoVencimento",e.target.value)}/></Field>
+        <Field label="Forma de pagamento"><input style={inp} placeholder="Ex: Boleto, transferência" value={f.formaPagamento||""} onChange={e=>set("formaPagamento",e.target.value)}/></Field>
+      </CSec>
+
+      {/* Calendário de faturamento — passos selecionáveis */}
+      <div style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px"}}>Calendário de faturamento — passo a passo</div>
+          <Btn small onClick={addPasso}>+ Incluir etapa</Btn>
+        </div>
+        {passos.length===0 && <div style={{fontSize:12,color:T.muted,padding:"10px 12px",background:T.canvas,borderRadius:T.rMd,border:`1px dashed ${T.line}`}}>Nenhuma etapa adicionada. Clique em “+ Incluir etapa”.</div>}
+        {passos.map((p,i)=>(
+          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.brand}}>Passo {i+1}</span>
+              <button onClick={()=>delPasso(i)} title="Remover etapa" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:10}}>
+              <Field label="Quando"><input style={inp} placeholder="Ex: Dia 25" value={p.quando||""} onChange={e=>setPasso(i,"quando",e.target.value)}/></Field>
+              <Field label="Etapa"><input style={inp} placeholder="Ex: Extração de dados" value={p.etapa||""} onChange={e=>setPasso(i,"etapa",e.target.value)}/></Field>
+            </div>
+            <Field label="O que fazer"><textarea style={{...inp,minHeight:50,resize:"vertical"}} placeholder="Descreva a ação desta etapa..." value={p.oQueFazer||""} onChange={e=>setPasso(i,"oQueFazer",e.target.value)}/></Field>
+          </div>
+        ))}
       </div>
 
       <div style={{marginBottom:16,padding:"12px 14px",borderRadius:T.rLg,background:T.canvas,border:`1px solid ${T.line}`}}>
@@ -1640,10 +1678,15 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         </div>}
       </div>
 
-      <Sec title="Contatos">
-        <Field label="Contato financeiro"><input style={inp} value={f.contatoFinanceiro||""} onChange={e=>set("contatoFinanceiro",e.target.value)}/></Field>
-        <Field label="Account manager (comercial)"><input style={inp} value={f.accountManager||""} onChange={e=>set("accountManager",e.target.value)}/></Field>
-      </Sec>
+      <CSec title="Contato financeiro">
+        <Field label="Nome"><input style={inp} value={f.contatoFinanceiro||""} onChange={e=>set("contatoFinanceiro",e.target.value)}/></Field>
+        <Field label="E-mail"><input style={inp} type="email" placeholder="financeiro@cliente.com" value={f.contatoFinanceiroEmail||""} onChange={e=>set("contatoFinanceiroEmail",e.target.value)}/></Field>
+      </CSec>
+
+      <CSec title="Account manager (comercial)">
+        <Field label="Nome"><input style={inp} value={f.accountManager||""} onChange={e=>set("accountManager",e.target.value)}/></Field>
+        <Field label="E-mail"><input style={inp} type="email" placeholder="am@grupofcamara.com" value={f.accountManagerEmail||""} onChange={e=>set("accountManagerEmail",e.target.value)}/></Field>
+      </CSec>
 
       {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
 
