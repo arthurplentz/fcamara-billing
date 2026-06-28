@@ -1391,6 +1391,7 @@ function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd }) {
       <div style={{fontSize:13,fontWeight:600,color:T.ink,marginBottom:task.desc?4:8,lineHeight:1.35}}>{task.title}</div>
       {task.desc&&<div style={{fontSize:11.5,color:T.muted,marginBottom:8,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{task.desc}</div>}
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+        {task.recorrente&&<Badge label="🔁 Recorrente" color="teal" small/>}
         {di&&<Badge label={"📅 "+di.label} color={di.color} small/>}
         <Badge label={task.assignee||"Não atribuído"} color={task.assignee?"purple":"gray"} small/>
         <div style={{flex:1}}/>
@@ -1403,68 +1404,191 @@ function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd }) {
   );
 }
 
+// ─── ENTREGAS (modelos recorrentes) ──────────────────────────────────────────
+
+function DeliveryTemplateModal({ template, responsaveis, onSave, onDelete, onClose }) {
+  const isNew = !template?.id;
+  const [title, setTitle] = useState(template?.title || "");
+  const [items, setItems] = useState(() => template?.items?.length ? template.items : [{title:"",desc:"",assignee:""}]);
+  const [err, setErr] = useState("");
+  const setItem = (i,k,v) => setItems(a=>a.map((it,j)=>j===i?{...it,[k]:v}:it));
+  const addItem = () => setItems(a=>[...a,{title:"",desc:"",assignee:""}]);
+  const delItem = (i) => setItems(a=>a.filter((_,j)=>j!==i));
+  function save() {
+    if (!title.trim()) { setErr("Informe o nome da entrega."); return; }
+    const clean = items.filter(it=>(it.title||"").trim()).map(it=>({title:it.title.trim(),desc:(it.desc||"").trim(),assignee:it.assignee||""}));
+    if (!clean.length) { setErr("Inclua ao menos uma tarefa na entrega."); return; }
+    onSave({ ...(template||{}), title:title.trim(), items:clean });
+    onClose();
+  }
+  return (
+    <Modal title={isNew?"Novo modelo de entrega":`Editar — ${template.title}`} subtitle="Recorrente: as tarefas serão geradas a cada mês para os analistas" onClose={onClose} wide>
+      <div style={{marginBottom:16}}><Field label="Nome da entrega *"><input style={inp} placeholder="Ex: Fechamento mensal de faturamento" value={title} onChange={e=>{setTitle(e.target.value);setErr("");}}/></Field></div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px"}}>Tarefas da entrega</div>
+        <Btn small onClick={addItem}>+ Tarefa</Btn>
+      </div>
+      {items.map((it,i)=>(
+        <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <span style={{fontSize:12,fontWeight:700,color:T.brand}}>Tarefa {i+1}</span>
+            {items.length>1 && <button onClick={()=>delItem(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 200px",gap:10,marginBottom:8}}>
+            <Field label="Título"><input style={inp} placeholder="Ex: Extrair base de T&E" value={it.title} onChange={e=>setItem(i,"title",e.target.value)}/></Field>
+            <Field label="Responsável"><select style={inp} value={it.assignee} onChange={e=>setItem(i,"assignee",e.target.value)}>
+              <option value="">👥 Todos os analistas</option>
+              {responsaveis.map(r=><option key={r} value={r}>{r}</option>)}
+            </select></Field>
+          </div>
+          <Field label="Descrição (opcional)"><input style={inp} placeholder="Detalhe da tarefa..." value={it.desc} onChange={e=>setItem(i,"desc",e.target.value)}/></Field>
+        </div>
+      ))}
+      {err&&<div style={{margin:"12px 0",fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
+      <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:14}}>
+        <div>{!isNew && <Btn danger small onClick={()=>{onDelete(template.id);onClose();}}>🗑 Excluir modelo</Btn>}</div>
+        <div style={{display:"flex",gap:8}}><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={save}>{isNew?"Criar modelo":"Salvar"}</Btn></div>
+      </div>
+    </Modal>
+  );
+}
+
+function DeliveryManager({ templates, responsaveis, competenciaAtual, onTemplateSave, onTemplateDelete, onGenerate, onClose }) {
+  const [editing, setEditing] = useState(null);
+  const [comp, setComp] = useState(competenciaAtual || "");
+  const [confirmGen, setConfirmGen] = useState(null);
+  return (
+    <Modal title="Entregas recorrentes" subtitle="Modelos de entrega e geração mensal das tarefas" onClose={onClose} wide>
+      {editing && <DeliveryTemplateModal template={editing.id?editing:null} responsaveis={responsaveis} onSave={onTemplateSave} onDelete={onTemplateDelete} onClose={()=>setEditing(null)}/>}
+      {confirmGen && <ConfirmDialog title="Gerar entrega do mês" confirmLabel="Gerar"
+        message={`Gerar as tarefas de "${confirmGen.title}" para a competência ${comp}? Serão criadas tarefas para os analistas.`}
+        onConfirm={()=>onGenerate(confirmGen, comp)} onClose={()=>setConfirmGen(null)}/>}
+
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:16,padding:"12px 14px",background:T.canvas,borderRadius:T.rLg,border:`1px solid ${T.line}`}}>
+        <span style={{fontSize:13,fontWeight:600,color:T.ink}}>Gerar para a competência:</span>
+        <input style={{...inp,width:120}} placeholder="MM/AAAA" value={comp} onChange={e=>setComp(e.target.value)}/>
+        <span style={{fontSize:11,color:T.muted}}>Use o botão "⚡ Gerar do mês" em cada modelo abaixo.</span>
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <span style={{fontSize:13,fontWeight:700,color:T.ink}}>Modelos de entrega ({templates.length})</span>
+        <Btn primary small onClick={()=>setEditing({})}>+ Novo modelo</Btn>
+      </div>
+
+      {templates.length===0
+        ? <div style={{fontSize:13,color:T.muted,textAlign:"center",padding:"24px",background:T.canvas,borderRadius:T.rLg,border:`1px dashed ${T.line}`}}>Nenhum modelo ainda. Crie um modelo de entrega (ex.: "Fechamento mensal") com as tarefas que se repetem todo mês.</div>
+        : templates.map(t=>(
+          <div key={t.id} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:160}}>
+              <div style={{fontSize:14,fontWeight:700,color:T.ink}}>🔁 {t.title}</div>
+              <div style={{fontSize:11,color:T.muted,marginTop:2}}>{t.items.length} tarefa(s): {t.items.map(i=>i.title).join(", ").slice(0,80)}{t.items.map(i=>i.title).join(", ").length>80?"…":""}</div>
+            </div>
+            <Btn small onClick={()=>setEditing(t)}>✎ Editar</Btn>
+            <Btn primary small onClick={()=>{ if(!/^\d{2}\/\d{4}$/.test(comp)){alert("Informe a competência no formato MM/AAAA");return;} setConfirmGen(t); }}>⚡ Gerar do mês</Btn>
+          </div>
+        ))}
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}><Btn onClick={onClose}>Fechar</Btn></div>
+    </Modal>
+  );
+}
+
 // ─── KANBAN ──────────────────────────────────────────────────────────────────
 
-function Kanban({ tasks, responsaveis, onAdd, onUpdate, onDelete }) {
+function Kanban({ tasks, responsaveis, isAdmin, competenciaAtual, templates, deliveries, onAdd, onUpdate, onDelete, onTemplateSave, onTemplateDelete, onGenerate }) {
   const isMobile = useIsMobile();
   const [editing, setEditing]       = useState(null);
   const [dragId, setDragId]         = useState(null);
   const [dragOverCol, setDragOver]  = useState(null);
   const [filterResp, setFilterResp] = useState("todos");
+  const [filterTipo, setFilterTipo] = useState("todas"); // todas | recorrentes | ordinarias
+  const [byAnalyst, setByAnalyst]   = useState(false);
+  const [showDeliv, setShowDeliv]   = useState(false);
 
-  const visible = filterResp==="todos" ? tasks : tasks.filter(t=>t.assignee===filterResp);
+  let visible = filterResp==="todos" ? tasks : tasks.filter(t=>t.assignee===filterResp);
+  if (filterTipo==="recorrentes") visible = visible.filter(t=>t.recorrente);
+  if (filterTipo==="ordinarias")  visible = visible.filter(t=>!t.recorrente);
 
   const moveTo = (task, status) => { if (task.status!==status) onUpdate({ ...task, status, updatedAt:nowISO() }); };
   const onDropCol = (status) => { if (dragId) { const t=tasks.find(x=>x.id===dragId); if (t) moveTo(t,status); } setDragId(null); setDragOver(null); };
   const saveTask = (t) => { if (t.id && tasks.some(x=>x.id===t.id)) onUpdate(t); else onAdd(t); };
 
+  function Column({ col, list }) {
+    const colTasks = list.filter(t=>t.status===col.id);
+    const isOver = dragOverCol===col.id;
+    return (
+      <div
+        onDragOver={e=>{e.preventDefault();setDragOver(col.id);}}
+        onDragLeave={()=>setDragOver(o=>o===col.id?null:o)}
+        onDrop={()=>onDropCol(col.id)}
+        style={{background:isOver?T.brandBg:"#f3f4f6",border:`1px solid ${isOver?col.accent:T.line}`,borderRadius:T.rXl,padding:"10px 10px 4px",minHeight:100,transition:"background .12s"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"2px 4px"}}>
+          <span style={{width:9,height:9,borderRadius:"50%",background:col.accent}}/>
+          <span style={{fontSize:13,fontWeight:700,color:col.color}}>{col.title}</span>
+          <span style={{fontSize:11,color:T.muted,background:"#fff",borderRadius:T.rPill,padding:"1px 8px",border:`1px solid ${T.line}`}}>{colTasks.length}</span>
+        </div>
+        {col.id==="inbox"&&<button onClick={()=>setEditing({ status:"inbox" })}
+          style={{width:"100%",marginBottom:10,padding:"8px",border:`1.5px dashed #c7cdd6`,borderRadius:T.rMd,background:"#fff",color:T.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          + Criar tarefa aqui
+        </button>}
+        {colTasks.map(t=>(
+          <TaskCard key={t.id} task={t} onOpen={setEditing} onMove={moveTo} onDragStart={setDragId} onDragEnd={()=>{setDragId(null);setDragOver(null);}}/>
+        ))}
+        {colTasks.length===0&&col.id!=="inbox"&&<div style={{textAlign:"center",color:"#c7cdd6",fontSize:11.5,padding:"14px 4px"}}>Solte tarefas aqui</div>}
+        {colTasks.length===0&&col.id==="inbox"&&<div style={{textAlign:"center",color:"#c7cdd6",fontSize:11.5,padding:"4px"}}>{col.hint}</div>}
+      </div>
+    );
+  }
+  const boardStyle = {display:"grid",gridTemplateColumns:`repeat(${TASK_COLUMNS.length},minmax(240px,1fr))`,gap:14,alignItems:"start",overflowX:"auto",paddingBottom:6};
+
+  // Agrupamento por analista (visão do admin)
+  const groups = byAnalyst
+    ? [...responsaveis.map(r=>({key:r,label:r,list:visible.filter(t=>t.assignee===r)})), {key:"__none__",label:"Sem responsável",list:visible.filter(t=>!t.assignee)}].filter(g=>g.list.length>0)
+    : null;
+
   return (
     <div>
       {editing && <TaskModal task={editing} responsaveis={responsaveis} onSave={saveTask} onDelete={onDelete} onClose={()=>setEditing(null)}/>}
+      {showDeliv && <DeliveryManager templates={templates} responsaveis={responsaveis} competenciaAtual={competenciaAtual}
+        onTemplateSave={onTemplateSave} onTemplateDelete={onTemplateDelete} onGenerate={onGenerate} onClose={()=>setShowDeliv(false)}/>}
 
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:180}}>
           <h1 style={Ty.h1}>✅ Tarefas do time</h1>
           <div style={{...Ty.small, marginTop:3}}>{tasks.length} tarefa(s) · arraste os cards entre as colunas ou use as setas</div>
         </div>
-        <select style={{...inp,width:isMobile?"100%":"auto"}} value={filterResp} onChange={e=>setFilterResp(e.target.value)} aria-label="Filtrar responsável">
+        <select style={{...inp,width:"auto"}} value={filterTipo} onChange={e=>setFilterTipo(e.target.value)} aria-label="Tipo de tarefa">
+          <option value="todas">Todas</option>
+          <option value="recorrentes">🔁 Recorrentes</option>
+          <option value="ordinarias">Ordinárias</option>
+        </select>
+        <select style={{...inp,width:"auto"}} value={filterResp} onChange={e=>setFilterResp(e.target.value)} aria-label="Filtrar responsável">
           <option value="todos">Todos os responsáveis</option>
           {responsaveis.map(r=><option key={r}>{r}</option>)}
         </select>
+        {isAdmin&&<Btn small onClick={()=>setByAnalyst(v=>!v)} style={byAnalyst?{borderColor:T.brand,color:T.brand}:{}}>👥 Por analista</Btn>}
+        {isAdmin&&<Btn small onClick={()=>setShowDeliv(true)}>🗂 Entregas</Btn>}
         <Btn primary onClick={()=>setEditing({ status:"inbox" })}>+ Nova tarefa</Btn>
       </div>
 
-      <div className="fc-scroll" style={{display:"grid",gridTemplateColumns:`repeat(${TASK_COLUMNS.length},minmax(240px,1fr))`,gap:14,alignItems:"start",overflowX:"auto",paddingBottom:6}}>
-        {TASK_COLUMNS.map(col=>{
-          const colTasks = visible.filter(t=>t.status===col.id);
-          const isOver = dragOverCol===col.id;
-          return (
-            <div key={col.id}
-              onDragOver={e=>{e.preventDefault();setDragOver(col.id);}}
-              onDragLeave={()=>setDragOver(o=>o===col.id?null:o)}
-              onDrop={()=>onDropCol(col.id)}
-              style={{background:isOver?T.brandBg:"#f3f4f6",border:`1px solid ${isOver?col.accent:T.line}`,borderRadius:T.rXl,padding:"10px 10px 4px",minHeight:120,transition:"background .12s"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"2px 4px"}}>
-                <span style={{width:9,height:9,borderRadius:"50%",background:col.accent}}/>
-                <span style={{fontSize:13,fontWeight:700,color:col.color}}>{col.title}</span>
-                <span style={{fontSize:11,color:T.muted,background:"#fff",borderRadius:T.rPill,padding:"1px 8px",border:`1px solid ${T.line}`}}>{colTasks.length}</span>
+      {!byAnalyst && <div className="fc-scroll" style={boardStyle}>
+        {TASK_COLUMNS.map(col=><Column key={col.id} col={col} list={visible}/>)}
+      </div>}
+
+      {byAnalyst && (groups.length===0
+        ? <Card style={{textAlign:"center",padding:"2rem",color:T.muted,fontSize:13}}>Nenhuma tarefa para exibir.</Card>
+        : groups.map(g=>(
+            <div key={g.key} style={{marginBottom:22}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                {g.key!=="__none__" && <Avatar name={g.label} size={24}/>}
+                <span style={{fontSize:14,fontWeight:700,color:T.ink}}>{g.label}</span>
+                <span style={{fontSize:11,color:T.muted,background:T.lineSoft,borderRadius:T.rPill,padding:"1px 9px"}}>{g.list.length}</span>
               </div>
-
-              {col.id==="inbox"&&<button onClick={()=>setEditing({ status:"inbox" })}
-                style={{width:"100%",marginBottom:10,padding:"8px",border:`1.5px dashed #c7cdd6`,borderRadius:T.rMd,background:"#fff",color:T.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                + Criar tarefa aqui
-              </button>}
-
-              {colTasks.map(t=>(
-                <TaskCard key={t.id} task={t} onOpen={setEditing} onMove={moveTo} onDragStart={setDragId} onDragEnd={()=>{setDragId(null);setDragOver(null);}}/>
-              ))}
-
-              {colTasks.length===0&&col.id!=="inbox"&&<div style={{textAlign:"center",color:"#c7cdd6",fontSize:11.5,padding:"14px 4px"}}>Solte tarefas aqui</div>}
-              {colTasks.length===0&&col.id==="inbox"&&<div style={{textAlign:"center",color:"#c7cdd6",fontSize:11.5,padding:"4px"}}>{col.hint}</div>}
+              <div className="fc-scroll" style={boardStyle}>
+                {TASK_COLUMNS.map(col=><Column key={col.id} col={col} list={g.list}/>)}
+              </div>
             </div>
-          );
-        })}
-      </div>
+          )))}
     </div>
   );
 }
@@ -1992,6 +2116,8 @@ function AppInner() {
   const [history, setHistory]   = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [clients, setClients]   = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [deliveries, setDeliveries] = useState([]);
   const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
@@ -2002,14 +2128,16 @@ function AppInner() {
   const reloadHistory  = useCallback(async () => { try { setHistory(await db.fetchHistory()); } catch(e){ /* histórico é só p/ admin */ } }, []);
   const reloadProfiles = useCallback(async () => { try { setProfiles(await db.fetchProfiles()); } catch(e){ toast("Erro ao carregar acessos: "+e.message, "error"); } }, [toast]);
   const reloadClients  = useCallback(async () => { try { setClients(await db.fetchClients()); } catch(e){ toast("Erro ao carregar clientes: "+e.message, "error"); } }, [toast]);
+  const reloadTemplates = useCallback(async () => { try { setTemplates(await db.fetchTemplates()); } catch(e){ /* entregas: só admin */ } }, []);
+  const reloadDeliveries = useCallback(async () => { try { setDeliveries(await db.fetchDeliveries()); } catch(e){ /* idem */ } }, []);
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[])])
-      .then(([r, t, h, p, c]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[])])
+      .then(([r, t, h, p, c, tm, dv]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -2074,6 +2202,18 @@ function AppInner() {
   async function handleTaskAdd(t)    { try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
   async function handleTaskUpdate(u) { try { await db.updateTask(u); await reloadTasks(); } catch(e){ toast("Erro ao atualizar tarefa: "+e.message,"error"); } }
   async function handleTaskDelete(id){ try { await db.deleteTask(id); await reloadTasks(); toast("Tarefa excluída","info"); } catch(e){ toast("Erro ao excluir tarefa: "+e.message,"error"); } }
+
+  // ─ Entregas recorrentes ─
+  async function handleTemplateSave(t)   { try { t.id ? await db.updateTemplate(t) : await db.insertTemplate(t); await reloadTemplates(); toast(t.id?"Modelo atualizado":"Modelo de entrega criado"); } catch(e){ toast("Erro ao salvar modelo: "+e.message,"error"); } }
+  async function handleTemplateDelete(id){ try { await db.deleteTemplate(id); await reloadTemplates(); toast("Modelo excluído","info"); } catch(e){ toast("Erro ao excluir modelo: "+e.message,"error"); } }
+  async function handleGenerateDelivery(template, competencia) {
+    try {
+      const analistas = [...new Set([...profiles.filter(p=>!p.isAdmin).map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))];
+      const { count } = await db.generateDelivery(template, competencia, analistas);
+      await Promise.all([reloadTasks(), reloadDeliveries()]);
+      toast(`Entrega gerada — ${count} tarefa(s) para ${competencia}`);
+    } catch(e){ toast("Erro ao gerar entrega: "+e.message,"error"); }
+  }
 
   // ─ Gestão de acessos (Supabase) ─
   async function handleProfileUpdate(data) {
@@ -2168,7 +2308,10 @@ function AppInner() {
           )}
           {page==="tasks"&&(
             <div style={{padding:isMobile?"18px 14px":"24px 22px"}}>
-              <Kanban tasks={tasks} responsaveis={responsaveis} onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}/>
+              <Kanban tasks={tasks} responsaveis={responsaveis} isAdmin={isAdmin} competenciaAtual={state.competenciaAtual}
+                templates={templates} deliveries={deliveries}
+                onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}
+                onTemplateSave={handleTemplateSave} onTemplateDelete={handleTemplateDelete} onGenerate={handleGenerateDelivery}/>
             </div>
           )}
           {page==="access"&&isAdmin&&(
