@@ -514,7 +514,7 @@ const FEEWIP_COL_MAP = {
   inicio:       ["INICIO","INÍCIO"],
   fim:          ["FIM"],
   valorTotal:   ["RECEITA PLANEJADA","VALOR TOTAL"],
-  valorLiquido: ["Formula Líquido","FORMULA LIQUIDO","Formula Liquido","Valor Liquido :)","VALOR LIQUIDO","Valor Liquido"],
+  valorLiquido: ["Formula Líquido","FORMULA LIQUIDO","Formula Liquido","RECEITA LIQUIDA","RECEITA LÍQUIDA","Valor Liquido :)","VALOR LIQUIDO","Valor Liquido"],
   obs:          ["OBSERVAÇÃO","OBSERVACAO","Projeto","PROJETO"],
 };
 // Aceita competência como "05/2026" ou "052026" → "05/2026" (vazio se inválida).
@@ -533,15 +533,17 @@ function normTipo(t) {
 }
 // Parser de planilhas "por PEP" (Fee, WIP, Usage Based). Sem profissional/horas.
 // tipoFixo: se informado, força o tipo (não precisa coluna TIPO); senão lê de cada linha.
-function parseRevenueRows(rows, competencia, { tipoFixo=null, empresaFixa=null } = {}) {
+function parseRevenueRows(rows, competencia, { tipoFixo=null, tipoFallback=null, empresaFixa=null } = {}) {
   let hi=0;
   for (let i=0;i<Math.min(6,rows.length);i++) { if(rows[i].some(c=>(c||"").toString().toUpperCase().includes("RESPONSAV"))) { hi=i; break; } }
   const headers = rows[hi].map(h=>(h||"").toString());
   const colIdx={};
   for (const [key,cands] of Object.entries(FEEWIP_COL_MAP)) { const i=findCol(headers,cands); if(i!==-1) colIdx[key]=i; }
-  const need=["responsavel","cliente","pep","valorTotal"].concat(tipoFixo ? [] : ["tipo"]);
+  // TIPO só é obrigatório se não houver tipo fixo nem padrão.
+  const needTipo = !tipoFixo && !tipoFallback;
+  const need=["responsavel","cliente","pep","valorTotal"].concat(needTipo ? ["tipo"] : []);
   const missing=need.filter(k=>colIdx[k]==null);
-  if (missing.length) return { records:[], errors:[`Cabeçalhos não encontrados (${missing.join(", ")}). A planilha precisa ter: RESPONSÁVEL${tipoFixo?"":", TIPO"}, NOME CLIENTE, PEP, RECEITA PLANEJADA.`] };
+  if (missing.length) return { records:[], errors:[`Cabeçalhos não encontrados (${missing.join(", ")}). A planilha precisa ter: RESPONSÁVEL${needTipo?", TIPO":""}, NOME CLIENTE, PEP, RECEITA PLANEJADA/VALOR TOTAL.`] };
   const records=[]; const skipped=[];
   for (let i=hi+1;i<rows.length;i++) {
     const row=rows[i];
@@ -550,7 +552,7 @@ function parseRevenueRows(rows, competencia, { tipoFixo=null, empresaFixa=null }
     const getNum=k=>parseFloat(String(get(k)).replace(",","."))||0;
     const getStr=k=>String(get(k)).trim();
     const cliente=getStr("cliente"), pep=getStr("pep"), responsavel=getStr("responsavel");
-    const tipo=tipoFixo || normTipo(get("tipo"));
+    const tipo=tipoFixo || normTipo(get("tipo")) || tipoFallback;
     if(!cliente||!pep||!responsavel||!tipo){skipped.push(i+1);continue;}
     records.push({ id:genId(), responsavel, empresa:getStr("empresa")||empresaFixa||"BR02", tipo, codCliente:getStr("codCliente"), cliente, pep, inicio:excelDateToStr(get("inicio")), fim:excelDateToStr(get("fim")), profissional:"", valorVenda:0, hrsAprovadas:0, valorTotal:getNum("valorTotal"), valorLiquido:getNum("valorLiquido"), competencia, progress:makeProgress(), nfNumero:"", obs:getStr("obs"), updatedAt:nowISO() });
   }
@@ -560,10 +562,11 @@ function parseRevenueRows(rows, competencia, { tipoFixo=null, empresaFixa=null }
 }
 
 function ImportModal({ onImport, onClose }) {
-  const [layout,setLayout]=useState("te"); // te | feewip
+  const [layout,setLayout]=useState("te"); // te | feewip | usage
   const [competencia,setComp]=useState("");
   const [empresa,setEmpresa]=useState("BR02");
   const [tipo,setTipo]=useState("Time & Expenses");
+  const [tipoFb,setTipoFb]=useState("Fee"); // padrão p/ Fee/WIP quando a planilha não tem coluna TIPO
   const [mode,setMode]=useState("add");
   const [note,setNote]=useState("");
   const [preview,setPreview]=useState(null);
@@ -586,7 +589,7 @@ function ImportModal({ onImport, onClose }) {
         const sheetName=layout==="te" ? (wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0]) : wb.SheetNames[0];
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:""});
         const {records,errors}=
-            layout==="feewip" ? parseRevenueRows(rows, comp, { empresaFixa:empresa })
+            layout==="feewip" ? parseRevenueRows(rows, comp, { empresaFixa:empresa, tipoFallback:tipoFb })
           : layout==="usage"  ? parseRevenueRows(rows, comp, { tipoFixo:"Usage Based", empresaFixa:empresa })
           :                     parseSheetRows(rows, empresa, "Time & Expenses", comp);
         const m=[];
@@ -599,7 +602,7 @@ function ImportModal({ onImport, onClose }) {
     reader.readAsArrayBuffer(file);
   }
 
-  const onDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);},[layout,competencia,empresa]);
+  const onDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);},[layout,competencia,empresa,tipoFb]);
   const mc={ok:{bg:T.okBg,text:T.ok,border:T.okLine},warn:{bg:T.warnBg,text:T.warn,border:T.warnLine},error:{bg:T.dangerBg,text:T.danger,border:T.dangerLine}};
 
   return (
@@ -625,7 +628,7 @@ function ImportModal({ onImport, onClose }) {
         <Field label="Competência *" hint="(preencha primeiro)"><input style={inp} placeholder="05/2026" value={competencia} onChange={e=>{setComp(e.target.value);reset();}}/></Field>
         <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
         {layout==="te" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Time & Expenses" disabled/></Field>}
-        {layout==="feewip" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Fee / WIP (da planilha)" disabled/></Field>}
+        {layout==="feewip" && <Field label="Tipo padrão" hint="(se a planilha não tiver coluna TIPO)"><select style={inp} value={tipoFb} onChange={e=>{setTipoFb(e.target.value);reset();}}><option>Fee</option><option>WIP</option></select></Field>}
         {layout==="usage" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Usage Based" disabled/></Field>}
       </div>
       <div style={{marginBottom:14}}>
