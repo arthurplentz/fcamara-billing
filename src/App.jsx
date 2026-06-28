@@ -872,10 +872,45 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
   );
 }
 
+// Edição de um registro importado (somente admin).
+function RecordEditModal({ record, onSave, onClose }) {
+  const [f, setF] = useState(record);
+  const set = (k,v) => setF(p=>({...p,[k]:v}));
+  const num = (k,v) => setF(p=>({...p,[k]: v===""?0:parseFloat(String(v).replace(",","."))||0}));
+  function save() { onSave({ ...record, ...f, updatedAt: nowISO() }); onClose(); }
+  return (
+    <Modal title="Editar registro" subtitle={`${record.cliente} · ${record.profissional}`} onClose={onClose} wide>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
+        <Field label="Responsável"><input style={inp} value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)}/></Field>
+        <Field label="Empresa"><select style={inp} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
+        <Field label="Tipo"><select style={inp} value={f.tipo||""} onChange={e=>set("tipo",e.target.value)}>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>
+        <Field label="Competência"><input style={inp} value={f.competencia||""} onChange={e=>set("competencia",e.target.value)}/></Field>
+        <Field label="Cód. Cliente"><input style={inp} value={f.codCliente||""} onChange={e=>set("codCliente",e.target.value)}/></Field>
+        <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
+        <Field label="PEP"><input style={inp} value={f.pep||""} onChange={e=>set("pep",e.target.value)}/></Field>
+        <Field label="Profissional"><input style={inp} value={f.profissional||""} onChange={e=>set("profissional",e.target.value)}/></Field>
+        <Field label="Início"><input style={inp} value={f.inicio||""} onChange={e=>set("inicio",e.target.value)}/></Field>
+        <Field label="Fim"><input style={inp} value={f.fim||""} onChange={e=>set("fim",e.target.value)}/></Field>
+        <Field label="Valor de venda"><input style={inp} value={f.valorVenda} onChange={e=>num("valorVenda",e.target.value)}/></Field>
+        <Field label="Hrs aprovadas"><input style={inp} value={f.hrsAprovadas} onChange={e=>num("hrsAprovadas",e.target.value)}/></Field>
+        <Field label="Valor total"><input style={inp} value={f.valorTotal} onChange={e=>num("valorTotal",e.target.value)}/></Field>
+        <Field label="Valor líquido"><input style={inp} value={f.valorLiquido} onChange={e=>num("valorLiquido",e.target.value)}/></Field>
+      </div>
+      <div style={{marginBottom:16}}><Field label="Observações"><textarea style={{...inp,minHeight:54,resize:"vertical"}} value={f.obs||""} onChange={e=>set("obs",e.target.value)}/></Field></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary onClick={save}>Salvar registro</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
-function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, onCompetenciaChange }) {
+function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, competenciaAtual, onCompetenciaChange }) {
   const isMobile = useIsMobile();
+  const [recordEdit, setRecEdit] = useState(null);
+  const [recordDel, setRecDel]   = useState(null);
   const [empresa, setEmpresa]       = useState("");
   const [tipo, setTipo]             = useState("");
   const [filterComp, setFilterComp] = useState(competenciaAtual);
@@ -915,6 +950,10 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
     <div>
       {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onOpenNF={()=>{ const t=bulkTarget; setBulk(null); setNf(t); }} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
       {nfTarget&&<NFGroupModal {...nfTarget} onClose={()=>setNf(null)} onSave={updated=>{onUpdateBulk(updated);setNf(null);}}/>}
+      {recordEdit&&<RecordEditModal record={recordEdit} onClose={()=>setRecEdit(null)} onSave={r=>{onUpdateBulk([r]);setRecEdit(null);}}/>}
+      {recordDel&&<ConfirmDialog title="Excluir registro" danger confirmLabel="Excluir"
+        message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.`}
+        onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
 
       <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
         <h1 style={Ty.h1}>📋 Minha visão</h1>
@@ -1001,8 +1040,8 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
               <div className="fc-scroll" style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginTop:10}}>
                 <thead><tr style={{background:T.canvas}}>
-                  {[isAdmin&&"Analista","Profissional","Funil","Período","Val. Total","NF","Status"].filter(Boolean).map(h=>
-                    <th key={h} style={{padding:"7px 10px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
+                  {[isAdmin&&"Analista","Profissional","Funil","Período","Val. Total","NF","Status",isAdmin&&"Ações"].filter(Boolean).map(h=>
+                    <th key={h} style={{padding:"7px 10px",textAlign:h==="Ações"?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
                   )}
                 </tr></thead>
                 <tbody>
@@ -1015,6 +1054,10 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
                       <td style={{padding:"7px 10px",fontWeight:500}}>{fmtShort(r.valorTotal)}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
                       <td style={{padding:"7px 10px"}}><Badge label={calcStatus(r.progress)} color={calcStatusColor(r.progress)} small dot/></td>
+                      {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
+                        <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}>✎</button>
+                        <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}>🗑</button>
+                      </td>}
                     </tr>
                   ))}
                 </tbody>
@@ -1892,6 +1935,11 @@ function AppInner() {
 
   function handleCompetencia(val) { setState(s=>({...s, competenciaAtual:val})); }
 
+  async function handleRecordDelete(id) {
+    try { await db.deleteRecord(id); await reloadRecords(); toast("Registro excluído", "info"); }
+    catch(e) { toast("Erro ao excluir registro: "+e.message, "error"); }
+  }
+
   async function handleTaskAdd(t)    { try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
   async function handleTaskUpdate(u) { try { await db.updateTask(u); await reloadTasks(); } catch(e){ toast("Erro ao atualizar tarefa: "+e.message,"error"); } }
   async function handleTaskDelete(id){ try { await db.deleteTask(id); await reloadTasks(); toast("Tarefa excluída","info"); } catch(e){ toast("Erro ao excluir tarefa: "+e.message,"error"); } }
@@ -1978,7 +2026,7 @@ function AppInner() {
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
               {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin}/>}
             </div>
           )}
