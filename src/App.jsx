@@ -515,6 +515,12 @@ const FEEWIP_COL_MAP = {
   valorLiquido: ["Formula Líquido","FORMULA LIQUIDO","Formula Liquido"],
   obs:          ["OBSERVAÇÃO","OBSERVACAO"],
 };
+// Aceita competência como "05/2026" ou "052026" → "05/2026" (vazio se inválida).
+function normComp(v) {
+  const d = String(v||"").replace(/\D/g, "");
+  if (d.length === 6) return d.slice(0,2) + "/" + d.slice(2);
+  return /^\d{2}\/\d{4}$/.test(String(v||"").trim()) ? String(v).trim() : "";
+}
 function normTipo(t) {
   const s = String(t||"").trim().toLowerCase();
   if (s==="fee") return "Fee";
@@ -523,15 +529,17 @@ function normTipo(t) {
   if (s.includes("usage")) return "Usage Based";
   return String(t||"").trim();
 }
-function parseFeeWipRows(rows, competencia) {
+// Parser de planilhas "por PEP" (Fee, WIP, Usage Based). Sem profissional/horas.
+// tipoFixo: se informado, força o tipo (não precisa coluna TIPO); senão lê de cada linha.
+function parseRevenueRows(rows, competencia, { tipoFixo=null, empresaFixa=null } = {}) {
   let hi=0;
   for (let i=0;i<Math.min(6,rows.length);i++) { if(rows[i].some(c=>(c||"").toString().toUpperCase().includes("RESPONSAV"))) { hi=i; break; } }
   const headers = rows[hi].map(h=>(h||"").toString());
   const colIdx={};
   for (const [key,cands] of Object.entries(FEEWIP_COL_MAP)) { const i=findCol(headers,cands); if(i!==-1) colIdx[key]=i; }
-  const need=["responsavel","cliente","pep","tipo","valorTotal"];
+  const need=["responsavel","cliente","pep","valorTotal"].concat(tipoFixo ? [] : ["tipo"]);
   const missing=need.filter(k=>colIdx[k]==null);
-  if (missing.length) return { records:[], errors:[`Cabeçalhos não encontrados (${missing.join(", ")}). A planilha precisa ter: RESPONSÁVEL, TIPO, NOME CLIENTE, PEP, RECEITA PLANEJADA.`] };
+  if (missing.length) return { records:[], errors:[`Cabeçalhos não encontrados (${missing.join(", ")}). A planilha precisa ter: RESPONSÁVEL${tipoFixo?"":", TIPO"}, NOME CLIENTE, PEP, RECEITA PLANEJADA.`] };
   const records=[]; const skipped=[];
   for (let i=hi+1;i<rows.length;i++) {
     const row=rows[i];
@@ -539,9 +547,10 @@ function parseFeeWipRows(rows, competencia) {
     const get=k=>colIdx[k]!=null?(row[colIdx[k]]??""):"";
     const getNum=k=>parseFloat(String(get(k)).replace(",","."))||0;
     const getStr=k=>String(get(k)).trim();
-    const cliente=getStr("cliente"), pep=getStr("pep"), responsavel=getStr("responsavel"), tipo=normTipo(get("tipo"));
+    const cliente=getStr("cliente"), pep=getStr("pep"), responsavel=getStr("responsavel");
+    const tipo=tipoFixo || normTipo(get("tipo"));
     if(!cliente||!pep||!responsavel||!tipo){skipped.push(i+1);continue;}
-    records.push({ id:genId(), responsavel, empresa:getStr("empresa")||"BR02", tipo, codCliente:getStr("codCliente"), cliente, pep, inicio:excelDateToStr(get("inicio")), fim:excelDateToStr(get("fim")), profissional:"", valorVenda:0, hrsAprovadas:0, valorTotal:getNum("valorTotal"), valorLiquido:getNum("valorLiquido"), competencia, progress:makeProgress(), nfNumero:"", obs:getStr("obs"), updatedAt:nowISO() });
+    records.push({ id:genId(), responsavel, empresa:getStr("empresa")||empresaFixa||"BR02", tipo, codCliente:getStr("codCliente"), cliente, pep, inicio:excelDateToStr(get("inicio")), fim:excelDateToStr(get("fim")), profissional:"", valorVenda:0, hrsAprovadas:0, valorTotal:getNum("valorTotal"), valorLiquido:getNum("valorLiquido"), competencia, progress:makeProgress(), nfNumero:"", obs:getStr("obs"), updatedAt:nowISO() });
   }
   const errors=[];
   if(skipped.length) errors.push(`${skipped.length} linha(s) ignorada(s) por falta de dados.`);
@@ -563,17 +572,21 @@ function ImportModal({ onImport, onClose }) {
   const fileRef=useRef();
 
   const reset=()=>{setPreview(null);setFileName("");setMsgs([]);};
+  const comp = normComp(competencia); // aceita "05/2026" ou "052026"
 
   function readFile(file) {
-    if(!competencia.match(/^\d{2}\/\d{4}$/)){setMsgs([{type:"error",text:"Informe a competência no formato MM/AAAA antes de carregar o arquivo."}]);return;}
+    if(!comp){setMsgs([{type:"error",text:"Informe a competência (ex.: 05/2026 ou 052026) antes de carregar o arquivo."}]);return;}
     setLoading(true);setFileName(file.name);setPreview(null);setMsgs([]);
     const reader=new FileReader();
     reader.onload=e=>{
       try {
         const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array",cellDates:false});
-        const sheetName=layout==="feewip" ? wb.SheetNames[0] : (wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0]);
+        const sheetName=layout==="te" ? (wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0]) : wb.SheetNames[0];
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:""});
-        const {records,errors}=layout==="feewip" ? parseFeeWipRows(rows,competencia) : parseSheetRows(rows,empresa,tipo,competencia);
+        const {records,errors}=
+            layout==="feewip" ? parseRevenueRows(rows, comp)
+          : layout==="usage"  ? parseRevenueRows(rows, comp, { tipoFixo:"Usage Based", empresaFixa:empresa })
+          :                     parseSheetRows(rows, empresa, "Time & Expenses", comp);
         const m=[];
         errors.forEach(e=>m.push({type:"warn",text:e}));
         if(records.length===0){m.push({type:"error",text:"Nenhum registro válido. Confira as colunas da planilha."});setMsgs(m);}
@@ -584,7 +597,7 @@ function ImportModal({ onImport, onClose }) {
     reader.readAsArrayBuffer(file);
   }
 
-  const onDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);},[layout,competencia,empresa,tipo]);
+  const onDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);},[layout,competencia,empresa]);
   const mc={ok:{bg:T.okBg,text:T.ok,border:T.okLine},warn:{bg:T.warnBg,text:T.warn,border:T.warnLine},error:{bg:T.dangerBg,text:T.danger,border:T.dangerLine}};
 
   return (
@@ -597,8 +610,8 @@ function ImportModal({ onImport, onClose }) {
       <div style={{marginBottom:14}}>
         <label style={Ty.label}>Layout da planilha</label>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          {[{v:"te",l:"Time & Expenses",d:"Por profissional, com horas e valores."},{v:"feewip",l:"Fee / WIP",d:"Por PEP, com receita planejada. Tipo vem da planilha."}].map(opt=>(
-            <label key={opt.v} style={{flex:"1 1 220px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${layout===opt.v?T.brand:T.line}`,cursor:"pointer",background:layout===opt.v?T.brandBg:"#fff"}}>
+          {[{v:"te",l:"Time & Expenses",d:"Por profissional, com horas e valores."},{v:"feewip",l:"Fee / WIP",d:"Por PEP, receita planejada. Sobe Fee e WIP juntos."},{v:"usage",l:"Usage Based",d:"Por PEP, receita planejada. Tipo Usage Based."}].map(opt=>(
+            <label key={opt.v} style={{flex:"1 1 180px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${layout===opt.v?T.brand:T.line}`,cursor:"pointer",background:layout===opt.v?T.brandBg:"#fff"}}>
               <input type="radio" name="layout" checked={layout===opt.v} onChange={()=>{setLayout(opt.v);reset();}} style={{marginTop:2}}/>
               <div><div style={{fontSize:13,fontWeight:700,color:layout===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
             </label>
@@ -608,9 +621,10 @@ function ImportModal({ onImport, onClose }) {
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:14}}>
         <Field label="Competência *" hint="(preencha primeiro)"><input style={inp} placeholder="05/2026" value={competencia} onChange={e=>{setComp(e.target.value);reset();}}/></Field>
-        {layout==="te" && <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>}
-        {layout==="te" && <Field label="Tipo de projeto"><select style={inp} value={tipo} onChange={e=>{setTipo(e.target.value);reset();}}>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>}
+        {(layout==="te"||layout==="usage") && <Field label="Empresa"><select style={inp} value={empresa} onChange={e=>{setEmpresa(e.target.value);reset();}}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>}
+        {layout==="te" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Time & Expenses" disabled/></Field>}
         {layout==="feewip" && <Field label="Tipo / Empresa"><input style={{...inp,color:T.muted}} value="Vêm da planilha (Fee/WIP)" disabled/></Field>}
+        {layout==="usage" && <Field label="Tipo de projeto"><input style={{...inp,color:T.muted}} value="Usage Based" disabled/></Field>}
       </div>
       <div style={{marginBottom:14}}>
         <label style={Ty.label}>Modo de importação</label>
@@ -637,7 +651,7 @@ function ImportModal({ onImport, onClose }) {
       </div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary onClick={()=>{if(!preview)return;onImport({records:preview,competencia,empresa,tipo,mode,note:note||(mode==="replace"?"Substituição":"Adição")});onClose();}} disabled={!preview}>{mode==="replace"?"⚠ Confirmar substituição":"✓ Confirmar importação"}</Btn>
+        <Btn primary onClick={()=>{if(!preview)return;onImport({records:preview,competencia:comp,empresa,tipo,mode,note:note||(mode==="replace"?"Substituição":"Adição")});onClose();}} disabled={!preview}>{mode==="replace"?"⚠ Confirmar substituição":"✓ Confirmar importação"}</Btn>
       </div>
     </Modal>
   );
