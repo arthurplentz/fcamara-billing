@@ -611,7 +611,7 @@ function HistoryModal({ history, onClose }) {
 // ─── BULK TIMELINE MODAL ─────────────────────────────────────────────────────
 // Atualiza passos de múltiplos profissionais de um cliente de uma só vez
 
-function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
+function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF }) {
   const [selected, setSelected] = useState(new Set(records.map(r=>r.id)));
   const [sharedProg, setSharedProg] = useState(() => ({ ...records[0]?.progress } || makeProgress()));
   const [obs, setObs] = useState("");
@@ -624,8 +624,10 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
   function handleSave() {
     if (selected.size === 0) { setError("Selecione ao menos um profissional."); return; }
     const now = nowISO();
+    // A emissão da NF (p5_nf / data / número) é gerida na tela "Notas fiscais".
+    // Aqui preservamos esses campos por profissional e atualizamos só o restante do funil.
     const updated = records.map(r => selected.has(r.id)
-      ? { ...r, progress: { ...sharedProg }, obs: obs || r.obs, updatedAt: now }
+      ? { ...r, progress: { ...sharedProg, p5_nf: r.progress?.p5_nf || false, p5_data_nf: r.progress?.p5_data_nf || "" }, obs: obs || r.obs, updatedAt: now }
       : r
     );
     onSave(updated);
@@ -669,27 +671,32 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose }) {
               <div style={{width:22,height:22,borderRadius:"50%",background:gs==="done"?T.ok:T.brand,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{gs==="done"?"✓":g.num}</div>
               <span style={{fontWeight:700,fontSize:13,color:T.ink}}>{g.title}</span>
             </div>
-            {STEPS.filter(s=>g.steps.includes(s.id)).map(s=>(
-              <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
-                <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
-                {s.type==="check"
-                  ? <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>
-                      <input type="checkbox" checked={!!sharedProg[s.id]} onChange={e=>setVal(s.id,e.target.checked)} style={{width:15,height:15}}/>
-                      <span style={{color:sharedProg[s.id]?T.ok:T.muted}}>{sharedProg[s.id]?"✓ Feito":"Pendente"}</span>
-                    </label>
-                  : <input type="date" value={sharedProg[s.id]||""} onChange={e=>setVal(s.id,e.target.value)} style={{...inp,width:150}}/>
-                }
-              </div>
-            ))}
+            {STEPS.filter(s=>g.steps.includes(s.id)).map(s=>{
+              // A NF (emitida e data de emissão) é tratada na tela "Notas fiscais".
+              if (s.id === "p5_data_nf") return null;
+              if (s.id === "p5_nf") return (
+                <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+                  <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
+                  <button type="button" onClick={onOpenNF}
+                    style={{display:"inline-flex",alignItems:"center",gap:5,background:T.brandBg,border:`1px solid ${C.blue.border}`,color:T.brand,borderRadius:T.rMd,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>🧾 Atribuir nota</button>
+                </div>
+              );
+              return (
+                <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+                  <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
+                  {s.type==="check"
+                    ? <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>
+                        <input type="checkbox" checked={!!sharedProg[s.id]} onChange={e=>setVal(s.id,e.target.checked)} style={{width:15,height:15}}/>
+                        <span style={{color:sharedProg[s.id]?T.ok:T.muted}}>{sharedProg[s.id]?"✓ Feito":"Pendente"}</span>
+                      </label>
+                    : <input type="date" value={sharedProg[s.id]||""} onChange={e=>setVal(s.id,e.target.value)} style={{...inp,width:150}}/>
+                  }
+                </div>
+              );
+            })}
           </div>
         );})}
       </div>
-
-      {/* O número da NF é informado na tela "🧾 Notas fiscais" */}
-      {sharedProg.p5_nf && <div style={{marginBottom:14,padding:"10px 14px",borderRadius:T.rMd,background:T.brandBg,border:`1px solid ${C.blue.border}`,fontSize:12,color:T.inkSoft,display:"flex",gap:8,alignItems:"flex-start"}}>
-        <span aria-hidden="true">🧾</span>
-        <span>O <b>número da NF</b> é informado na tela <b>Notas fiscais</b> do cliente — lá você seleciona os profissionais de cada nota e vê o valor somado.</span>
-      </div>}
 
       {/* Obs */}
       <div style={{marginBottom:16}}>
@@ -879,7 +886,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
 
   return (
     <div>
-      {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
+      {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onOpenNF={()=>{ const t=bulkTarget; setBulk(null); setNf(t); }} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
       {nfTarget&&<NFGroupModal {...nfTarget} onClose={()=>setNf(null)} onSave={updated=>{onUpdateBulk(updated);setNf(null);}}/>}
 
       <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
@@ -935,8 +942,8 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, competenciaAtual, on
         const faturados = g.records.filter(r=>r.progress?.p5_nf).length;
         const pct     = Math.round((faturados/g.records.length)*100)||0;
         const isOpen  = expandedCliente===(g.cliente+g.pep);
-        const overallStatus = g.records.every(r=>r.progress?.p5_no_corte)?"Faturado no corte":g.records.every(r=>r.progress?.p5_nf)?"NF emitida":g.records.some(r=>r.progress?.p5_nf)?"Parcialmente faturado":"Em andamento";
-        const overallColor  = g.records.every(r=>r.progress?.p5_no_corte)?"green":g.records.every(r=>r.progress?.p5_nf)?"teal":g.records.some(r=>r.progress?.p5_nf)?"blue":"yellow";
+        const overallStatus = g.records.every(r=>r.progress?.p5_no_corte)?"Faturado no corte":g.records.every(r=>r.progress?.p5_nf)?"NF emitida":g.records.some(r=>r.progress?.p5_nf)?"Faturado parcialmente":"Em andamento";
+        const overallColor  = g.records.every(r=>r.progress?.p5_no_corte)?"green":g.records.every(r=>r.progress?.p5_nf)?"teal":g.records.some(r=>r.progress?.p5_nf)?"orange":"yellow";
         const agg = aggregateStates(g.records);
 
         return (
