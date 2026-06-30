@@ -2235,6 +2235,9 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   const resetPage = (fn)=>(v)=>{ fn(v); setPage(0); };
 
   const toggle = (id) => setSel(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const allSel = filtered.length>0 && filtered.every(c=>sel.has(c.id));
+  const someSel = filtered.some(c=>sel.has(c.id));
+  const toggleAll = () => setSel(s => { const n=new Set(s); if(allSel) filtered.forEach(c=>n.delete(c.id)); else filtered.forEach(c=>n.add(c.id)); return n; });
   const selList = clients.filter(c=>sel.has(c.id));
   const startMerge = () => setMerging({ ids:[...sel], nome: selList[0]?.nome || "" });
   const confirmMerge = async () => {
@@ -2242,7 +2245,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
     setSel(new Set()); setMerging(null);
   };
   // Incluir os selecionados num grupo já existente (o grupo é o cadastro-base).
-  const startAdd = () => setAdding({ ids:[...sel], pick:"" });
+  const startAdd = () => setAdding({ ids:[...sel], pick:"", target:null });
   const grupoCandidatos = clients.filter(c => !adding?.ids.includes(c.id));   // não pode escolher os próprios selecionados
   const addMatches = adding ? grupoCandidatos.filter(c => !adding.pick.trim() || (c.nome||"").toLowerCase().includes(adding.pick.trim().toLowerCase())).slice(0,8) : [];
   const confirmAdd = async (target) => {
@@ -2277,23 +2280,29 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
         </Modal>
       )}
       {adding && (
-        <Modal title="Incluir em grupo existente" onClose={()=>setAdding(null)} footer={<Btn onClick={()=>setAdding(null)}>Cancelar</Btn>}>
+        <Modal title="Incluir em grupo existente" onClose={()=>setAdding(null)} footer={<>
+          <Btn onClick={()=>setAdding(null)}>Cancelar</Btn>
+          <Btn primary disabled={!adding.target} onClick={()=>confirmAdd(adding.target)}>
+            {adding.target ? `Incluir em "${adding.target.nome}"` : "Escolha o destino"}
+          </Btn>
+        </>}>
           <div style={{fontSize:13,color:T.inkSoft,marginBottom:12,lineHeight:1.6}}>
             Escolha o <b>cadastro/grupo de destino</b>. Os <b>{adding.ids.length}</b> cadastros selecionados serão reunidos nele (CNPJs somados) e <b>removidos</b> como cadastros separados.
           </div>
           <Field label="Buscar grupo de destino">
-            <input style={inp} autoFocus value={adding.pick} onChange={e=>setAdding(a=>({...a,pick:e.target.value}))} placeholder="Digite o nome do grupo… ex.: Elfa"/>
+            <input style={inp} autoFocus value={adding.pick} onChange={e=>setAdding(a=>({...a,pick:e.target.value,target:null}))} placeholder="Digite o nome do grupo… ex.: Elfa"/>
           </Field>
-          <div style={{marginTop:10,border:`1px solid ${T.line}`,borderRadius:T.rMd,overflow:"hidden"}}>
+          <div style={{marginTop:10,border:`1px solid ${T.line}`,borderRadius:T.rMd,overflow:"hidden",maxHeight:260,overflowY:"auto"}}>
             {addMatches.length===0
               ? <div style={{padding:"14px",fontSize:12.5,color:T.muted,textAlign:"center"}}>Nenhum cadastro encontrado.</div>
               : addMatches.map(c=>{
                   const n=clientCnpjs(c).length;
+                  const on=adding.target?.id===c.id;
                   return (
-                    <button key={c.id} onClick={()=>confirmAdd(c)} className="fc-row" style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",borderBottom:`1px solid ${T.lineSoft}`,background:"#fff",cursor:"pointer",padding:"10px 12px",fontSize:13,color:T.ink}}>
+                    <button key={c.id} onClick={()=>setAdding(a=>({...a,target:c}))} className="fc-row" style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandSoft||"#eef2ff":"#fff",cursor:"pointer",padding:"10px 12px",fontSize:13,color:T.ink}}>
+                      <span style={{width:16,color:T.brand,fontWeight:800}}>{on?"✓":""}</span>
                       <span style={{flex:1,fontWeight:600}}>{c.nome}</span>
                       {n>1 && <Badge label={`🔗 ${n} CNPJs`} color="blue" small/>}
-                      <span style={{fontSize:18,color:T.brand}}>＋</span>
                     </button>
                   );
                 })}
@@ -2347,7 +2356,9 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
             <div className="fc-scroll" style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:T.canvas}}>
-                  <th style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,width:34}}></th>
+                  <th style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,width:34}}>
+                    <input type="checkbox" checked={allSel} ref={el=>{ if(el) el.indeterminate = !allSel && someSel; }} onChange={toggleAll} aria-label="Selecionar todos"/>
+                  </th>
                   {["Cliente","Cód. SAP","CNPJ","Responsável","Account manager","Status"].map((h,i)=>
                     <th key={i} style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
                   )}
