@@ -76,11 +76,22 @@ export async function unconciliateRecords(recordIds) {
     .in("id", recordIds);
   if (error) throw error;
 }
+// Conciliação que também completa o funil de cada registro (progress já pronto
+// no app, por registro). Atualiza um a um — o lote por conciliação é pequeno.
+export async function conciliateRecordsWithProgress(items, { noteId, numero, userName }) {
+  for (const it of items) {
+    const { error } = await supabase.from("records").update({
+      municipal_note_id: noteId, nf_numero: numero || "", progress: it.progress,
+      conciliado_em: nowISO(), conciliado_por: userName || null, updated_at: nowISO(),
+    }).eq("id", it.id);
+    if (error) throw error;
+  }
+}
 
 // ─── NOTAS DA PREFEITURA (NFS-e) ─────────────────────────────────────────────
 function dbToNote(row) {
   return {
-    id: row.id, municipio: row.municipio || "", numero: row.numero || "",
+    id: row.id, municipio: row.municipio || "", empresa: row.empresa || "", numero: row.numero || "",
     emitidaEm: row.emitida_em || "", fatoGerador: row.fato_gerador || "",
     prestadorCnpj: row.prestador_cnpj || "", prestadorNome: row.prestador_nome || "",
     tomadorCnpj: row.tomador_cnpj || "", tomadorNome: row.tomador_nome || "",
@@ -92,7 +103,7 @@ function dbToNote(row) {
 }
 function noteToDb(n) {
   return {
-    municipio: n.municipio || null, numero: n.numero || null,
+    municipio: n.municipio || null, empresa: n.empresa || null, numero: n.numero || null,
     emitida_em: n.emitidaEm || null, fato_gerador: n.fatoGerador || null,
     prestador_cnpj: n.prestadorCnpj || null, prestador_nome: n.prestadorNome || null,
     tomador_cnpj: n.tomadorCnpj || null, tomador_nome: n.tomadorNome || null,
