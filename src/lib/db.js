@@ -155,7 +155,7 @@ export async function insertHistory(h) {
 }
 
 // ─── CLIENTS (perfil de faturamento) ─────────────────────────────────────────
-const CLIENT_FIELDS = ["nome","cod_sap","cnpj","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
+const CLIENT_FIELDS = ["nome","cod_sap","cnpj","cnpjs","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
 const BOOL_CLIENT_FIELDS = ["tem_portal","incompleto"];
 
 // Busca paginada — traz TODAS as linhas (o Supabase pode limitar a 1000 por página).
