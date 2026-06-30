@@ -2537,6 +2537,18 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             </Card>
           </div>
 
+          {(selRecs.size>0 || note) && (
+            <Card style={{padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",position:"sticky",top:12,zIndex:20,boxShadow:T.shMd,border:`1px solid ${bate?T.okLine:T.line}`}}>
+              <div style={{fontSize:13}}>
+                <b>{selRecs.size}</b> receita(s) = <b>{brl(somaSel)}</b>
+                {note && <> &nbsp;→&nbsp; NF {note.numero} (saldo {brl(alvo)}) {bate ? <span style={{color:T.ok,fontWeight:700}}>✓ bate</span> : <span style={{color:T.warn,fontWeight:700}}>≠ dif. {brl(diff)}</span>}</>}
+              </div>
+              <div style={{flex:1}}/>
+              <Btn onClick={resetSel}>Limpar</Btn>
+              <Btn primary disabled={!note||!selRecs.size} onClick={confirmar}>Conciliar {selRecs.size} com NF {note?.numero||"…"}</Btn>
+            </Card>
+          )}
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,alignItems:"start"}}>
             {/* ESQUERDA — NOTAS DA PREFEITURA */}
             <Card style={{padding:0,overflow:"hidden"}}>
@@ -2620,18 +2632,6 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
               </div>
             </Card>
           </div>
-
-          {(selRecs.size>0 || note) && (
-            <Card style={{padding:"12px 16px",marginTop:14,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",position:"sticky",bottom:12,boxShadow:T.shMd}}>
-              <div style={{fontSize:13}}>
-                <b>{selRecs.size}</b> receita(s) = <b>{brl(somaSel)}</b>
-                {note && <> &nbsp;→&nbsp; NF {note.numero} (saldo {brl(alvo)}) {bate ? <span style={{color:T.ok,fontWeight:700}}>✓ bate</span> : <span style={{color:T.warn,fontWeight:700}}>≠ dif. {brl(diff)}</span>}</>}
-              </div>
-              <div style={{flex:1}}/>
-              <Btn onClick={resetSel}>Limpar</Btn>
-              <Btn primary disabled={!note||!selRecs.size} onClick={confirmar}>Conciliar {selRecs.size} com NF {note?.numero||"…"}</Btn>
-            </Card>
-          )}
         </>
       )}
     </div>
