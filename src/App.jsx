@@ -1917,6 +1917,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   const [passos, setPassos] = useState(() => { const v=parseJSON(client?.calendario, []); return Array.isArray(v)?v:[]; });
   const [peps, setPeps] = useState(() => { const m=parseJSON(client?.tiposPeps, {}); return (m && typeof m==="object" && !Array.isArray(m))?m:{}; });
   const [propostas, setPropostas] = useState(() => { const a=parseJSON(client?.propostas, null); if(Array.isArray(a)) return a.length?a:[""]; return client?.propostaUrl?[client.propostaUrl]:[""]; });
+  const [entidades, setEnt] = useState(() => { const a=parseJSON(client?.cnpjs, null); if(Array.isArray(a)&&a.length) return a; return [{ razao:client?.nome||"", cnpj:client?.cnpj||"", codSap:client?.codSap||"" }]; });
   const [tab, setTab] = useState("dados");
   const [err, setErr] = useState("");
   const set = (k,v) => setF(p=>({...p,[k]:v}));
@@ -1942,14 +1943,20 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   const setPasso = (i,k,v) => setPassos(a=>a.map((p,j)=>j===i?{...p,[k]:v}:p));
   const delPasso = (i) => setPassos(a=>a.filter((_,j)=>j!==i));
 
+  const setEntidade = (i,k,v) => setEnt(a=>a.map((e,j)=>j===i?{...e,[k]:v}:e));
+  const addEntidade = () => setEnt(a=>[...a,{razao:"",cnpj:"",codSap:""}]);
+  const delEntidade = (i) => setEnt(a=>a.filter((_,j)=>j!==i));
+
   function save() {
-    if (!(f.nome||"").trim()) { setTab("dados"); setErr("Informe o nome do cliente."); return; }
+    if (!(f.nome||"").trim()) { setTab("dados"); setErr("Informe o nome do cliente/grupo."); return; }
     if (f.temPortal && (!(f.portalLink||"").trim() || !(f.portalUsuario||"").trim() || !(f.portalSenha||"").trim())) {
       setTab("dados"); setErr("Como o cliente tem portal, preencha o Link, o Usuário e a Senha do portal."); return;
     }
     const cleanPeps = {}; selTipos.forEach(t=>{ const arr=(peps[t]||[]).map(s=>s.trim()).filter(Boolean); if(arr.length) cleanPeps[t]=arr; });
     const cleanProp = propostas.map(s=>s.trim()).filter(Boolean);
-    onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos), tiposPeps: JSON.stringify(cleanPeps), propostas: JSON.stringify(cleanProp) });
+    const cleanEnt = entidades.map(e=>({razao:(e.razao||"").trim(),cnpj:(e.cnpj||"").replace(/\D/g,"").slice(0,14),codSap:(e.codSap||"").trim()})).filter(e=>e.cnpj||e.razao||e.codSap);
+    onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos), tiposPeps: JSON.stringify(cleanPeps), propostas: JSON.stringify(cleanProp),
+      cnpjs: JSON.stringify(cleanEnt), cnpj: cleanEnt[0]?.cnpj || "", codSap: cleanEnt[0]?.codSap || "" });
     onClose();
   }
 
@@ -1968,12 +1975,34 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         <Btn small primary onClick={()=>set("incompleto",false)}>✓ Marcar como completo</Btn>
       </div>}
       <CSec title="Identificação">
-        <Field label="Nome do cliente *"><input style={inp} value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
-        <Field label="Cód. SAP"><input style={inp} inputMode="numeric" maxLength={10} placeholder="código SAP" value={f.codSap||""} onChange={e=>set("codSap", e.target.value.replace(/\D/g,"").slice(0,10))}/></Field>
-        <Field label="CNPJ"><input style={inp} inputMode="numeric" placeholder="00000000000000" value={f.cnpj||""} onChange={e=>set("cnpj", e.target.value.replace(/\D/g,"").slice(0,14))}/></Field>
+        <Field label="Nome do cliente / grupo *"><input style={inp} placeholder="Ex: Klabin" value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
         <Field label="Grupo de empresa"><input style={inp} value={f.grupoEmpresa||""} onChange={e=>set("grupoEmpresa",e.target.value)}/></Field>
         <Field label="Analista responsável"><input style={inp} placeholder="Nome do analista dono" value={f.owner||""} onChange={e=>set("owner",e.target.value)}/></Field>
       </CSec>
+
+      {/* Empresas do grupo — vários CNPJs num só cadastro */}
+      <div style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px"}}>Empresas do grupo ({entidades.length} CNPJ{entidades.length!==1?"s":""})</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>As regras de faturamento abaixo valem para todos estes CNPJs.</div>
+          </div>
+          <Btn small onClick={addEntidade}>+ Adicionar CNPJ</Btn>
+        </div>
+        {entidades.map((e,i)=>(
+          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,background:"#fff"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:12,fontWeight:700,color:T.brand}}>{i===0?"Empresa principal":`Empresa ${i+1}`}</span>
+              {entidades.length>1 && <button onClick={()=>delEntidade(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 160px 130px",gap:10}}>
+              <Field label="Razão social"><input style={inp} placeholder="Razão social desta empresa" value={e.razao||""} onChange={ev=>setEntidade(i,"razao",ev.target.value)}/></Field>
+              <Field label="CNPJ"><input style={inp} inputMode="numeric" placeholder="00000000000000" value={e.cnpj||""} onChange={ev=>setEntidade(i,"cnpj",ev.target.value.replace(/\D/g,"").slice(0,14))}/></Field>
+              <Field label="Cód. SAP"><input style={inp} inputMode="numeric" placeholder="código" value={e.codSap||""} onChange={ev=>setEntidade(i,"codSap",ev.target.value.replace(/\D/g,"").slice(0,10))}/></Field>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <CSec title="Tipos de contrato" grid={false}>
         <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:selTipos.length?12:0}}>
@@ -2165,18 +2194,28 @@ function ClientImportModal({ existing, onImport, onClose }) {
   );
 }
 
-function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport }) {
+// Conta quantos CNPJs um cadastro reúne (grupo de empresas).
+function clientCnpjs(c) {
+  const a = parseJSON(c.cnpjs, null);
+  if (Array.isArray(a) && a.length) return a.map(e=>(e.cnpj||"")).filter(Boolean);
+  return c.cnpj ? [c.cnpj] : [];
+}
+
+function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge }) {
   const [editing, setEditing] = useState(null);
   const [importing, setImporting] = useState(false);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("todos");
   const [page, setPage] = useState(0);
+  const [sel, setSel] = useState(() => new Set());   // ids selecionados para agrupar
+  const [merging, setMerging] = useState(null);       // { ids, nome } enquanto confirma
   const PAGE = 50;
 
   let filtered = clients;
   if (status==="incompletos") filtered = filtered.filter(c=>c.incompleto);
   if (status==="completos")   filtered = filtered.filter(c=>!c.incompleto);
-  if (q) { const s=q.toLowerCase(); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").includes(s) || (c.cnpj||"").includes(s)); }
+  if (status==="grupos")      filtered = filtered.filter(c=>clientCnpjs(c).length>1);
+  if (q) { const s=q.toLowerCase(); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").includes(s) || clientCnpjs(c).some(x=>x.includes(s.replace(/\D/g,"")))); }
 
   const incompletos = clients.filter(c=>c.incompleto).length;
   const totalPages = Math.max(1, Math.ceil(filtered.length/PAGE));
@@ -2184,10 +2223,40 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport }) {
   const pageItems = filtered.slice(pg*PAGE, pg*PAGE+PAGE);
   const resetPage = (fn)=>(v)=>{ fn(v); setPage(0); };
 
+  const toggle = (id) => setSel(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const selList = clients.filter(c=>sel.has(c.id));
+  const startMerge = () => setMerging({ ids:[...sel], nome: selList[0]?.nome || "" });
+  const confirmMerge = async () => {
+    await onMerge(merging.ids, merging.nome.trim() || selList[0]?.nome || "Grupo");
+    setSel(new Set()); setMerging(null);
+  };
+
   return (
     <div>
       {editing && <ClientModal client={editing.id?editing:null} onSave={onSave} onDelete={onDelete} onClose={()=>setEditing(null)}/>}
       {importing && <ClientImportModal existing={clients} onImport={onBulkImport} onClose={()=>setImporting(false)}/>}
+      {merging && (
+        <Modal title="Agrupar clientes" onClose={()=>setMerging(null)} footer={<>
+          <Btn onClick={()=>setMerging(null)}>Cancelar</Btn>
+          <Btn primary onClick={confirmMerge}>Agrupar {merging.ids.length} cadastros</Btn>
+        </>}>
+          <div style={{fontSize:13,color:T.inkSoft,marginBottom:12,lineHeight:1.6}}>
+            Os <b>{merging.ids.length}</b> cadastros selecionados viram <b>um único cadastro de grupo</b>, reunindo todos os CNPJs.
+            Os cadastros individuais são <b>removidos</b> e passam a aparecer apenas dentro do grupo.
+          </div>
+          <Field label="Nome do grupo">
+            <input style={inp} value={merging.nome} onChange={e=>setMerging(m=>({...m,nome:e.target.value}))} placeholder="Ex.: Klabin"/>
+          </Field>
+          <div style={{marginTop:12,padding:"10px 12px",background:T.canvas,borderRadius:T.rMd,border:`1px solid ${T.line}`}}>
+            <div style={{...Ty.small,marginBottom:6,fontWeight:600}}>Empresas que serão reunidas:</div>
+            {selList.map(c=>(
+              <div key={c.id} style={{fontSize:12,color:T.inkSoft,padding:"3px 0"}}>
+                • {c.nome} {clientCnpjs(c).length>0 && <span style={{fontFamily:"monospace",color:T.muted}}>({clientCnpjs(c).length} CNPJ)</span>}
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
@@ -2204,10 +2273,20 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport }) {
             <option value="todos">Todos os cadastros</option>
             <option value="incompletos">⚠ Incompletos</option>
             <option value="completos">✓ Completos</option>
+            <option value="grupos">🔗 Grupos (vários CNPJs)</option>
           </select>
           <input style={{...inp,flex:1,minWidth:200}} placeholder="🔎 Nome, Cód. SAP ou CNPJ..." value={q} onChange={e=>resetPage(setQ)(e.target.value)}/>
         </div>
       </Card>
+
+      {sel.size>0 && (
+        <Card style={{padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:T.canvas}}>
+          <b style={{fontSize:13,color:T.ink}}>{sel.size} selecionado(s)</b>
+          <Btn small onClick={()=>setSel(new Set())}>Limpar</Btn>
+          <div style={{flex:1}}/>
+          <Btn primary small disabled={sel.size<2} onClick={startMerge}>🔗 Agrupar selecionados</Btn>
+        </Card>
+      )}
 
       {filtered.length===0
         ? <Card style={{textAlign:"center",padding:"3rem"}}>
@@ -2218,21 +2297,29 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport }) {
             <div className="fc-scroll" style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:T.canvas}}>
+                  <th style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,width:34}}></th>
                   {["Cliente","Cód. SAP","CNPJ","Responsável","Account manager","Status"].map((h,i)=>
                     <th key={i} style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
                   )}
                 </tr></thead>
                 <tbody>
-                  {pageItems.map(c=>(
-                    <tr key={c.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer"}} onClick={()=>setEditing(c)}>
-                      <td style={{padding:"10px 14px",fontWeight:600,color:T.ink}}>{c.nome}</td>
-                      <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace"}}>{c.codSap||"—"}</td>
-                      <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace",fontSize:11}}>{c.cnpj||"—"}</td>
-                      <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.owner||"—"}</td>
-                      <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.accountManager||"—"}</td>
-                      <td style={{padding:"10px 14px"}}>{c.incompleto ? <Badge label="Incompleto" color="yellow" small dot/> : <Badge label="Completo" color="green" small dot/>}</td>
+                  {pageItems.map(c=>{
+                    const cs = clientCnpjs(c);
+                    return (
+                    <tr key={c.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer",background:sel.has(c.id)?T.canvas:undefined}}>
+                      <td style={{padding:"10px 14px"}} onClick={e=>e.stopPropagation()}>
+                        <input type="checkbox" checked={sel.has(c.id)} onChange={()=>toggle(c.id)} aria-label={`Selecionar ${c.nome}`}/>
+                      </td>
+                      <td style={{padding:"10px 14px",fontWeight:600,color:T.ink}} onClick={()=>setEditing(c)}>
+                        {c.nome} {cs.length>1 && <Badge label={`🔗 ${cs.length} CNPJs`} color="blue" small/>}
+                      </td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace"}} onClick={()=>setEditing(c)}>{c.codSap||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace",fontSize:11}} onClick={()=>setEditing(c)}>{cs[0]||"—"}{cs.length>1 && <span style={{color:T.muted}}> +{cs.length-1}</span>}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft}} onClick={()=>setEditing(c)}>{c.owner||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft}} onClick={()=>setEditing(c)}>{c.accountManager||"—"}</td>
+                      <td style={{padding:"10px 14px"}} onClick={()=>setEditing(c)}>{c.incompleto ? <Badge label="Incompleto" color="yellow" small dot/> : <Badge label="Completo" color="green" small dot/>}</td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>
@@ -2582,6 +2669,31 @@ function AppInner() {
     try { const n = await db.bulkInsertClients(list); await reloadClients(); toast(`${n} cliente(s) importados (cadastro incompleto)`); }
     catch(e) { toast("Erro ao importar clientes: "+e.message, "error"); }
   }
+  // Agrupa N cadastros num só: reúne todos os CNPJs no primeiro e remove os demais.
+  async function handleClientsMerge(ids, nome) {
+    try {
+      const sel = clients.filter(c=>ids.includes(c.id));
+      if (sel.length<2) return;
+      const base = sel[0];
+      // Junta as entidades (empresas) de todos os cadastros, sem CNPJ duplicado.
+      const ents = []; const seen = new Set();
+      sel.forEach(c=>{
+        const arr = parseJSON(c.cnpjs, null);
+        const list = (Array.isArray(arr)&&arr.length) ? arr : [{ razao:c.nome||"", cnpj:c.cnpj||"", codSap:c.codSap||"" }];
+        list.forEach(e=>{
+          const key = (e.cnpj||"").replace(/\D/g,"") || (e.razao||"").toLowerCase();
+          if (key && seen.has(key)) return;
+          if (key) seen.add(key);
+          ents.push({ razao:(e.razao||"").trim(), cnpj:(e.cnpj||"").replace(/\D/g,"").slice(0,14), codSap:(e.codSap||"").trim() });
+        });
+      });
+      const merged = { ...base, nome, cnpjs: JSON.stringify(ents), cnpj: ents[0]?.cnpj || "", codSap: ents[0]?.codSap || base.codSap || "" };
+      await db.updateClient(merged);
+      for (const c of sel.slice(1)) await db.deleteClient(c.id);
+      await reloadClients();
+      toast(`Grupo "${nome}" criado com ${ents.length} CNPJ(s)`);
+    } catch(e) { toast("Erro ao agrupar clientes: "+e.message, "error"); }
+  }
 
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
@@ -2640,7 +2752,7 @@ function AppInner() {
           )}
           {page==="clients"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ClientsView clients={clients} isAdmin={isAdmin} onSave={handleClientSave} onDelete={handleClientDelete} onBulkImport={handleClientsImport}/>
+              <ClientsView clients={clients} isAdmin={isAdmin} onSave={handleClientSave} onDelete={handleClientDelete} onBulkImport={handleClientsImport} onMerge={handleClientsMerge}/>
             </div>
           )}
           {page==="tasks"&&(
