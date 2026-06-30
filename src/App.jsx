@@ -2438,7 +2438,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   let leftNotes = empNotes.slice();
   if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaCheia(n));
   if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaCheia(n));
-  if (qNote.trim()) { const s=qNote.trim().toLowerCase(); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(n.pedidos||"").includes(s.replace(/\D/g,""))); }
+  if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
   leftNotes = leftNotes.sort(sortNotes);
 
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
