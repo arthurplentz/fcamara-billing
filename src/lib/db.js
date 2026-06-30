@@ -76,6 +76,17 @@ export async function unconciliateRecords(recordIds) {
     .in("id", recordIds);
   if (error) throw error;
 }
+// Reabre registros (desfaz a conciliação) reescrevendo o progress por registro —
+// usado ao desfazer conciliação ou quando a nota é cancelada/excluída.
+export async function reopenRecords(items) {
+  for (const it of items) {
+    const { error } = await supabase.from("records").update({
+      municipal_note_id: null, nf_numero: "", progress: it.progress,
+      conciliado_em: null, conciliado_por: null, updated_at: nowISO(),
+    }).eq("id", it.id);
+    if (error) throw error;
+  }
+}
 // Conciliação que também completa o funil de cada registro (progress já pronto
 // no app, por registro). Atualiza um a um — o lote por conciliação é pequeno.
 export async function conciliateRecordsWithProgress(items, { noteId, numero, userName }) {
