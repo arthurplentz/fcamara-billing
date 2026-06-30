@@ -34,9 +34,8 @@ function recToDb(r, withId) {
 }
 
 export async function fetchRecords() {
-  const { data, error } = await supabase.from("records").select("*").order("created_at", { ascending: true });
-  if (error) throw error;
-  return data.map(dbToRec);
+  const rows = await fetchAllPaged("records", "*", "created_at");
+  return rows.map(dbToRec);
 }
 export async function insertRecords(list) {
   const { error } = await supabase.from("records").insert(list.map(r => recToDb(r, false)));
@@ -156,28 +155,51 @@ export async function insertHistory(h) {
 }
 
 // ─── CLIENTS (perfil de faturamento) ─────────────────────────────────────────
-const CLIENT_FIELDS = ["nome","cod_sap","grupo_empresa","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
+const CLIENT_FIELDS = ["nome","cod_sap","cnpj","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
+const BOOL_CLIENT_FIELDS = ["tem_portal","incompleto"];
+
+// Busca paginada — traz TODAS as linhas (o Supabase pode limitar a 1000 por página).
+async function fetchAllPaged(table, columns, orderCol) {
+  const all = []; const size = 1000; let from = 0;
+  for (;;) {
+    const { data, error } = await supabase.from(table).select(columns).order(orderCol, { ascending: true }).range(from, from + size - 1);
+    if (error) throw error;
+    all.push(...data);
+    if (data.length < size) break;
+    from += size;
+  }
+  return all;
+}
 const camel = s => s.replace(/_([a-z])/g, (_,c)=>c.toUpperCase());
 function dbToClient(row) {
   const o = { id: row.id };
-  CLIENT_FIELDS.forEach(f => { o[camel(f)] = f==="tem_portal" ? !!row[f] : (row[f] ?? ""); });
+  CLIENT_FIELDS.forEach(f => { o[camel(f)] = BOOL_CLIENT_FIELDS.includes(f) ? !!row[f] : (row[f] ?? ""); });
   return o;
 }
 function clientToDb(c) {
   const o = {};
-  CLIENT_FIELDS.forEach(f => { const v = c[camel(f)]; o[f] = f==="tem_portal" ? !!v : (v || null); });
+  CLIENT_FIELDS.forEach(f => { const v = c[camel(f)]; o[f] = BOOL_CLIENT_FIELDS.includes(f) ? !!v : (v || null); });
   o.updated_at = nowISO();
   return o;
 }
 export async function fetchClients() {
-  const { data, error } = await supabase.from("clients").select("*").order("nome", { ascending: true });
-  if (error) throw error;
-  return data.map(dbToClient);
+  const rows = await fetchAllPaged("clients", "*", "nome");
+  return rows.map(dbToClient);
 }
 export async function insertClient(c) {
   const { data, error } = await supabase.from("clients").insert(clientToDb(c)).select().single();
   if (error) throw error;
   return dbToClient(data);
+}
+// Carga em massa de clientes (importação). Insere em lotes.
+export async function bulkInsertClients(list) {
+  const size = 500;
+  for (let i = 0; i < list.length; i += size) {
+    const chunk = list.slice(i, i + size).map(clientToDb);
+    const { error } = await supabase.from("clients").insert(chunk);
+    if (error) throw error;
+  }
+  return list.length;
 }
 export async function updateClient(c) {
   const { error } = await supabase.from("clients").update(clientToDb(c)).eq("id", c.id);
