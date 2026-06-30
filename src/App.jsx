@@ -2242,11 +2242,21 @@ const stripAcc = (s) => String(s||"").toLowerCase().normalize("NFD").replace(/[�
 const normHdr  = (s) => stripAcc(s).replace(/[^a-z0-9]+/g, " ").trim();
 const colByExact = (headers, exact) => { const t = normHdr(exact); return headers.findIndex(h => normHdr(h) === t); };
 
-// "80.412,95" → 80412.95 ; "12,5" → 12.5 ; "1.234" → 1234
+// Número em formato BR ("80.412,95") ou US ("80,412.95") ou simples ("69"/"2.07").
 function parseBR(v) {
   let s = String(v==null?"":v).trim().replace(/[^\d.,-]/g, "");
   if (!s) return 0;
-  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  const hasDot = s.includes("."), hasComma = s.includes(",");
+  if (hasDot && hasComma) {
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) s = s.replace(/\./g, "").replace(",", "."); // BR
+    else s = s.replace(/,/g, "");                                                            // US
+  } else if (hasComma) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (hasDot) {
+    const dots = (s.match(/\./g) || []).length;
+    if (dots > 1) s = s.replace(/\./g, "");                          // 1.234.567 → milhar
+    else if ((s.split(".")[1] || "").length === 3) s = s.replace(/\./g, ""); // 1.234 → milhar
+  }
   return parseFloat(s) || 0;
 }
 // "29/06/2026 17:24:52" ou "29/06/2026" → ISO
@@ -2270,29 +2280,49 @@ function parseDiscriminacao(txt) {
     .map(x => x.replace(/^\d{5}\s+/, "").replace(/\s+ITEM.*$/i, "").trim()).filter(n => n.length > 3))];
   return { pedidos: pedidos.join(", "), competencias: comps.join(", "), profissionais: nomes.join(", ") };
 }
-// Parser do CSV de NFS-e da Prefeitura de São Paulo (cabeçalhos por nome).
-function parseMunicipalCSV(rows, municipio) {
+// Candidatos de cabeçalho por campo — cobre SP, Maringá e variações.
+const NOTE_COLS = {
+  numero:      ["n nfs e", "numero", "numero da nota", "nota"],
+  emitida:     ["data hora nfe", "emitido em", "data emissao", "data de emissao", "data da emissao"],
+  fato:        ["data do fato gerador", "fato gerador"],
+  prestCnpj:   ["cpf cnpj do prestador", "cpf cnpj prestador"],
+  prestNome:   ["razao social do prestador", "razao social prestador"],
+  situacao:    ["situacao da nota fiscal", "situacao"],
+  cancel:      ["data de cancelamento"],
+  valorServ:   ["valor dos servicos", "valor servicos", "valor do servico", "valor servico"],
+  valorTotal:  ["valor total recebido", "valor total"],
+  iss:         ["iss devido", "valor iss", "iss"],
+  tomadorCnpj: ["cpf cnpj do tomador", "cpf cnpj tomador"],
+  tomadorNome: ["razao social do tomador", "razao social tomador"],
+  discrim:     ["discriminacao dos servicos", "descriminacao servico", "discriminacao servico", "descriminacao dos servicos", "discriminacao", "descriminacao"],
+};
+const colByCandidates = (headers, cands) => { for (const c of cands) { const i = colByExact(headers, c); if (i !== -1) return i; } return -1; };
+// Acha a linha de cabeçalho (alguns relatórios têm título/linhas em branco antes).
+function findHeaderRow(rows) {
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
+    const h = (rows[i] || []).map(c => String(c || ""));
+    if (colByCandidates(h, NOTE_COLS.numero) !== -1 && colByCandidates(h, NOTE_COLS.tomadorCnpj) !== -1 && colByCandidates(h, NOTE_COLS.valorServ) !== -1) return i;
+  }
+  return -1;
+}
+// Parser genérico de NFS-e (cabeçalhos por nome, mapeamento flexível).
+function parseMunicipalSheet(rows, municipio) {
   if (!rows.length) return { notes: [], errors: ["Arquivo vazio."] };
-  const headers = rows[0].map(h => String(h||""));
-  const idx = {
-    numero:   colByExact(headers, "n nfs e"),     emitida:  colByExact(headers, "data hora nfe"),
-    fato:     colByExact(headers, "data do fato gerador"),
-    prestCnpj:colByExact(headers, "cpf cnpj do prestador"), prestNome: colByExact(headers, "razao social do prestador"),
-    situacao: colByExact(headers, "situacao da nota fiscal"), cancel: colByExact(headers, "data de cancelamento"),
-    valorServ:colByExact(headers, "valor dos servicos"), valorTotal: colByExact(headers, "valor total recebido"),
-    iss:      colByExact(headers, "iss devido"),
-    tomadorCnpj: colByExact(headers, "cpf cnpj do tomador"), tomadorNome: colByExact(headers, "razao social do tomador"),
-    discrim:  colByExact(headers, "discriminacao dos servicos"),
-  };
-  if (idx.numero === -1 || idx.tomadorCnpj === -1 || idx.valorServ === -1)
-    return { notes: [], errors: ["Layout não reconhecido. Confirme que é o relatório de NFS-e da Prefeitura de São Paulo (.csv)."] };
+  const hi = findHeaderRow(rows);
+  if (hi === -1) return { notes: [], errors: ["Layout não reconhecido. Esperado um relatório de NFS-e com colunas de número, CNPJ do tomador e valor dos serviços."] };
+  const headers = rows[hi].map(h => String(h || ""));
+  const idx = {};
+  for (const [k, cands] of Object.entries(NOTE_COLS)) idx[k] = colByCandidates(headers, cands);
   const get = (row, k) => idx[k] >= 0 ? (row[idx[k]] ?? "") : "";
   const notes = []; let ignoradas = 0;
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = hi + 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.every(c => c == null || c === "")) continue;
     const numero = String(get(row, "numero")).trim();
     if (!numero) { ignoradas++; continue; }
+    // Pula linhas de total/rodapé (ex.: "Total;355;...") — não têm tomador válido.
+    const tomadorCnpj = onlyDigits(get(row, "tomadorCnpj"));
+    if (tomadorCnpj.length < 11 || /^total/i.test(String(get(row, "numero")).trim()) || /^total/i.test(String(row[0]||"").trim())) { ignoradas++; continue; }
     const disc = String(get(row, "discrim") || "");
     const meta = parseDiscriminacao(disc);
     const situacao = String(get(row, "situacao")).trim();
@@ -2301,8 +2331,8 @@ function parseMunicipalCSV(rows, municipio) {
       municipio, numero,
       emitidaEm: brToISO(get(row, "emitida")), fatoGerador: brToISO(get(row, "fato")),
       prestadorCnpj: onlyDigits(get(row, "prestCnpj")), prestadorNome: String(get(row, "prestNome")).trim(),
-      tomadorCnpj: onlyDigits(get(row, "tomadorCnpj")), tomadorNome: String(get(row, "tomadorNome")).trim(),
-      valorServicos: parseBR(get(row, "valorServ")), valorTotal: parseBR(get(row, "valorTotal")),
+      tomadorCnpj, tomadorNome: String(get(row, "tomadorNome")).trim(),
+      valorServicos: parseBR(get(row, "valorServ")), valorTotal: parseBR(get(row, "valorTotal")) || parseBR(get(row, "valorServ")),
       iss: parseBR(get(row, "iss")), situacao, cancelada,
       pedidos: meta.pedidos, competencias: meta.competencias, profissionais: meta.profissionais,
       discriminacao: disc, importId: null,
@@ -2328,9 +2358,9 @@ function NotesImportModal({ onImport, onClose }) {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array", codepage:1252, raw:true });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", blankrows:false });
-        const { notes, errors } = parseMunicipalCSV(rows, municipio);
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array", codepage:1252 });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", blankrows:false, raw:false });
+        const { notes, errors } = parseMunicipalSheet(rows, municipio);
         const m = []; errors.forEach(x => m.push({ type:"warn", text:x }));
         if (!notes.length) { m.push({ type:"error", text:"Nenhuma nota válida encontrada." }); setMsgs(m); }
         else { const can = notes.filter(n=>n.cancelada).length; m.push({ type:"ok", text:`${notes.length} nota(s) lidas${can?` · ${can} cancelada(s)`:""}.` }); setMsgs(m); setPreview(notes); }
@@ -2355,17 +2385,17 @@ function NotesImportModal({ onImport, onClose }) {
         <Field label="Empresa do grupo *" hint="(emissora da nota)"><select style={inp} value={empresa} onChange={e=>setEmpresa(e.target.value)}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
         <Field label="Prefeitura"><select style={inp} value={municipio} onChange={e=>{setMun(e.target.value);reset();}}>{PREFEITURAS.map(p=><option key={p}>{p}</option>)}</select></Field>
       </div>
-      {municipio!=="São Paulo" && <div style={{marginBottom:12,padding:"10px 12px",background:T.warnBg,border:`1px solid ${T.warnLine}`,borderRadius:T.rMd,fontSize:12,color:T.warn}}>
-        Por enquanto só o layout de <b>São Paulo</b> está mapeado. Me mande uma amostra do relatório de {municipio} para eu adicionar o layout.
+      {!["São Paulo","Maringá"].includes(municipio) && <div style={{marginBottom:12,padding:"10px 12px",background:T.warnBg,border:`1px solid ${T.warnLine}`,borderRadius:T.rMd,fontSize:12,color:T.warn}}>
+        Por enquanto os layouts de <b>São Paulo</b> e <b>Maringá</b> estão mapeados. Me mande uma amostra do relatório de {municipio} para eu adicionar o layout.
       </div>}
       <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
         onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);}}
         onClick={()=>fileRef.current?.click()}
         style={{border:`2px dashed ${dragOver?T.brand:T.line}`,borderRadius:T.rLg,padding:"26px",textAlign:"center",cursor:"pointer",background:dragOver?T.brandBg:T.canvas}}>
-        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)readFile(f);}}/>
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)readFile(f);}}/>
         <div style={{fontSize:26,marginBottom:6}}>🧾</div>
-        <div style={{fontSize:13,fontWeight:600,color:T.ink}}>{fileName||"Arraste o .csv aqui ou clique para escolher"}</div>
-        <div style={{fontSize:11,color:T.muted,marginTop:3}}>{loading?"Lendo…":"Relatório de NFS-e exportado da prefeitura"}</div>
+        <div style={{fontSize:13,fontWeight:600,color:T.ink}}>{fileName||"Arraste o .csv/.xlsx aqui ou clique para escolher"}</div>
+        <div style={{fontSize:11,color:T.muted,marginTop:3}}>{loading?"Lendo…":"Relatório de NFS-e (SP em .csv · Maringá em .xlsx)"}</div>
       </div>
       {msgs.map((m,i)=>(<div key={i} style={{marginTop:10,padding:"9px 12px",borderRadius:T.rMd,fontSize:12.5,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>))}
       {preview?.length>0 && <div style={{marginTop:12,fontSize:12,color:T.muted}}>Pré-visualização: {preview.slice(0,3).map(n=>`NF ${n.numero} · ${n.tomadorNome||"—"} · ${brl(n.valorServicos)}`).join("  |  ")}{preview.length>3?"  …":""}</div>}
@@ -2376,9 +2406,10 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onConciliate, onUnconciliate }) {
+function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onDeleteNote, onConciliate, onUnconciliate }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
+  const [noteDel, setNoteDel] = useState(null);
   const [empresa, setEmpresa] = useState("");
   const [selNote, setSelNote] = useState("");
   const [selRecs, setSelRecs] = useState(() => new Set());
@@ -2446,6 +2477,9 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   return (
     <div>
       {importing && <NotesImportModal onImport={onImport} onClose={()=>setImporting(false)}/>}
+      {noteDel && <ConfirmDialog title="Excluir nota da base" danger confirmLabel="Excluir"
+        message={`Excluir a NF ${noteDel.numero} (${noteDel.tomadorNome||"—"} · ${brl(noteDel.valorServicos)})?${records.some(r=>r.municipalNoteId===noteDel.id)?" Os registros conciliados com ela serão reabertos." : ""}`}
+        onConfirm={()=>onDeleteNote(noteDel)} onClose={()=>setNoteDel(null)}/>}
       {manage && (
         <Modal title="Importações de notas" onClose={()=>setManage(false)} footer={<Btn onClick={()=>setManage(false)}>Fechar</Btn>}>
           {importBatches.length===0 ? <div style={{fontSize:13,color:T.muted}}>Nenhuma importação ainda.</div>
@@ -2522,6 +2556,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
                               {(usado[n.id]>0 && !cheia) && <div style={{fontSize:11,color:T.warn}}>saldo {brl(sal)} (amarrado {brl(usado[n.id])})</div>}
                             </div>
                             <button onClick={()=>setExpNote(exp?"":n.id)} title="Detalhes" style={{background:"none",border:"none",cursor:"pointer",color:T.muted,fontSize:14}}>{exp?"▲":"ⓘ"}</button>
+                            {isAdmin && <button onClick={()=>setNoteDel(n)} title="Excluir nota da base" style={{background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:14}}>🗑</button>}
                           </div>
                           {exp && <div style={{padding:"0 12px 11px 33px",fontSize:11.5,color:T.inkSoft,lineHeight:1.5}}>
                             <div><b>Tomador:</b> {n.tomadorNome||"—"} · {n.tomadorCnpj||"—"}</div>
@@ -3169,8 +3204,25 @@ function AppInner() {
     } catch(e) { toast("Erro ao conciliar: "+e.message, "error"); }
   }
   async function handleUnconciliate(recordIds) {
-    try { await db.unconciliateRecords(recordIds); await reloadRecords(); toast("Conciliação desfeita", "info"); }
-    catch(e) { toast("Erro ao desfazer conciliação: "+e.message, "error"); }
+    try {
+      const idset = new Set(recordIds);
+      // Reabrir = desfazer a conciliação E reverter os passos de faturamento que
+      // a conciliação tinha completado (mantém o resto do funil como estava).
+      const items = records.filter(r => idset.has(r.id)).map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
+      await db.reopenRecords(items);
+      await reloadRecords();
+      toast("Conciliação desfeita — registro(s) reabertos", "info");
+    } catch(e) { toast("Erro ao desfazer conciliação: "+e.message, "error"); }
+  }
+  async function handleNoteDelete(note) {
+    try {
+      // Se a nota estava conciliada, reabre os registros antes de excluir.
+      const linked = records.filter(r => r.municipalNoteId === note.id);
+      if (linked.length) await db.reopenRecords(linked.map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } })));
+      await db.deleteMunicipalNote(note.id);
+      await Promise.all([reloadNotes(), linked.length ? reloadRecords() : Promise.resolve()]);
+      toast(`Nota ${note.numero} removida${linked.length?` · ${linked.length} registro(s) reabertos`:""}`, "info");
+    } catch(e) { toast("Erro ao remover nota: "+e.message, "error"); }
   }
 
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
@@ -3231,7 +3283,7 @@ function AppInner() {
           {page==="concil"&&(
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin}
-                onImport={handleNotesImport} onUndoImport={handleNotesUndo}
+                onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onUnconciliate={handleUnconciliate}/>
             </div>
           )}
