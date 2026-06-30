@@ -1963,10 +1963,16 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
       </div>
 
       {tab==="dados" && <>
+      {f.incompleto && <div style={{marginBottom:16,padding:"11px 14px",borderRadius:T.rMd,background:T.warnBg,border:`1px solid ${T.warnLine}`,fontSize:12.5,color:T.warn,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{flex:1,minWidth:200}}>⚠ <b>Cadastro incompleto</b> (veio da carga em massa). Complete os dados e marque como concluído.</span>
+        <Btn small primary onClick={()=>set("incompleto",false)}>✓ Marcar como completo</Btn>
+      </div>}
       <CSec title="Identificação">
         <Field label="Nome do cliente *"><input style={inp} value={f.nome||""} onChange={e=>{set("nome",e.target.value);setErr("");}}/></Field>
-        <Field label="Cód. SAP"><input style={inp} inputMode="numeric" maxLength={7} placeholder="7 dígitos" value={f.codSap||""} onChange={e=>set("codSap", e.target.value.replace(/\D/g,"").slice(0,7))}/></Field>
+        <Field label="Cód. SAP"><input style={inp} inputMode="numeric" maxLength={10} placeholder="código SAP" value={f.codSap||""} onChange={e=>set("codSap", e.target.value.replace(/\D/g,"").slice(0,10))}/></Field>
+        <Field label="CNPJ"><input style={inp} inputMode="numeric" placeholder="00000000000000" value={f.cnpj||""} onChange={e=>set("cnpj", e.target.value.replace(/\D/g,"").slice(0,14))}/></Field>
         <Field label="Grupo de empresa"><input style={inp} value={f.grupoEmpresa||""} onChange={e=>set("grupoEmpresa",e.target.value)}/></Field>
+        <Field label="Analista responsável"><input style={inp} placeholder="Nome do analista dono" value={f.owner||""} onChange={e=>set("owner",e.target.value)}/></Field>
       </CSec>
 
       <CSec title="Tipos de contrato" grid={false}>
@@ -2088,51 +2094,156 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   );
 }
 
-function ClientsView({ clients, onSave, onDelete }) {
+// Lê a exportação SAP de parceiros de negócios → cadastros de clientes (incompletos).
+function parseClientsSheet(rows) {
+  const h = (rows[0]||[]).map(x=>String(x).trim());
+  const col = (name) => h.findIndex(x=>x.toLowerCase()===name.toLowerCase());
+  const iPN=col("Parceiro de negócios"), iNome=col("Nome 1"), iFiscal=col("Número de identificação fiscal");
+  if (iNome===-1 && iPN===-1) return { clients:[], errors:["Não encontrei a coluna de nome (\"Nome 1\" ou \"Parceiro de negócios\")."] };
+  const out=[]; const seen=new Set(); let dup=0;
+  for (let i=1;i<rows.length;i++) {
+    const r=rows[i]; if(!r) continue;
+    const pn=String(iPN>=0?r[iPN]:"").trim();
+    const nome=(String(iNome>=0?r[iNome]:"").trim()) || pn.replace(/\s*\(\d+\)\s*$/,"").trim();
+    if(!nome) continue;
+    const m=pn.match(/\((\d{4,})\)\s*$/); const codSap=m?m[1]:"";
+    const cnpj=String(iFiscal>=0?r[iFiscal]:"").split(/[,;\n]/)[0].replace(/\D/g,"").slice(0,14);
+    const key=codSap||nome.toLowerCase();
+    if(seen.has(key)){dup++;continue;} seen.add(key);
+    out.push({ nome, codSap, cnpj, incompleto:true });
+  }
+  const errors=[]; if(dup) errors.push(`${dup} duplicado(s) na planilha foram ignorados.`);
+  return { clients:out, errors };
+}
+
+function ClientImportModal({ existing, onImport, onClose }) {
+  const [preview,setPreview]=useState(null);
+  const [fileName,setFileName]=useState("");
+  const [msgs,setMsgs]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const fileRef=useRef();
+  const existingCods = new Set(existing.map(c=>(c.codSap||"").trim()).filter(Boolean));
+  const existingNames = new Set(existing.map(c=>(c.nome||"").trim().toLowerCase()));
+
+  function readFile(file){
+    setLoading(true);setFileName(file.name);setPreview(null);setMsgs([]);
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:""});
+        const {clients,errors}=parseClientsSheet(rows);
+        const novos=clients.filter(c=>!(c.codSap&&existingCods.has(c.codSap)) && !existingNames.has(c.nome.toLowerCase()));
+        const jaExistem=clients.length-novos.length;
+        const m=errors.map(x=>({type:"warn",text:x}));
+        if(jaExistem) m.push({type:"warn",text:`${jaExistem} cliente(s) já cadastrados foram ignorados.`});
+        if(novos.length===0){m.push({type:"error",text:"Nenhum cliente novo para importar."});setMsgs(m);}
+        else{m.push({type:"ok",text:`${novos.length} cliente(s) novo(s) prontos para importar.`});setMsgs(m);setPreview(novos);}
+      }catch(err){setMsgs([{type:"error",text:"Erro ao ler o arquivo: "+err.message}]);}
+      setLoading(false);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  const mc={ok:{bg:T.okBg,text:T.ok,border:T.okLine},warn:{bg:T.warnBg,text:T.warn,border:T.warnLine},error:{bg:T.dangerBg,text:T.danger,border:T.dangerLine}};
+
+  return (
+    <Modal title="Importar clientes" subtitle="Carga em massa (exportação do SAP). Entram como cadastro incompleto." onClose={onClose} wide>
+      <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xls,.csv" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
+      <div onClick={()=>fileRef.current.click()} role="button" tabIndex={0}
+        style={{border:`2px dashed ${fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:fileName?T.okBg:"#fafbfc",marginBottom:14}}>
+        {loading?<div style={{color:T.muted,fontSize:13}}>⏳ Lendo...</div>:fileName?<><div style={{fontSize:24}}>✅</div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted}}>Clique para trocar</div></>:<><div style={{fontSize:28}}>📂</div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique para selecionar a planilha</div></>}
+      </div>
+      {msgs.map((m,i)=><div key={i} style={{marginBottom:6,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>)}
+      {preview&&<div style={{marginBottom:14,padding:"10px 14px",borderRadius:T.rMd,background:T.okBg,border:`1px solid ${T.okLine}`,fontSize:12,color:T.ok}}>
+        Prévia: {preview.slice(0,3).map(c=>c.nome).join(", ")}{preview.length>3?` … e mais ${preview.length-3}`:""}
+      </div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary disabled={!preview} onClick={()=>{ if(preview){onImport(preview);} onClose(); }}>⬆ Importar {preview?`(${preview.length})`:""}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport }) {
   const [editing, setEditing] = useState(null);
+  const [importing, setImporting] = useState(false);
   const [q, setQ] = useState("");
-  const filtered = clients.filter(c => !q || (c.nome||"").toLowerCase().includes(q.toLowerCase()) || (c.codSap||"").toLowerCase().includes(q.toLowerCase()));
+  const [status, setStatus] = useState("todos");
+  const [page, setPage] = useState(0);
+  const PAGE = 50;
+
+  let filtered = clients;
+  if (status==="incompletos") filtered = filtered.filter(c=>c.incompleto);
+  if (status==="completos")   filtered = filtered.filter(c=>!c.incompleto);
+  if (q) { const s=q.toLowerCase(); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").includes(s) || (c.cnpj||"").includes(s)); }
+
+  const incompletos = clients.filter(c=>c.incompleto).length;
+  const totalPages = Math.max(1, Math.ceil(filtered.length/PAGE));
+  const pg = Math.min(page, totalPages-1);
+  const pageItems = filtered.slice(pg*PAGE, pg*PAGE+PAGE);
+  const resetPage = (fn)=>(v)=>{ fn(v); setPage(0); };
 
   return (
     <div>
       {editing && <ClientModal client={editing.id?editing:null} onSave={onSave} onDelete={onDelete} onClose={()=>setEditing(null)}/>}
+      {importing && <ClientImportModal existing={clients} onImport={onBulkImport} onClose={()=>setImporting(false)}/>}
 
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
           <h1 style={Ty.h1}>🏢 Clientes</h1>
-          <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s) cadastrado(s) · perfil de faturamento com as peculiaridades de cada um</div>
+          <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s){incompletos>0 && <> · <b style={{color:T.warn}}>{incompletos} incompleto(s)</b></>}</div>
         </div>
-        <input style={{...inp,width:200}} placeholder="🔎 Nome ou Cód. SAP..." value={q} onChange={e=>setQ(e.target.value)}/>
+        {isAdmin && <Btn onClick={()=>setImporting(true)}>⬆ Importar clientes</Btn>}
         <Btn primary onClick={()=>setEditing({ temPortal:false })}>+ Novo cliente</Btn>
       </div>
+
+      <Card style={{padding:"10px 12px",marginBottom:14}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <select style={{...inp,width:"auto"}} value={status} onChange={e=>resetPage(setStatus)(e.target.value)} aria-label="Status do cadastro">
+            <option value="todos">Todos os cadastros</option>
+            <option value="incompletos">⚠ Incompletos</option>
+            <option value="completos">✓ Completos</option>
+          </select>
+          <input style={{...inp,flex:1,minWidth:200}} placeholder="🔎 Nome, Cód. SAP ou CNPJ..." value={q} onChange={e=>resetPage(setQ)(e.target.value)}/>
+        </div>
+      </Card>
 
       {filtered.length===0
         ? <Card style={{textAlign:"center",padding:"3rem"}}>
             <div style={{fontSize:32,marginBottom:10}}>🏢</div>
-            <div style={{fontSize:14,color:T.muted}}>{clients.length===0?"Nenhum cliente cadastrado ainda. Clique em “+ Novo cliente”.":"Nenhum cliente encontrado para a busca."}</div>
+            <div style={{fontSize:14,color:T.muted}}>{clients.length===0?"Nenhum cliente cadastrado. Importe a base ou clique em “+ Novo cliente”.":"Nenhum cliente encontrado."}</div>
           </Card>
         : <Card style={{padding:0,overflow:"hidden"}}>
             <div className="fc-scroll" style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:T.canvas}}>
-                  {["Cliente","Cód. SAP","Grupo","Período","Account manager","Portal"].map((h,i)=>
+                  {["Cliente","Cód. SAP","CNPJ","Responsável","Account manager","Status"].map((h,i)=>
                     <th key={i} style={{padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
                   )}
                 </tr></thead>
                 <tbody>
-                  {filtered.map(c=>(
+                  {pageItems.map(c=>(
                     <tr key={c.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer"}} onClick={()=>setEditing(c)}>
-                      <td style={{padding:"10px 14px",fontWeight:600,color:T.ink,whiteSpace:"nowrap"}}>{c.nome}</td>
+                      <td style={{padding:"10px 14px",fontWeight:600,color:T.ink}}>{c.nome}</td>
                       <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace"}}>{c.codSap||"—"}</td>
-                      <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.grupoEmpresa||"—"}</td>
-                      <td style={{padding:"10px 14px",color:T.inkSoft,whiteSpace:"nowrap"}}>{c.periodoFaturamento||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace",fontSize:11}}>{c.cnpj||"—"}</td>
+                      <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.owner||"—"}</td>
                       <td style={{padding:"10px 14px",color:T.inkSoft}}>{c.accountManager||"—"}</td>
-                      <td style={{padding:"10px 14px"}}>{c.temPortal ? <Badge label="Sim" color="purple" small/> : <span style={{color:T.faint}}>—</span>}</td>
+                      <td style={{padding:"10px 14px"}}>{c.incompleto ? <Badge label="Incompleto" color="yellow" small dot/> : <Badge label="Completo" color="green" small dot/>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {totalPages>1 && <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderTop:`1px solid ${T.line}`,fontSize:12,color:T.muted}}>
+              <span>Mostrando {pg*PAGE+1}–{Math.min((pg+1)*PAGE,filtered.length)} de {filtered.length}</span>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <Btn small disabled={pg<=0} onClick={()=>setPage(pg-1)}>◀ Anterior</Btn>
+                <span>Página {pg+1} de {totalPages}</span>
+                <Btn small disabled={pg>=totalPages-1} onClick={()=>setPage(pg+1)}>Próxima ▶</Btn>
+              </div>
+            </div>}
           </Card>}
     </div>
   );
@@ -2467,6 +2578,10 @@ function AppInner() {
     try { await db.deleteClient(id); await reloadClients(); toast("Cliente excluído", "info"); }
     catch(e) { toast("Erro ao excluir cliente: "+e.message, "error"); }
   }
+  async function handleClientsImport(list) {
+    try { const n = await db.bulkInsertClients(list); await reloadClients(); toast(`${n} cliente(s) importados (cadastro incompleto)`); }
+    catch(e) { toast("Erro ao importar clientes: "+e.message, "error"); }
+  }
 
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
@@ -2525,7 +2640,7 @@ function AppInner() {
           )}
           {page==="clients"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ClientsView clients={clients} onSave={handleClientSave} onDelete={handleClientDelete}/>
+              <ClientsView clients={clients} isAdmin={isAdmin} onSave={handleClientSave} onDelete={handleClientDelete} onBulkImport={handleClientsImport}/>
             </div>
           )}
           {page==="tasks"&&(
