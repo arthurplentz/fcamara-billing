@@ -2406,12 +2406,12 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onDeleteNote, onConciliate, onUnconciliate }) {
+function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
   const [empresa, setEmpresa] = useState("");
-  const [selNote, setSelNote] = useState("");
+  const [selNotes, setSelNotes] = useState(() => new Set());
   const [selRecs, setSelRecs] = useState(() => new Set());
   const [expNote, setExpNote] = useState("");
   // filtros e ordenação — lado esquerdo (notas)
@@ -2423,10 +2423,9 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   const empNotes = notes.filter(n => n.empresa===empresa && !n.cancelada);
   const empRecs  = records.filter(r => r.empresa===empresa);
 
-  // valor já amarrado por nota (para saldo)
-  const usado = {}; records.forEach(r => { if(r.municipalNoteId) usado[r.municipalNoteId]=(usado[r.municipalNoteId]||0)+(r.valorTotal||0); });
-  const saldoNota = (n) => n.valorServicos - (usado[n.id]||0);
-  const notaCheia = (n) => saldoNota(n) <= 0.01;
+  // Nota já conciliada? (novo modelo: conciliacao_id; compat: municipal_note_id antigo)
+  const notaConc = (n) => !!n.conciliacaoId || records.some(r => r.municipalNoteId === n.id);
+  const recConc = (r) => !!(r.conciliacaoId || r.municipalNoteId);
 
   const compKey = (c) => { const [m,y]=String(c||"").split("/"); return (y||"0000")+(m||"00"); };
   const sortNotes = (a,b) => ({ valor_desc:b.valorServicos-a.valorServicos, valor_asc:a.valorServicos-b.valorServicos,
@@ -2436,15 +2435,15 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
     cliente_az:(a.cliente||"").localeCompare(b.cliente||""), comp:compKey(a.competencia).localeCompare(compKey(b.competencia)) }[recSort] || 0);
 
   let leftNotes = empNotes.slice();
-  if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaCheia(n));
-  if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaCheia(n));
+  if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaConc(n));
+  if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaConc(n));
   if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
   leftNotes = leftNotes.sort(sortNotes);
 
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
   let rightRecs = empRecs.slice();
-  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>!r.municipalNoteId);
-  if (recStat==="faturados") rightRecs = rightRecs.filter(r=>r.municipalNoteId);
+  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>!recConc(r));
+  if (recStat==="faturados") rightRecs = rightRecs.filter(r=>recConc(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
   rightRecs = rightRecs.sort(sortRecs);
@@ -2453,30 +2452,35 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   // Totais do que está filtrado (mostrados no topo de cada quadro)
   const leftTotVal = leftNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
   const rightTotVal = rightRecs.reduce((s,r)=>s+(r.valorTotal||0),0);
-  const rightPend = rightRecs.filter(r=>!r.municipalNoteId);
+  const rightPend = rightRecs.filter(r=>!recConc(r));
+  const leftPendFiltered = leftNotes.filter(n=>!notaConc(n));
   const allRightSel = rightPend.length>0 && rightPend.every(r=>selRecs.has(r.id));
-  const toggleAllFiltered = () => setSelRecs(s => { const n=new Set(s); if(allRightSel) rightPend.forEach(r=>n.delete(r.id)); else rightPend.forEach(r=>n.add(r.id)); return n; });
+  const allLeftSel = leftPendFiltered.length>0 && leftPendFiltered.every(n=>selNotes.has(n.id));
+  const toggleAllRecs = () => setSelRecs(s => { const n=new Set(s); if(allRightSel) rightPend.forEach(r=>n.delete(r.id)); else rightPend.forEach(r=>n.add(r.id)); return n; });
+  const toggleAllNotes = () => setSelNotes(s => { const n=new Set(s); if(allLeftSel) leftPendFiltered.forEach(x=>n.delete(x.id)); else leftPendFiltered.forEach(x=>n.add(x.id)); return n; });
 
   // Pendências (sempre sobre o total da empresa, não o filtrado)
-  const notasPend = empNotes.filter(n=>!notaCheia(n)); const notasPendVal = notasPend.reduce((s,n)=>s+saldoNota(n),0);
-  const recsPend = empRecs.filter(r=>!r.municipalNoteId); const recsPendVal = recsPend.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const notasPend = empNotes.filter(n=>!notaConc(n)); const notasPendVal = notasPend.reduce((s,n)=>s+(n.valorServicos||0),0);
+  const recsPend = empRecs.filter(r=>!recConc(r)); const recsPendVal = recsPend.reduce((s,r)=>s+(r.valorTotal||0),0);
 
-  const note = empNotes.find(n=>n.id===selNote) || null;
+  const selectedNotes = empNotes.filter(n=>selNotes.has(n.id));
+  const somaNotes = selectedNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
   const somaSel = empRecs.filter(r=>selRecs.has(r.id)).reduce((s,r)=>s+(r.valorTotal||0),0);
-  const alvo = note ? saldoNota(note) : 0;
-  const diff = note ? Math.abs(somaSel-alvo) : 0;
-  const bate = note && diff <= Math.max(1, alvo*0.005);
+  const diff = Math.abs(somaSel-somaNotes);
+  const bate = selectedNotes.length>0 && selRecs.size>0 && diff <= Math.max(1, somaNotes*0.005);
 
   const toggleRec = (id) => setSelRecs(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
-  const resetSel = () => { setSelRecs(new Set()); setSelNote(""); };
+  const toggleNote = (id) => setSelNotes(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const resetSel = () => { setSelRecs(new Set()); setSelNotes(new Set()); };
   const pickEmpresa = (cod) => { setEmpresa(cod); resetSel(); };
 
-  // Sugestão (não automática): profissional ou competência da receita citados na nota.
-  const noteNomes = note ? stripAcc(note.profissionais) : "";
-  const isSug = (r) => { if(!note) return false; const nm=stripAcc(r.profissional); const byN = nm && nm.length>3 && noteNomes.includes((nm.split(" ")[0]||"")) && noteNomes.includes((nm.split(" ").slice(-1)[0]||"")); const byC = r.competencia && note.competencias.includes(r.competencia); return !!(byN||byC); };
-  const selSugeridos = () => { if(!note) return; setSelRecs(new Set(rightRecs.filter(r=>!r.municipalNoteId && isSug(r)).map(r=>r.id))); };
+  // Sugestão (não automática): profissional/competência citados em ALGUMA nota selecionada.
+  const selNomes = stripAcc(selectedNotes.map(n=>n.profissionais).join(" "));
+  const selComps = selectedNotes.map(n=>n.competencias).join(" ");
+  const isSug = (r) => { if(!selectedNotes.length) return false; const nm=stripAcc(r.profissional); const byN = nm && nm.length>3 && selNomes.includes((nm.split(" ")[0]||"")) && selNomes.includes((nm.split(" ").slice(-1)[0]||"")); const byC = r.competencia && selComps.includes(r.competencia); return !!(byN||byC); };
+  const selSugeridos = () => { if(!selectedNotes.length) return; setSelRecs(new Set(rightRecs.filter(r=>!recConc(r) && isSug(r)).map(r=>r.id))); };
 
-  function confirmar() { if(!note||!selRecs.size) return; onConciliate([...selRecs], note); resetSel(); }
+  function confirmar() { if(!selectedNotes.length||!selRecs.size) return; onConciliate([...selRecs], selectedNotes); resetSel(); }
 
   const importBatches = [...new Set(notes.map(n=>n.importId).filter(Boolean))];
   const SortSel = ({value,onChange,opts}) => <select style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={value} onChange={e=>onChange(e.target.value)}>{opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>;
@@ -2537,15 +2541,15 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             </Card>
           </div>
 
-          {(selRecs.size>0 || note) && (
+          {(selRecs.size>0 || selectedNotes.length>0) && (
             <Card style={{padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",position:"sticky",top:12,zIndex:20,boxShadow:T.shMd,border:`1px solid ${bate?T.okLine:T.line}`}}>
               <div style={{fontSize:13}}>
-                <b>{selRecs.size}</b> receita(s) = <b>{brl(somaSel)}</b>
-                {note && <> &nbsp;→&nbsp; NF {note.numero} (saldo {brl(alvo)}) {bate ? <span style={{color:T.ok,fontWeight:700}}>✓ bate</span> : <span style={{color:T.warn,fontWeight:700}}>≠ dif. {brl(diff)}</span>}</>}
+                <b>{selectedNotes.length}</b> nota(s) = <b>{brl(somaNotes)}</b> &nbsp;↔&nbsp; <b>{selRecs.size}</b> receita(s) = <b>{brl(somaSel)}</b>
+                {selectedNotes.length>0 && selRecs.size>0 && <> &nbsp; {bate ? <span style={{color:T.ok,fontWeight:700}}>✓ bate</span> : <span style={{color:T.warn,fontWeight:700}}>≠ dif. {brl(diff)}</span>}</>}
               </div>
               <div style={{flex:1}}/>
               <Btn onClick={resetSel}>Limpar</Btn>
-              <Btn primary disabled={!note||!selRecs.size} onClick={confirmar}>Conciliar {selRecs.size} com NF {note?.numero||"…"}</Btn>
+              <Btn primary disabled={!selectedNotes.length||!selRecs.size} onClick={confirmar}>Conciliar {selectedNotes.length}×{selRecs.size}</Btn>
             </Card>
           )}
 
@@ -2553,9 +2557,11 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             {/* ESQUERDA — NOTAS DA PREFEITURA */}
             <Card style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
-                <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
                   <span style={{fontWeight:700,fontSize:13}}>🧾 Notas da prefeitura</span>
-                  <span style={{fontSize:12,color:T.muted,marginLeft:"auto"}}><b style={{color:T.ink}}>{leftNotes.length}</b> · {brl(leftTotVal)}</span>
+                  <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{leftNotes.length}</b> · {brl(leftTotVal)}</span>
+                  <div style={{flex:1}}/>
+                  {leftPendFiltered.length>0 && <Btn small onClick={toggleAllNotes}>{allLeftSel?"☐ Limpar":"☑ Tudo filtrado"}</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="🔎 nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
@@ -2566,17 +2572,19 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
               <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
                 {leftShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma nota.</div>
                   : leftShown.map(n=>{
-                      const cheia=notaCheia(n), on=selNote===n.id, sal=saldoNota(n), exp=expNote===n.id;
+                      const conc=notaConc(n), on=selNotes.has(n.id), exp=expNote===n.id;
                       return (
-                        <div key={n.id} style={{borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(cheia?"#f6fdf9":"#fff")}}>
+                        <div key={n.id} style={{borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(conc?"#f6fdf9":"#fff")}}>
                           <div style={{display:"flex",alignItems:"flex-start",gap:9,padding:"9px 12px"}}>
-                            <input type="radio" name="cnote" disabled={cheia} checked={on} onChange={()=>setSelNote(n.id)} style={{marginTop:3}}/>
+                            {conc
+                              ? <span title="Conciliada" style={{width:15,textAlign:"center",color:T.ok,marginTop:2}}>✓</span>
+                              : <input type="checkbox" checked={on} onChange={()=>toggleNote(n.id)} style={{marginTop:3}}/>}
                             <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>setExpNote(exp?"":n.id)}>
-                              <div style={{fontSize:12.5,fontWeight:700,color:T.ink}}>NF {n.numero} · {brl(n.valorServicos)} {cheia&&<Badge label="conciliada" color="green" small/>}</div>
+                              <div style={{fontSize:12.5,fontWeight:700,color:T.ink}}>NF {n.numero} · {brl(n.valorServicos)} {conc&&<Badge label="conciliada" color="green" small/>}</div>
                               <div style={{fontSize:11,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{n.tomadorNome||"—"}</div>
                               <div style={{fontSize:11,color:T.muted}}>{fmtDT(n.emitidaEm)}{n.pedidos?` · pedido ${n.pedidos}`:""}{n.competencias?` · ${n.competencias}`:""}</div>
-                              {(usado[n.id]>0 && !cheia) && <div style={{fontSize:11,color:T.warn}}>saldo {brl(sal)} (amarrado {brl(usado[n.id])})</div>}
                             </div>
+                            {conc && <button onClick={()=>onReopen({ conciliacaoId:n.conciliacaoId, noteId:n.id })} title="Desfazer conciliação" style={{background:"none",border:"none",cursor:"pointer",color:T.warn,fontSize:14}}>↩</button>}
                             <button onClick={()=>setExpNote(exp?"":n.id)} title="Detalhes" style={{background:"none",border:"none",cursor:"pointer",color:T.muted,fontSize:14}}>{exp?"▲":"ⓘ"}</button>
                             {isAdmin && <button onClick={()=>setNoteDel(n)} title="Excluir nota da base" style={{background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:14}}>🗑</button>}
                           </div>
@@ -2600,8 +2608,8 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
                   <span style={{fontWeight:700,fontSize:13}}>📋 Receitas reconhecidas</span>
                   <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{rightRecs.length}</b> · {brl(rightTotVal)}</span>
                   <div style={{flex:1}}/>
-                  {rightPend.length>0 && <Btn small onClick={toggleAllFiltered}>{allRightSel?"☐ Limpar":"☑ Tudo filtrado"}</Btn>}
-                  {note && <Btn small onClick={selSugeridos}>✨ Sugeridos</Btn>}
+                  {rightPend.length>0 && <Btn small onClick={toggleAllRecs}>{allRightSel?"☐ Limpar":"☑ Tudo filtrado"}</Btn>}
+                  {selectedNotes.length>0 && <Btn small onClick={selSugeridos}>✨ Sugeridos</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="🔎 cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
@@ -2613,7 +2621,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
               <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
-                      const conc=!!r.municipalNoteId, on=selRecs.has(r.id), sug=!conc&&isSug(r), falta=faltaDatas(r);
+                      const conc=recConc(r), on=selRecs.has(r.id), sug=!conc&&isSug(r), falta=faltaDatas(r);
                       return (
                         <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"#fff")}}>
                           {conc
@@ -2624,7 +2632,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
                             <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{conc?` · NF ${r.nfNumero}`:""}</div>
                           </div>
                           <div style={{fontSize:12.5,fontWeight:700,color:T.ink,whiteSpace:"nowrap"}}>{brl(r.valorTotal)}</div>
-                          {conc && <Btn small onClick={()=>onUnconciliate([r.id])}>↩</Btn>}
+                          {conc && <Btn small onClick={()=>onReopen({ conciliacaoId:r.conciliacaoId, noteId:r.municipalNoteId })}>↩</Btn>}
                         </div>
                       );
                     })}
@@ -3213,8 +3221,11 @@ function AppInner() {
         if (novo.cancelada && !ex.cancelada) {
           canceladas++;
           await db.updateMunicipalNote(ex.id, { ...ex, cancelada: true, situacao: novo.situacao || ex.situacao });
-          records.filter(r => r.municipalNoteId === ex.id).forEach(r =>
-            reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
+          // Reabre o conjunto inteiro (todas as receitas e libera as outras notas).
+          const recs = ex.conciliacaoId ? records.filter(r => r.conciliacaoId === ex.conciliacaoId)
+                                        : records.filter(r => r.municipalNoteId === ex.id);
+          if (ex.conciliacaoId) await db.reopenConciliacao(ex.conciliacaoId, reopenItemsFor(recs));
+          else recs.forEach(r => reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
         }
       }
       if (reabrir.length) await db.reopenRecords(reabrir);
@@ -3228,35 +3239,46 @@ function AppInner() {
     try { const n = await db.deleteMunicipalNotesByImport(importId); await reloadNotes(); toast(`${n} nota(s) removida(s)`, "info"); }
     catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
   }
-  async function handleConciliate(recordIds, note) {
+  // Conciliação N:N — conjunto de notas ↔ conjunto de receitas.
+  async function handleConciliate(recordIds, notesArr) {
     try {
+      const cid = uuid();
+      const numero = notesArr.map(n => n.numero).join(", ");
+      const dataNf = notesArr.map(n => n.emitidaEm).filter(Boolean).sort()[0] || "";
       const idset = new Set(recordIds);
-      const items = records.filter(r => idset.has(r.id)).map(r => ({ id: r.id, progress: faturarProgress(r, note) }));
-      await db.conciliateRecordsWithProgress(items, { noteId: note.id, numero: note.numero, userName: user.name });
-      await reloadRecords();
-      const semData = items.filter((it,i)=>{ const r=records.find(x=>x.id===it.id); return r && reqDateSteps(r.tipo).some(k=>!String(it.progress[k]||"").trim()); }).length;
-      toast(`${recordIds.length} registro(s) faturados com a NF ${note.numero}${semData?` · ${semData} com datas pendentes`:""}`);
+      const items = records.filter(r => idset.has(r.id)).map(r => ({ id: r.id, progress: faturarProgress(r, { emitidaEm: dataNf }) }));
+      await db.conciliateSet({ cid, recordItems: items, noteIds: notesArr.map(n => n.id), numero, userName: user.name });
+      await Promise.all([reloadRecords(), reloadNotes()]);
+      const semData = items.filter(it => { const r = records.find(x => x.id === it.id); return r && reqDateSteps(r.tipo).some(k => !String(it.progress[k]||"").trim()); }).length;
+      toast(`${recordIds.length} receita(s) × ${notesArr.length} nota(s) conciliadas${semData?` · ${semData} com datas pendentes`:""}`);
     } catch(e) { toast("Erro ao conciliar: "+e.message, "error"); }
   }
-  async function handleUnconciliate(recordIds) {
+  // Reabre todo o conjunto a partir de um registro ou de uma nota.
+  function reopenItemsFor(recs) { return recs.map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } })); }
+  async function handleReopenGroup({ conciliacaoId, noteId }) {
     try {
-      const idset = new Set(recordIds);
-      // Reabrir = desfazer a conciliação E reverter os passos de faturamento que
-      // a conciliação tinha completado (mantém o resto do funil como estava).
-      const items = records.filter(r => idset.has(r.id)).map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
-      await db.reopenRecords(items);
-      await reloadRecords();
-      toast("Conciliação desfeita — registro(s) reabertos", "info");
+      if (conciliacaoId) {
+        const recs = records.filter(r => r.conciliacaoId === conciliacaoId);
+        await db.reopenConciliacao(conciliacaoId, reopenItemsFor(recs));
+      } else {
+        // compatibilidade com conciliações antigas (1 nota por registro)
+        const recs = records.filter(r => r.municipalNoteId === noteId);
+        if (recs.length) await db.reopenRecords(reopenItemsFor(recs));
+      }
+      await Promise.all([reloadRecords(), reloadNotes()]);
+      toast("Conciliação desfeita — registros reabertos", "info");
     } catch(e) { toast("Erro ao desfazer conciliação: "+e.message, "error"); }
   }
   async function handleNoteDelete(note) {
     try {
-      // Se a nota estava conciliada, reabre os registros antes de excluir.
-      const linked = records.filter(r => r.municipalNoteId === note.id);
-      if (linked.length) await db.reopenRecords(linked.map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } })));
+      // Se a nota estava conciliada, reabre o conjunto antes de excluir.
+      const recs = note.conciliacaoId ? records.filter(r => r.conciliacaoId === note.conciliacaoId)
+                                      : records.filter(r => r.municipalNoteId === note.id);
+      if (note.conciliacaoId) await db.reopenConciliacao(note.conciliacaoId, reopenItemsFor(recs));
+      else if (recs.length) await db.reopenRecords(reopenItemsFor(recs));
       await db.deleteMunicipalNote(note.id);
-      await Promise.all([reloadNotes(), linked.length ? reloadRecords() : Promise.resolve()]);
-      toast(`Nota ${note.numero} removida${linked.length?` · ${linked.length} registro(s) reabertos`:""}`, "info");
+      await Promise.all([reloadNotes(), recs.length ? reloadRecords() : Promise.resolve()]);
+      toast(`Nota ${note.numero} removida${recs.length?` · ${recs.length} registro(s) reabertos`:""}`, "info");
     } catch(e) { toast("Erro ao remover nota: "+e.message, "error"); }
   }
 
@@ -3319,7 +3341,7 @@ function AppInner() {
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
-                onConciliate={handleConciliate} onUnconciliate={handleUnconciliate}/>
+                onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
             </div>
           )}
           {page==="clients"&&(
