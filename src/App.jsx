@@ -3186,8 +3186,28 @@ function AppInner() {
   }
   // ─ Conciliação de notas (prefeitura) ─
   async function handleNotesImport(list) {
-    try { const n = await db.insertMunicipalNotes(list); await reloadNotes(); toast(`${n} nota(s) da prefeitura importada(s)`); }
-    catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
+    try {
+      // Dedup por empresa+número: nota já existente é ATUALIZADA (não duplica).
+      const key = n => `${n.empresa}|${String(n.numero||"").trim()}`;
+      const existing = {}; notes.forEach(n => { existing[key(n)] = n; });
+      const toInsert = [], toUpdate = [];
+      list.forEach(n => { const ex = existing[key(n)]; ex ? toUpdate.push({ ex, novo: n }) : toInsert.push(n); });
+      if (toInsert.length) await db.insertMunicipalNotes(toInsert);
+      // Atualiza existentes (mantém id/importId) e detecta cancelamentos novos.
+      const reabrir = [];
+      for (const { ex, novo } of toUpdate) {
+        await db.updateMunicipalNote(ex.id, { ...novo, importId: ex.importId });
+        if (novo.cancelada && !ex.cancelada) {
+          records.filter(r => r.municipalNoteId === ex.id).forEach(r =>
+            reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
+        }
+      }
+      if (reabrir.length) await db.reopenRecords(reabrir);
+      await Promise.all([reloadNotes(), reabrir.length ? reloadRecords() : Promise.resolve()]);
+      const base = `${toInsert.length} nova(s) · ${toUpdate.length} atualizada(s)`;
+      if (reabrir.length) toast(`${base} · ⚠ ${reabrir.length} registro(s) reabertos: NF cancelada na prefeitura`, "error");
+      else toast(`Notas importadas: ${base}`);
+    } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
   }
   async function handleNotesUndo(importId) {
     try { const n = await db.deleteMunicipalNotesByImport(importId); await reloadNotes(); toast(`${n} nota(s) removida(s)`, "info"); }
