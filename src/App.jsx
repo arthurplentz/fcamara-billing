@@ -2450,6 +2450,13 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
 
+  // Totais do que está filtrado (mostrados no topo de cada quadro)
+  const leftTotVal = leftNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
+  const rightTotVal = rightRecs.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const rightPend = rightRecs.filter(r=>!r.municipalNoteId);
+  const allRightSel = rightPend.length>0 && rightPend.every(r=>selRecs.has(r.id));
+  const toggleAllFiltered = () => setSelRecs(s => { const n=new Set(s); if(allRightSel) rightPend.forEach(r=>n.delete(r.id)); else rightPend.forEach(r=>n.add(r.id)); return n; });
+
   // Pendências (sempre sobre o total da empresa, não o filtrado)
   const notasPend = empNotes.filter(n=>!notaCheia(n)); const notasPendVal = notasPend.reduce((s,n)=>s+saldoNota(n),0);
   const recsPend = empRecs.filter(r=>!r.municipalNoteId); const recsPendVal = recsPend.reduce((s,r)=>s+(r.valorTotal||0),0);
@@ -2534,7 +2541,10 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             {/* ESQUERDA — NOTAS DA PREFEITURA */}
             <Card style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
-                <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>🧾 Notas da prefeitura</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}}>
+                  <span style={{fontWeight:700,fontSize:13}}>🧾 Notas da prefeitura</span>
+                  <span style={{fontSize:12,color:T.muted,marginLeft:"auto"}}><b style={{color:T.ink}}>{leftNotes.length}</b> · {brl(leftTotVal)}</span>
+                </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="🔎 nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
                   <SortSel value={noteStat} onChange={setNoteStat} opts={[["pendentes","Pendentes"],["conciliadas","Conciliadas"],["todas","Todas"]]}/>
@@ -2574,8 +2584,11 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             {/* DIREITA — RECEITAS RECONHECIDAS */}
             <Card style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <span style={{fontWeight:700,fontSize:13,flex:1}}>📋 Receitas reconhecidas</span>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,fontSize:13}}>📋 Receitas reconhecidas</span>
+                  <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{rightRecs.length}</b> · {brl(rightTotVal)}</span>
+                  <div style={{flex:1}}/>
+                  {rightPend.length>0 && <Btn small onClick={toggleAllFiltered}>{allRightSel?"☐ Limpar":"☑ Tudo filtrado"}</Btn>}
                   {note && <Btn small onClick={selSugeridos}>✨ Sugeridos</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
@@ -3193,20 +3206,22 @@ function AppInner() {
       const toInsert = [], toUpdate = [];
       list.forEach(n => { const ex = existing[key(n)]; ex ? toUpdate.push({ ex, novo: n }) : toInsert.push(n); });
       if (toInsert.length) await db.insertMunicipalNotes(toInsert);
-      // Atualiza existentes (mantém id/importId) e detecta cancelamentos novos.
-      const reabrir = [];
+      // Notas já existentes NÃO são reimportadas — só agimos se houve NOVO
+      // cancelamento (coluna de cancelamento da prefeitura). Importação diária.
+      const reabrir = []; let canceladas = 0;
       for (const { ex, novo } of toUpdate) {
-        await db.updateMunicipalNote(ex.id, { ...novo, importId: ex.importId });
         if (novo.cancelada && !ex.cancelada) {
+          canceladas++;
+          await db.updateMunicipalNote(ex.id, { ...ex, cancelada: true, situacao: novo.situacao || ex.situacao });
           records.filter(r => r.municipalNoteId === ex.id).forEach(r =>
             reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
         }
       }
       if (reabrir.length) await db.reopenRecords(reabrir);
       await Promise.all([reloadNotes(), reabrir.length ? reloadRecords() : Promise.resolve()]);
-      const base = `${toInsert.length} nova(s) · ${toUpdate.length} atualizada(s)`;
-      if (reabrir.length) toast(`${base} · ⚠ ${reabrir.length} registro(s) reabertos: NF cancelada na prefeitura`, "error");
-      else toast(`Notas importadas: ${base}`);
+      const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${canceladas?` · ${canceladas} cancelada(s)`:""}`;
+      if (reabrir.length) toast(`${base} · ⚠ ${reabrir.length} registro(s) reabertos: NF cancelada`, "error");
+      else toast(`Importação: ${base}`);
     } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
   }
   async function handleNotesUndo(importId) {
