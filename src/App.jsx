@@ -2406,10 +2406,16 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
+<<<<<<< HEAD
 function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onDeleteNote, onConciliate, onUnconciliate }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
+=======
+function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onConciliate, onUnconciliate }) {
+  const [importing, setImporting] = useState(false);
+  const [manage, setManage] = useState(false);
+>>>>>>> origin/main
   const [empresa, setEmpresa] = useState("");
   const [selNote, setSelNote] = useState("");
   const [selRecs, setSelRecs] = useState(() => new Set());
@@ -2556,7 +2562,10 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
                               {(usado[n.id]>0 && !cheia) && <div style={{fontSize:11,color:T.warn}}>saldo {brl(sal)} (amarrado {brl(usado[n.id])})</div>}
                             </div>
                             <button onClick={()=>setExpNote(exp?"":n.id)} title="Detalhes" style={{background:"none",border:"none",cursor:"pointer",color:T.muted,fontSize:14}}>{exp?"▲":"ⓘ"}</button>
+<<<<<<< HEAD
                             {isAdmin && <button onClick={()=>setNoteDel(n)} title="Excluir nota da base" style={{background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:14}}>🗑</button>}
+=======
+>>>>>>> origin/main
                           </div>
                           {exp && <div style={{padding:"0 12px 11px 33px",fontSize:11.5,color:T.inkSoft,lineHeight:1.5}}>
                             <div><b>Tomador:</b> {n.tomadorNome||"—"} · {n.tomadorCnpj||"—"}</div>
