@@ -16,7 +16,7 @@ function dbToRec(row) {
     competencia: row.competencia, progress: row.progress || {},
     nfNumero: row.nf_numero || "", obs: row.obs || "", updatedAt: row.updated_at,
     importId: row.import_id || null,
-    municipalNoteId: row.municipal_note_id || null,
+    municipalNoteId: row.municipal_note_id || null, conciliacaoId: row.conciliacao_id || null,
     conciliadoEm: row.conciliado_em || null, conciliadoPor: row.conciliado_por || "",
   };
 }
@@ -87,6 +87,34 @@ export async function reopenRecords(items) {
     if (error) throw error;
   }
 }
+// Conciliação N:N — liga um conjunto de notas a um conjunto de registros pelo
+// mesmo conciliacao_id. Completa o funil de cada registro (progress por registro).
+export async function conciliateSet({ cid, recordItems, noteIds, numero, userName }) {
+  for (const it of recordItems) {
+    const { error } = await supabase.from("records").update({
+      conciliacao_id: cid, municipal_note_id: null, nf_numero: numero || "", progress: it.progress,
+      conciliado_em: nowISO(), conciliado_por: userName || null, updated_at: nowISO(),
+    }).eq("id", it.id);
+    if (error) throw error;
+  }
+  if (noteIds && noteIds.length) {
+    const { error } = await supabase.from("municipal_notes").update({ conciliacao_id: cid }).in("id", noteIds);
+    if (error) throw error;
+  }
+}
+// Reabre um conjunto de conciliação: limpa o vínculo das notas e reabre os
+// registros (progress já pronto, por registro).
+export async function reopenConciliacao(cid, recordItems) {
+  for (const it of recordItems) {
+    const { error } = await supabase.from("records").update({
+      conciliacao_id: null, municipal_note_id: null, nf_numero: "", progress: it.progress,
+      conciliado_em: null, conciliado_por: null, updated_at: nowISO(),
+    }).eq("id", it.id);
+    if (error) throw error;
+  }
+  const { error } = await supabase.from("municipal_notes").update({ conciliacao_id: null }).eq("conciliacao_id", cid);
+  if (error) throw error;
+}
 // Conciliação que também completa o funil de cada registro (progress já pronto
 // no app, por registro). Atualiza um a um — o lote por conciliação é pequeno.
 export async function conciliateRecordsWithProgress(items, { noteId, numero, userName }) {
@@ -109,7 +137,7 @@ function dbToNote(row) {
     valorServicos: Number(row.valor_servicos) || 0, valorTotal: Number(row.valor_total) || 0,
     iss: Number(row.iss) || 0, situacao: row.situacao || "", cancelada: !!row.cancelada,
     pedidos: row.pedidos || "", competencias: row.competencias || "", profissionais: row.profissionais || "",
-    discriminacao: row.discriminacao || "", importId: row.import_id || null,
+    discriminacao: row.discriminacao || "", importId: row.import_id || null, conciliacaoId: row.conciliacao_id || null,
   };
 }
 function noteToDb(n) {
@@ -121,7 +149,7 @@ function noteToDb(n) {
     valor_servicos: n.valorServicos || 0, valor_total: n.valorTotal || 0,
     iss: n.iss || 0, situacao: n.situacao || null, cancelada: !!n.cancelada,
     pedidos: n.pedidos || null, competencias: n.competencias || null, profissionais: n.profissionais || null,
-    discriminacao: n.discriminacao || null, import_id: n.importId || null,
+    discriminacao: n.discriminacao || null, import_id: n.importId || null, conciliacao_id: n.conciliacaoId || null,
   };
 }
 export async function fetchMunicipalNotes() {
