@@ -1430,7 +1430,7 @@ function Dashboard({ records, analista, isAdmin }) {
 // ─── SIDEBAR / NAV ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"}, {id:"concil",icon:"🧾",label:"Conciliação de notas"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"🏢",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
 ];
@@ -2200,6 +2200,352 @@ function ClientImportModal({ existing, onImport, onClose }) {
   );
 }
 
+// ─── CONCILIAÇÃO DE NOTAS (NFS-e da prefeitura) ──────────────────────────────
+const PREFEITURAS = ["São Paulo", "Maringá", "Florianópolis", "Belo Horizonte"];
+const brl = (n) => "R$ " + (Number(n)||0).toLocaleString("pt-BR", { minimumFractionDigits:2, maximumFractionDigits:2 });
+const onlyDigits = (s) => String(s||"").replace(/\D/g, "");
+const stripAcc = (s) => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const normHdr  = (s) => stripAcc(s).replace(/[^a-z0-9]+/g, " ").trim();
+const colByExact = (headers, exact) => { const t = normHdr(exact); return headers.findIndex(h => normHdr(h) === t); };
+
+// "80.412,95" → 80412.95 ; "12,5" → 12.5 ; "1.234" → 1234
+function parseBR(v) {
+  let s = String(v==null?"":v).trim().replace(/[^\d.,-]/g, "");
+  if (!s) return 0;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  return parseFloat(s) || 0;
+}
+// "29/06/2026 17:24:52" ou "29/06/2026" → ISO
+function brToISO(v) {
+  const m = String(v||"").trim().match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  const [, d, mo, y, hh, mi, ss] = m;
+  return hh ? `${y}-${mo}-${d}T${hh}:${mi}:${ss||"00"}` : `${y}-${mo}-${d}`;
+}
+const MESES = { janeiro:"01", fevereiro:"02", marco:"03", abril:"04", maio:"05", junho:"06", julho:"07", agosto:"08", setembro:"09", outubro:"10", novembro:"11", dezembro:"12" };
+// Extrai PEDIDO (OV), competências e nomes da "Discriminação dos Serviços".
+function parseDiscriminacao(txt) {
+  const t = String(txt||"");
+  const pedidos = [...new Set((t.match(/PEDIDO\s*(\d+)/gi) || []).map(x => x.replace(/\D/g, "")))];
+  const comps = [...new Set((t.match(/(JANEIRO|FEVEREIRO|MAR[ÇC]O|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\s*\/?\s*(\d{4})/gi) || []).map(x => {
+    const mm = stripAcc((x.match(/[A-Za-zÇç]+/) || [""])[0]);
+    const yy = (x.match(/\d{4}/) || ["----"])[0];
+    return (MESES[mm] || "??") + "/" + yy;
+  }))];
+  const nomes = [...new Set((t.match(/\b\d{5}\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.\s]+?)(?=\s+\d{5}|\s+PEDIDO|\s+ITEM|$)/gi) || [])
+    .map(x => x.replace(/^\d{5}\s+/, "").replace(/\s+ITEM.*$/i, "").trim()).filter(n => n.length > 3))];
+  return { pedidos: pedidos.join(", "), competencias: comps.join(", "), profissionais: nomes.join(", ") };
+}
+// Parser do CSV de NFS-e da Prefeitura de São Paulo (cabeçalhos por nome).
+function parseMunicipalCSV(rows, municipio) {
+  if (!rows.length) return { notes: [], errors: ["Arquivo vazio."] };
+  const headers = rows[0].map(h => String(h||""));
+  const idx = {
+    numero:   colByExact(headers, "n nfs e"),     emitida:  colByExact(headers, "data hora nfe"),
+    fato:     colByExact(headers, "data do fato gerador"),
+    prestCnpj:colByExact(headers, "cpf cnpj do prestador"), prestNome: colByExact(headers, "razao social do prestador"),
+    situacao: colByExact(headers, "situacao da nota fiscal"), cancel: colByExact(headers, "data de cancelamento"),
+    valorServ:colByExact(headers, "valor dos servicos"), valorTotal: colByExact(headers, "valor total recebido"),
+    iss:      colByExact(headers, "iss devido"),
+    tomadorCnpj: colByExact(headers, "cpf cnpj do tomador"), tomadorNome: colByExact(headers, "razao social do tomador"),
+    discrim:  colByExact(headers, "discriminacao dos servicos"),
+  };
+  if (idx.numero === -1 || idx.tomadorCnpj === -1 || idx.valorServ === -1)
+    return { notes: [], errors: ["Layout não reconhecido. Confirme que é o relatório de NFS-e da Prefeitura de São Paulo (.csv)."] };
+  const get = (row, k) => idx[k] >= 0 ? (row[idx[k]] ?? "") : "";
+  const notes = []; let ignoradas = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.every(c => c == null || c === "")) continue;
+    const numero = String(get(row, "numero")).trim();
+    if (!numero) { ignoradas++; continue; }
+    const disc = String(get(row, "discrim") || "");
+    const meta = parseDiscriminacao(disc);
+    const situacao = String(get(row, "situacao")).trim();
+    const cancelada = !!String(get(row, "cancel")).trim() || /^c/i.test(situacao);
+    notes.push({
+      municipio, numero,
+      emitidaEm: brToISO(get(row, "emitida")), fatoGerador: brToISO(get(row, "fato")),
+      prestadorCnpj: onlyDigits(get(row, "prestCnpj")), prestadorNome: String(get(row, "prestNome")).trim(),
+      tomadorCnpj: onlyDigits(get(row, "tomadorCnpj")), tomadorNome: String(get(row, "tomadorNome")).trim(),
+      valorServicos: parseBR(get(row, "valorServ")), valorTotal: parseBR(get(row, "valorTotal")),
+      iss: parseBR(get(row, "iss")), situacao, cancelada,
+      pedidos: meta.pedidos, competencias: meta.competencias, profissionais: meta.profissionais,
+      discriminacao: disc, importId: null,
+    });
+  }
+  const errors = []; if (ignoradas) errors.push(`${ignoradas} linha(s) sem número de nota ignoradas.`);
+  return { notes, errors };
+}
+
+function NotesImportModal({ onImport, onClose }) {
+  const [municipio, setMun] = useState("São Paulo");
+  const [preview, setPreview] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [msgs, setMsgs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef();
+  const reset = () => { setPreview(null); setFileName(""); setMsgs([]); };
+
+  function readFile(file) {
+    setLoading(true); setFileName(file.name); setPreview(null); setMsgs([]);
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array", codepage:1252, raw:true });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", blankrows:false });
+        const { notes, errors } = parseMunicipalCSV(rows, municipio);
+        const m = []; errors.forEach(x => m.push({ type:"warn", text:x }));
+        if (!notes.length) { m.push({ type:"error", text:"Nenhuma nota válida encontrada." }); setMsgs(m); }
+        else { const can = notes.filter(n=>n.cancelada).length; m.push({ type:"ok", text:`${notes.length} nota(s) lidas${can?` · ${can} cancelada(s)`:""}.` }); setMsgs(m); setPreview(notes); }
+      } catch (err) { setMsgs([{ type:"error", text:"Erro ao ler o arquivo: " + err.message }]); }
+      setLoading(false);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  const mc = { ok:{bg:T.okBg,text:T.ok,border:T.okLine}, warn:{bg:T.warnBg,text:T.warn,border:T.warnLine}, error:{bg:T.dangerBg,text:T.danger,border:T.dangerLine} };
+
+  function doImport() {
+    if (!preview?.length) return;
+    const importId = uuid();
+    onImport(preview.map(n => ({ ...n, importId })));
+    onClose();
+  }
+
+  return (
+    <Modal title="Importar notas da prefeitura" subtitle="Relatório de NFS-e (.csv)" onClose={onClose} wide
+      footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn primary disabled={!preview?.length} onClick={doImport}>Importar {preview?.length||0} nota(s)</Btn></>}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:14}}>
+        <Field label="Prefeitura"><select style={inp} value={municipio} onChange={e=>{setMun(e.target.value);reset();}}>{PREFEITURAS.map(p=><option key={p}>{p}</option>)}</select></Field>
+      </div>
+      {municipio!=="São Paulo" && <div style={{marginBottom:12,padding:"10px 12px",background:T.warnBg,border:`1px solid ${T.warnLine}`,borderRadius:T.rMd,fontSize:12,color:T.warn}}>
+        Por enquanto só o layout de <b>São Paulo</b> está mapeado. Me mande uma amostra do relatório de {municipio} para eu adicionar o layout.
+      </div>}
+      <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
+        onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)readFile(f);}}
+        onClick={()=>fileRef.current?.click()}
+        style={{border:`2px dashed ${dragOver?T.brand:T.line}`,borderRadius:T.rLg,padding:"26px",textAlign:"center",cursor:"pointer",background:dragOver?T.brandBg:T.canvas}}>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)readFile(f);}}/>
+        <div style={{fontSize:26,marginBottom:6}}>🧾</div>
+        <div style={{fontSize:13,fontWeight:600,color:T.ink}}>{fileName||"Arraste o .csv aqui ou clique para escolher"}</div>
+        <div style={{fontSize:11,color:T.muted,marginTop:3}}>{loading?"Lendo…":"Relatório de NFS-e exportado da prefeitura"}</div>
+      </div>
+      {msgs.map((m,i)=>(<div key={i} style={{marginTop:10,padding:"9px 12px",borderRadius:T.rMd,fontSize:12.5,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>))}
+      {preview?.length>0 && <div style={{marginTop:12,fontSize:12,color:T.muted}}>Pré-visualização: {preview.slice(0,3).map(n=>`NF ${n.numero} · ${n.tomadorNome||"—"} · ${brl(n.valorServicos)}`).join("  |  ")}{preview.length>3?"  …":""}</div>}
+    </Modal>
+  );
+}
+
+// Conciliação: o analista escolhe um cliente, vê as receitas reconhecidas sem
+// nota e as NFs da prefeitura desse CNPJ, e amarra manualmente (1 nota ↔ N
+// registros). Nada é conciliado automaticamente — só sugerimos.
+function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onConciliate, onUnconciliate }) {
+  const [importing, setImporting] = useState(false);
+  const [manage, setManage] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [q, setQ] = useState("");
+  const [selRecs, setSelRecs] = useState(() => new Set());
+  const [selNote, setSelNote] = useState("");
+
+  // Mapas de ligação: cod cliente → cadastro ; cnpj → cadastro.
+  const codToClient = {}, cnpjToClient = {};
+  clients.forEach(c => {
+    const ents = parseJSON(c.cnpjs, null);
+    const codSaps = [c.codSap, ...((Array.isArray(ents)?ents:[]).map(e=>e.codSap))].map(x=>String(x||"").trim()).filter(Boolean);
+    codSaps.forEach(cod => { if(!codToClient[cod]) codToClient[cod] = c; });
+    clientCnpjs(c).forEach(cnpj => { const d=onlyDigits(cnpj); if(d && !cnpjToClient[d]) cnpjToClient[d] = c; });
+  });
+  const clientOfRecord = (r) => codToClient[String(r.codCliente||"").trim()] || null;
+
+  // Clientes que têm receita reconhecida (para a lista de seleção).
+  const recCountByClient = {};
+  records.forEach(r => { const c=clientOfRecord(r); if(c) recCountByClient[c.id]=(recCountByClient[c.id]||0)+1; });
+  let clientList = clients.filter(c => recCountByClient[c.id]);
+  if (q.trim()) { const s=q.trim().toLowerCase(); clientList = clientList.filter(c=>(c.nome||"").toLowerCase().includes(s)); }
+  clientList = clientList.slice().sort((a,b)=>(a.nome||"").localeCompare(b.nome||"")).slice(0,200);
+
+  const client = clients.find(c => c.id === clientId) || null;
+  const clientCnpjSet = client ? new Set(clientCnpjs(client).map(onlyDigits)) : new Set();
+
+  const pendentes = client ? records.filter(r => clientOfRecord(r)===client && !r.municipalNoteId) : [];
+  const conciliados = client ? records.filter(r => clientOfRecord(r)===client && r.municipalNoteId) : [];
+  const clientNotes = client ? notes.filter(n => !n.cancelada && clientCnpjSet.has(onlyDigits(n.tomadorCnpj))) : [];
+  // valor já amarrado por nota (para mostrar saldo)
+  const usadoPorNota = {}; conciliados.forEach(r => { usadoPorNota[r.municipalNoteId]=(usadoPorNota[r.municipalNoteId]||0)+(r.valorTotal||0); });
+
+  const somaSel = pendentes.filter(r=>selRecs.has(r.id)).reduce((s,r)=>s+(r.valorTotal||0),0);
+  const note = clientNotes.find(n=>n.id===selNote) || null;
+  const alvo = note ? (note.valorServicos - (usadoPorNota[note.id]||0)) : 0;
+  const diff = note ? Math.abs(somaSel - alvo) : 0;
+  const bate = note && diff <= Math.max(1, alvo*0.005);
+
+  const toggleRec = (id) => setSelRecs(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const resetSel = () => { setSelRecs(new Set()); setSelNote(""); };
+  const pickClient = (id) => { setClientId(id); resetSel(); };
+
+  // Sugestão (não auto): registros cujo profissional/competência aparecem na nota.
+  const noteNomes = note ? stripAcc(note.profissionais) : "";
+  const noteComps = note ? note.competencias : "";
+  const isSugerido = (r) => {
+    if (!note) return false;
+    const nome = stripAcc(r.profissional);
+    const byNome = nome && nome.length>3 && noteNomes.includes(nome.split(" ")[0]) && noteNomes.includes((nome.split(" ").slice(-1)[0]||""));
+    const byComp = r.competencia && noteComps.includes(r.competencia);
+    return !!(byNome || byComp);
+  };
+  const selecionarSugeridos = () => { if(!note) return; setSelRecs(new Set(pendentes.filter(isSugerido).map(r=>r.id))); };
+
+  function confirmar() {
+    if (!note || !selRecs.size) return;
+    onConciliate([...selRecs], note);
+    resetSel();
+  }
+
+  // Resumo topo
+  const totalPend = pendentes.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const notasLivres = clientNotes.filter(n => (usadoPorNota[n.id]||0) < n.valorServicos - 0.01).length;
+  const importBatches = [...new Set(notes.map(n=>n.importId).filter(Boolean))];
+
+  return (
+    <div>
+      {importing && <NotesImportModal onImport={onImport} onClose={()=>setImporting(false)}/>}
+      {manage && (
+        <Modal title="Importações de notas" onClose={()=>setManage(false)} footer={<Btn onClick={()=>setManage(false)}>Fechar</Btn>}>
+          {importBatches.length===0 ? <div style={{fontSize:13,color:T.muted}}>Nenhuma importação de notas ainda.</div>
+            : importBatches.map(bid=>{
+                const lote = notes.filter(n=>n.importId===bid);
+                return (
+                  <div key={bid} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:`1px solid ${T.lineSoft}`,fontSize:13}}>
+                    <span style={{flex:1}}>{lote[0]?.municipio||"—"} · <b>{lote.length}</b> nota(s)</span>
+                    <Btn small danger onClick={()=>{ onUndoImport(bid); }}>↩ Desfazer</Btn>
+                  </div>
+                );
+              })}
+        </Modal>
+      )}
+
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <h1 style={Ty.h1}>🧾 Conciliação de notas</h1>
+          <div style={{...Ty.small,marginTop:3}}>{notes.length} nota(s) importada(s) · amarre as receitas reconhecidas às NFs da prefeitura</div>
+        </div>
+        {isAdmin && <Btn onClick={()=>setManage(true)}>🗂️ Importações</Btn>}
+        {isAdmin && <Btn primary onClick={()=>setImporting(true)}>⬆ Importar notas</Btn>}
+      </div>
+
+      <Card style={{padding:"10px 12px",marginBottom:14}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <input style={{...inp,flex:1,minWidth:220}} placeholder="🔎 Buscar cliente para conciliar…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <select style={{...inp,minWidth:240}} value={clientId} onChange={e=>pickClient(e.target.value)}>
+            <option value="">— escolha um cliente —</option>
+            {clientList.map(c=><option key={c.id} value={c.id}>{c.nome}{clientCnpjs(c).length?"":" (sem CNPJ)"}</option>)}
+          </select>
+        </div>
+      </Card>
+
+      {!client ? (
+        <Card style={{textAlign:"center",padding:"3rem"}}>
+          <div style={{fontSize:32,marginBottom:10}}>🧾</div>
+          <div style={{fontSize:14,color:T.muted}}>Escolha um cliente acima para ver as receitas pendentes e as notas da prefeitura.</div>
+        </Card>
+      ) : clientCnpjSet.size===0 ? (
+        <Card style={{padding:"1.4rem",textAlign:"center"}}>
+          <div style={{fontSize:13,color:T.warn}}>O cadastro de <b>{client.nome}</b> não tem CNPJ — sem CNPJ não dá para cruzar com as notas. Complete o cadastro na aba Clientes.</div>
+        </Card>
+      ) : (
+        <>
+          <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
+            <Card style={{flex:1,minWidth:160,padding:"12px 14px"}}><div style={Ty.small}>Reconhecido sem nota</div><div style={{fontSize:18,fontWeight:800,color:T.ink}}>{brl(totalPend)}</div><div style={{fontSize:11,color:T.muted}}>{pendentes.length} registro(s)</div></Card>
+            <Card style={{flex:1,minWidth:160,padding:"12px 14px"}}><div style={Ty.small}>Notas disponíveis</div><div style={{fontSize:18,fontWeight:800,color:T.ink}}>{notasLivres}</div><div style={{fontSize:11,color:T.muted}}>de {clientNotes.length} no CNPJ</div></Card>
+            <Card style={{flex:1,minWidth:160,padding:"12px 14px"}}><div style={Ty.small}>Já conciliado</div><div style={{fontSize:18,fontWeight:800,color:T.ok}}>{conciliados.length}</div><div style={{fontSize:11,color:T.muted}}>registro(s)</div></Card>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,alignItems:"start"}} className="fc-concil-grid">
+            {/* Receitas reconhecidas pendentes */}
+            <Card style={{padding:0,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.line}`,fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{flex:1}}>Receitas sem nota</span>
+                {note && <Btn small onClick={selecionarSugeridos}>✨ Selecionar sugeridos</Btn>}
+              </div>
+              <div className="fc-scroll" style={{maxHeight:440,overflowY:"auto"}}>
+                {pendentes.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nada pendente para este cliente. 🎉</div>
+                  : pendentes.map(r=>{
+                      const on=selRecs.has(r.id), sug=isSugerido(r);
+                      return (
+                        <label key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 14px",borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer",background:on?T.brandBg:(sug?"#f0fdf4":"#fff")}}>
+                          <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.profissional||r.pep||"—"} {sug&&<Badge label="sugerido" color="green" small/>}</div>
+                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · PEP {r.pep||"—"}</div>
+                          </div>
+                          <div style={{fontSize:12.5,fontWeight:700,color:T.ink,whiteSpace:"nowrap"}}>{brl(r.valorTotal)}</div>
+                        </label>
+                      );
+                    })}
+              </div>
+            </Card>
+
+            {/* Notas da prefeitura */}
+            <Card style={{padding:0,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.line}`,fontWeight:700,fontSize:13}}>Notas da prefeitura ({client.nome})</div>
+              <div className="fc-scroll" style={{maxHeight:440,overflowY:"auto"}}>
+                {clientNotes.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma nota importada para o CNPJ deste cliente.</div>
+                  : clientNotes.map(n=>{
+                      const usado=usadoPorNota[n.id]||0, saldo=n.valorServicos-usado, full=saldo<=0.01, on=selNote===n.id;
+                      return (
+                        <label key={n.id} style={{display:"flex",alignItems:"flex-start",gap:9,padding:"9px 14px",borderBottom:`1px solid ${T.lineSoft}`,cursor:full?"default":"pointer",opacity:full?.55:1,background:on?T.brandBg:"#fff"}}>
+                          <input type="radio" name="concilNote" disabled={full} checked={on} onChange={()=>setSelNote(n.id)} style={{marginTop:3}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12.5,fontWeight:700,color:T.ink}}>NF {n.numero} · {brl(n.valorServicos)} {full&&<Badge label="conciliada" color="green" small/>}</div>
+                            <div style={{fontSize:11,color:T.muted}}>{fmtDT(n.emitidaEm)}{n.pedidos?` · pedido ${n.pedidos}`:""}{n.competencias?` · ${n.competencias}`:""}</div>
+                            {usado>0 && !full && <div style={{fontSize:11,color:T.warn}}>saldo {brl(saldo)} (já amarrado {brl(usado)})</div>}
+                            {n.profissionais && <div style={{fontSize:10.5,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{n.profissionais}</div>}
+                          </div>
+                        </label>
+                      );
+                    })}
+              </div>
+            </Card>
+          </div>
+
+          {/* Barra de confirmação */}
+          {(selRecs.size>0 || note) && (
+            <Card style={{padding:"12px 16px",marginTop:14,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",position:"sticky",bottom:12,boxShadow:T.shMd}}>
+              <div style={{fontSize:13}}>
+                <b>{selRecs.size}</b> registro(s) = <b>{brl(somaSel)}</b>
+                {note && <> &nbsp;→&nbsp; NF {note.numero} (alvo {brl(alvo)}) {bate ? <span style={{color:T.ok,fontWeight:700}}>✓ bate</span> : <span style={{color:T.warn,fontWeight:700}}>≠ dif. {brl(diff)}</span>}</>}
+              </div>
+              <div style={{flex:1}}/>
+              <Btn onClick={resetSel}>Limpar</Btn>
+              <Btn primary disabled={!note||!selRecs.size} onClick={confirmar}>Conciliar {selRecs.size} com NF {note?.numero||"…"}</Btn>
+            </Card>
+          )}
+
+          {/* Já conciliados */}
+          {conciliados.length>0 && (
+            <Card style={{marginTop:14,padding:0,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.line}`,fontWeight:700,fontSize:13}}>Conciliados ({conciliados.length})</div>
+              <div className="fc-scroll" style={{maxHeight:280,overflowY:"auto"}}>
+                {conciliados.map(r=>(
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",borderBottom:`1px solid ${T.lineSoft}`,fontSize:12.5}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.profissional||r.pep||"—"} · {r.competencia}</div>
+                      <div style={{fontSize:11,color:T.muted}}>NF {r.nfNumero}{r.conciliadoPor?` · por ${r.conciliadoPor}`:""}{r.conciliadoEm?` · ${fmtDT(r.conciliadoEm)}`:""}</div>
+                    </div>
+                    <div style={{fontWeight:700,color:T.ink,whiteSpace:"nowrap"}}>{brl(r.valorTotal)}</div>
+                    <Btn small onClick={()=>onUnconciliate([r.id])}>↩ Desfazer</Btn>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // Conta quantos CNPJs um cadastro reúne (grupo de empresas).
 function clientCnpjs(c) {
   const a = parseJSON(c.cnpjs, null);
@@ -2575,6 +2921,7 @@ function AppInner() {
   const [clients, setClients]   = useState([]);
   const [templates, setTemplates] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
+  const [notes, setNotes] = useState([]);   // notas da prefeitura (NFS-e)
   const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
@@ -2587,14 +2934,15 @@ function AppInner() {
   const reloadClients  = useCallback(async () => { try { setClients(await db.fetchClients()); } catch(e){ toast("Erro ao carregar clientes: "+e.message, "error"); } }, [toast]);
   const reloadTemplates = useCallback(async () => { try { setTemplates(await db.fetchTemplates()); } catch(e){ /* entregas: só admin */ } }, []);
   const reloadDeliveries = useCallback(async () => { try { setDeliveries(await db.fetchDeliveries()); } catch(e){ /* idem */ } }, []);
+  const reloadNotes = useCallback(async () => { try { setNotes(await db.fetchMunicipalNotes()); } catch(e){ /* notas: tabela pode não existir ainda */ } }, []);
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[])])
-      .then(([r, t, h, p, c, tm, dv]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[])])
+      .then(([r, t, h, p, c, tm, dv, nt]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -2757,6 +3105,26 @@ function AppInner() {
       toast(`Grupo "${nome}" com ${ents.length} CNPJ(s)`);
     } catch(e) { toast("Erro ao agrupar clientes: "+e.message, "error"); }
   }
+  // ─ Conciliação de notas (prefeitura) ─
+  async function handleNotesImport(list) {
+    try { const n = await db.insertMunicipalNotes(list); await reloadNotes(); toast(`${n} nota(s) da prefeitura importada(s)`); }
+    catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
+  }
+  async function handleNotesUndo(importId) {
+    try { const n = await db.deleteMunicipalNotesByImport(importId); await reloadNotes(); toast(`${n} nota(s) removida(s)`, "info"); }
+    catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
+  }
+  async function handleConciliate(recordIds, note) {
+    try {
+      await db.conciliateRecords(recordIds, { noteId: note.id, numero: note.numero, userName: user.name });
+      await reloadRecords();
+      toast(`${recordIds.length} registro(s) conciliados com a NF ${note.numero}`);
+    } catch(e) { toast("Erro ao conciliar: "+e.message, "error"); }
+  }
+  async function handleUnconciliate(recordIds) {
+    try { await db.unconciliateRecords(recordIds); await reloadRecords(); toast("Conciliação desfeita", "info"); }
+    catch(e) { toast("Erro ao desfazer conciliação: "+e.message, "error"); }
+  }
 
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
@@ -2811,6 +3179,13 @@ function AppInner() {
               <DataIOView recordsCount={records.length} clientsCount={clients.length}
                 onImport={()=>setImp(true)} onExport={()=>setExp(true)} onHistory={()=>setHist(true)}
                 onExportClients={()=>{ exportClientsCSV(clients); toast(`Clientes exportados — ${clients.length} cadastro(s)`); }}/>
+            </div>
+          )}
+          {page==="concil"&&(
+            <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin}
+                onImport={handleNotesImport} onUndoImport={handleNotesUndo}
+                onConciliate={handleConciliate} onUnconciliate={handleUnconciliate}/>
             </div>
           )}
           {page==="clients"&&(

@@ -16,6 +16,8 @@ function dbToRec(row) {
     competencia: row.competencia, progress: row.progress || {},
     nfNumero: row.nf_numero || "", obs: row.obs || "", updatedAt: row.updated_at,
     importId: row.import_id || null,
+    municipalNoteId: row.municipal_note_id || null,
+    conciliadoEm: row.conciliado_em || null, conciliadoPor: row.conciliado_por || "",
   };
 }
 function recToDb(r, withId) {
@@ -58,6 +60,69 @@ export async function deleteRecordsByImport(importId) {
   const { error, count } = await supabase.from("records").delete({ count: "exact" }).eq("import_id", importId);
   if (error) throw error;
   return count || 0;
+}
+// Conciliação: amarra registros de receita a uma nota da prefeitura (decisão do
+// analista). Atualiza só os campos de conciliação + número da NF — não toca nos
+// dados de reconhecimento (o trigger records_guard permite estes campos).
+export async function conciliateRecords(recordIds, { noteId, numero, userName }) {
+  const { error } = await supabase.from("records")
+    .update({ municipal_note_id: noteId, nf_numero: numero || "", conciliado_em: nowISO(), conciliado_por: userName || null, updated_at: nowISO() })
+    .in("id", recordIds);
+  if (error) throw error;
+}
+export async function unconciliateRecords(recordIds) {
+  const { error } = await supabase.from("records")
+    .update({ municipal_note_id: null, nf_numero: "", conciliado_em: null, conciliado_por: null, updated_at: nowISO() })
+    .in("id", recordIds);
+  if (error) throw error;
+}
+
+// ─── NOTAS DA PREFEITURA (NFS-e) ─────────────────────────────────────────────
+function dbToNote(row) {
+  return {
+    id: row.id, municipio: row.municipio || "", numero: row.numero || "",
+    emitidaEm: row.emitida_em || "", fatoGerador: row.fato_gerador || "",
+    prestadorCnpj: row.prestador_cnpj || "", prestadorNome: row.prestador_nome || "",
+    tomadorCnpj: row.tomador_cnpj || "", tomadorNome: row.tomador_nome || "",
+    valorServicos: Number(row.valor_servicos) || 0, valorTotal: Number(row.valor_total) || 0,
+    iss: Number(row.iss) || 0, situacao: row.situacao || "", cancelada: !!row.cancelada,
+    pedidos: row.pedidos || "", competencias: row.competencias || "", profissionais: row.profissionais || "",
+    discriminacao: row.discriminacao || "", importId: row.import_id || null,
+  };
+}
+function noteToDb(n) {
+  return {
+    municipio: n.municipio || null, numero: n.numero || null,
+    emitida_em: n.emitidaEm || null, fato_gerador: n.fatoGerador || null,
+    prestador_cnpj: n.prestadorCnpj || null, prestador_nome: n.prestadorNome || null,
+    tomador_cnpj: n.tomadorCnpj || null, tomador_nome: n.tomadorNome || null,
+    valor_servicos: n.valorServicos || 0, valor_total: n.valorTotal || 0,
+    iss: n.iss || 0, situacao: n.situacao || null, cancelada: !!n.cancelada,
+    pedidos: n.pedidos || null, competencias: n.competencias || null, profissionais: n.profissionais || null,
+    discriminacao: n.discriminacao || null, import_id: n.importId || null,
+  };
+}
+export async function fetchMunicipalNotes() {
+  const rows = await fetchAllPaged("municipal_notes", "*", "emitida_em");
+  return rows.map(dbToNote);
+}
+export async function insertMunicipalNotes(list) {
+  const size = 500;
+  for (let i = 0; i < list.length; i += size) {
+    const chunk = list.slice(i, i + size).map(noteToDb);
+    const { error } = await supabase.from("municipal_notes").insert(chunk);
+    if (error) throw error;
+  }
+  return list.length;
+}
+export async function deleteMunicipalNotesByImport(importId) {
+  const { error, count } = await supabase.from("municipal_notes").delete({ count: "exact" }).eq("import_id", importId);
+  if (error) throw error;
+  return count || 0;
+}
+export async function deleteMunicipalNote(id) {
+  const { error } = await supabase.from("municipal_notes").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // ─── TASKS ───────────────────────────────────────────────────────────────────
