@@ -2215,7 +2215,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   if (status==="incompletos") filtered = filtered.filter(c=>c.incompleto);
   if (status==="completos")   filtered = filtered.filter(c=>!c.incompleto);
   if (status==="grupos")      filtered = filtered.filter(c=>clientCnpjs(c).length>1);
-  if (q) { const s=q.toLowerCase(); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").includes(s) || clientCnpjs(c).some(x=>x.includes(s.replace(/\D/g,"")))); }
+  if (q.trim()) { const s=q.trim().toLowerCase(); const dig=s.replace(/\D/g,""); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").toLowerCase().includes(s) || (!!dig && clientCnpjs(c).some(x=>x.includes(dig)))); }
 
   const incompletos = clients.filter(c=>c.incompleto).length;
   const totalPages = Math.max(1, Math.ceil(filtered.length/PAGE));
