@@ -2212,10 +2212,11 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   const [importing, setImporting] = useState(false);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("todos");
-  const [grupo, setGrupo] = useState("todos");
+  const [grupo, setGrupo] = useState("");
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState(() => new Set());   // ids selecionados para agrupar
-  const [merging, setMerging] = useState(null);       // { ids, nome } enquanto confirma
+  const [merging, setMerging] = useState(null);       // { ids, nome } — criar grupo novo
+  const [adding, setAdding] = useState(null);         // { ids, pick } — incluir em grupo existente
   const PAGE = 50;
 
   const grupos = [...new Set(clients.map(c=>(c.grupoEmpresa||"").trim()).filter(Boolean))].sort();
@@ -2224,7 +2225,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   if (status==="incompletos") filtered = filtered.filter(c=>c.incompleto);
   if (status==="completos")   filtered = filtered.filter(c=>!c.incompleto);
   if (status==="grupos")      filtered = filtered.filter(c=>clientCnpjs(c).length>1);
-  if (grupo!=="todos")        filtered = filtered.filter(c=>(c.grupoEmpresa||"").trim()===grupo);
+  if (grupo.trim())           { const g=grupo.trim().toLowerCase(); filtered = filtered.filter(c=>(c.grupoEmpresa||"").toLowerCase().includes(g)); }
   if (q.trim()) { const s=q.trim().toLowerCase(); const dig=s.replace(/\D/g,""); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").toLowerCase().includes(s) || (!!dig && clientCnpjs(c).some(x=>x.includes(dig)))); }
 
   const incompletos = clients.filter(c=>c.incompleto).length;
@@ -2239,6 +2240,14 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   const confirmMerge = async () => {
     await onMerge(merging.ids, merging.nome.trim() || selList[0]?.nome || "Grupo");
     setSel(new Set()); setMerging(null);
+  };
+  // Incluir os selecionados num grupo já existente (o grupo é o cadastro-base).
+  const startAdd = () => setAdding({ ids:[...sel], pick:"" });
+  const grupoCandidatos = clients.filter(c => !adding?.ids.includes(c.id));   // não pode escolher os próprios selecionados
+  const addMatches = adding ? grupoCandidatos.filter(c => !adding.pick.trim() || (c.nome||"").toLowerCase().includes(adding.pick.trim().toLowerCase())).slice(0,8) : [];
+  const confirmAdd = async (target) => {
+    await onMerge([target.id, ...adding.ids], target.nome, target.id);
+    setSel(new Set()); setAdding(null);
   };
 
   return (
@@ -2267,6 +2276,30 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
           </div>
         </Modal>
       )}
+      {adding && (
+        <Modal title="Incluir em grupo existente" onClose={()=>setAdding(null)} footer={<Btn onClick={()=>setAdding(null)}>Cancelar</Btn>}>
+          <div style={{fontSize:13,color:T.inkSoft,marginBottom:12,lineHeight:1.6}}>
+            Escolha o <b>cadastro/grupo de destino</b>. Os <b>{adding.ids.length}</b> cadastros selecionados serão reunidos nele (CNPJs somados) e <b>removidos</b> como cadastros separados.
+          </div>
+          <Field label="Buscar grupo de destino">
+            <input style={inp} autoFocus value={adding.pick} onChange={e=>setAdding(a=>({...a,pick:e.target.value}))} placeholder="Digite o nome do grupo… ex.: Elfa"/>
+          </Field>
+          <div style={{marginTop:10,border:`1px solid ${T.line}`,borderRadius:T.rMd,overflow:"hidden"}}>
+            {addMatches.length===0
+              ? <div style={{padding:"14px",fontSize:12.5,color:T.muted,textAlign:"center"}}>Nenhum cadastro encontrado.</div>
+              : addMatches.map(c=>{
+                  const n=clientCnpjs(c).length;
+                  return (
+                    <button key={c.id} onClick={()=>confirmAdd(c)} className="fc-row" style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",borderBottom:`1px solid ${T.lineSoft}`,background:"#fff",cursor:"pointer",padding:"10px 12px",fontSize:13,color:T.ink}}>
+                      <span style={{flex:1,fontWeight:600}}>{c.nome}</span>
+                      {n>1 && <Badge label={`🔗 ${n} CNPJs`} color="blue" small/>}
+                      <span style={{fontSize:18,color:T.brand}}>＋</span>
+                    </button>
+                  );
+                })}
+          </div>
+        </Modal>
+      )}
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
@@ -2286,10 +2319,10 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
             <option value="grupos">🔗 Grupos (vários CNPJs)</option>
           </select>
           {grupos.length>0 && (
-            <select style={{...inp,width:"auto"}} value={grupo} onChange={e=>resetPage(setGrupo)(e.target.value)} aria-label="Grupo de empresa">
-              <option value="todos">Todos os grupos</option>
-              {grupos.map(g=><option key={g} value={g}>{g}</option>)}
-            </select>
+            <>
+              <input style={{...inp,width:160}} list="fc-grupos" placeholder="Grupo de empresa…" value={grupo} onChange={e=>resetPage(setGrupo)(e.target.value)} aria-label="Filtrar por grupo de empresa"/>
+              <datalist id="fc-grupos">{grupos.map(g=><option key={g} value={g}/>)}</datalist>
+            </>
           )}
           <input style={{...inp,flex:1,minWidth:200}} placeholder="🔎 Nome, Cód. SAP ou CNPJ..." value={q} onChange={e=>resetPage(setQ)(e.target.value)}/>
         </div>
@@ -2300,7 +2333,8 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
           <b style={{fontSize:13,color:T.ink}}>{sel.size} selecionado(s)</b>
           <Btn small onClick={()=>setSel(new Set())}>Limpar</Btn>
           <div style={{flex:1}}/>
-          <Btn primary small disabled={sel.size<2} onClick={startMerge}>🔗 Agrupar selecionados</Btn>
+          <Btn small onClick={startAdd}>➕ Incluir em grupo existente</Btn>
+          <Btn primary small disabled={sel.size<2} onClick={startMerge}>🔗 Agrupar (novo grupo)</Btn>
         </Card>
       )}
 
@@ -2685,15 +2719,17 @@ function AppInner() {
     try { const n = await db.bulkInsertClients(list); await reloadClients(); toast(`${n} cliente(s) importados (cadastro incompleto)`); }
     catch(e) { toast("Erro ao importar clientes: "+e.message, "error"); }
   }
-  // Agrupa N cadastros num só: reúne todos os CNPJs no primeiro e remove os demais.
-  async function handleClientsMerge(ids, nome) {
+  // Agrupa N cadastros num só. baseId define qual cadastro é o destino (grupo);
+  // sem baseId, usa o primeiro da lista. Reúne os CNPJs no destino e remove os demais.
+  async function handleClientsMerge(ids, nome, baseId) {
     try {
       const sel = clients.filter(c=>ids.includes(c.id));
       if (sel.length<2) return;
-      const base = sel[0];
+      const base = (baseId && sel.find(c=>c.id===baseId)) || sel[0];
+      const ordered = [base, ...sel.filter(c=>c.id!==base.id)];
       // Junta as entidades (empresas) de todos os cadastros, sem CNPJ duplicado.
       const ents = []; const seen = new Set();
-      sel.forEach(c=>{
+      ordered.forEach(c=>{
         const arr = parseJSON(c.cnpjs, null);
         const list = (Array.isArray(arr)&&arr.length) ? arr : [{ razao:c.nome||"", cnpj:c.cnpj||"", codSap:c.codSap||"" }];
         list.forEach(e=>{
@@ -2705,9 +2741,9 @@ function AppInner() {
       });
       const merged = { ...base, nome, cnpjs: JSON.stringify(ents), cnpj: ents[0]?.cnpj || "", codSap: ents[0]?.codSap || base.codSap || "" };
       await db.updateClient(merged);
-      for (const c of sel.slice(1)) await db.deleteClient(c.id);
+      for (const c of ordered.slice(1)) await db.deleteClient(c.id);
       await reloadClients();
-      toast(`Grupo "${nome}" criado com ${ents.length} CNPJ(s)`);
+      toast(`Grupo "${nome}" com ${ents.length} CNPJ(s)`);
     } catch(e) { toast("Erro ao agrupar clientes: "+e.message, "error"); }
   }
 
