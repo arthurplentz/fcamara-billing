@@ -415,15 +415,20 @@ function aggregateStates(records, tipo) {
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
 
-function Modal({ title, subtitle, onClose, children, wide, extraWide }) {
+function Modal({ title, subtitle, onClose, children, footer, wide, extraWide }) {
   const w = extraWide ? 960 : wide ? 780 : 520;
   const ref = useRef();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // Foca o primeiro campo só uma vez (na montagem). Depender de onClose fazia o
+  // efeito re-rodar a cada tecla quando o estado do modal mora no componente pai,
+  // roubando o foco e "travando" a digitação.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => { if (e.key === "Escape") closeRef.current?.(); };
     document.addEventListener("keydown", onKey);
     const t = setTimeout(() => { const el = ref.current?.querySelector("input,select,textarea,button"); el?.focus(); }, 30);
     return () => { document.removeEventListener("keydown", onKey); clearTimeout(t); };
-  }, [onClose]);
+  }, []);
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:16, animation:"fcOverlay .15s ease" }} onClick={onClose}>
       <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className="fc-scroll" style={{ background:"#fff", borderRadius:T.rXl+2, padding:"22px 26px", width:w, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", boxShadow:T.shLg, animation:"fcModalIn .18s ease" }} onClick={e=>e.stopPropagation()}>
@@ -435,6 +440,7 @@ function Modal({ title, subtitle, onClose, children, wide, extraWide }) {
           <button onClick={onClose} aria-label="Fechar" style={{ background:T.lineSoft, border:"none", width:30, height:30, borderRadius:8, fontSize:18, cursor:"pointer", color:T.muted, lineHeight:1, flexShrink:0 }}>×</button>
         </div>
         {children}
+        {footer && <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:18 }}>{footer}</div>}
       </div>
     </div>
   );
@@ -2206,15 +2212,19 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   const [importing, setImporting] = useState(false);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("todos");
+  const [grupo, setGrupo] = useState("todos");
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState(() => new Set());   // ids selecionados para agrupar
   const [merging, setMerging] = useState(null);       // { ids, nome } enquanto confirma
   const PAGE = 50;
 
+  const grupos = [...new Set(clients.map(c=>(c.grupoEmpresa||"").trim()).filter(Boolean))].sort();
+
   let filtered = clients;
   if (status==="incompletos") filtered = filtered.filter(c=>c.incompleto);
   if (status==="completos")   filtered = filtered.filter(c=>!c.incompleto);
   if (status==="grupos")      filtered = filtered.filter(c=>clientCnpjs(c).length>1);
+  if (grupo!=="todos")        filtered = filtered.filter(c=>(c.grupoEmpresa||"").trim()===grupo);
   if (q.trim()) { const s=q.trim().toLowerCase(); const dig=s.replace(/\D/g,""); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").toLowerCase().includes(s) || (!!dig && clientCnpjs(c).some(x=>x.includes(dig)))); }
 
   const incompletos = clients.filter(c=>c.incompleto).length;
@@ -2275,6 +2285,12 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
             <option value="completos">✓ Completos</option>
             <option value="grupos">🔗 Grupos (vários CNPJs)</option>
           </select>
+          {grupos.length>0 && (
+            <select style={{...inp,width:"auto"}} value={grupo} onChange={e=>resetPage(setGrupo)(e.target.value)} aria-label="Grupo de empresa">
+              <option value="todos">Todos os grupos</option>
+              {grupos.map(g=><option key={g} value={g}>{g}</option>)}
+            </select>
+          )}
           <input style={{...inp,flex:1,minWidth:200}} placeholder="🔎 Nome, Cód. SAP ou CNPJ..." value={q} onChange={e=>resetPage(setQ)(e.target.value)}/>
         </div>
       </Card>
