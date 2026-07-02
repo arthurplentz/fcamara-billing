@@ -248,39 +248,41 @@ function saveState(s) { try { localStorage.setItem(LS_KEY, JSON.stringify({ comp
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
 // Fonte única de cores, raios, sombras e tipografia. Mantém o azul da marca.
 
-// Tipografia: Plus Jakarta Sans (bonita, moderna e muito legível).
-const FONT = "'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-// Paleta profissional: índigo (primária) × âmbar (complementar) sobre neutros slate.
+// Tipografia — identidade Fcamara: Poppins (títulos, arredondada) + Inter (corpo, legível).
+const FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+const FONT_DISPLAY = "'Poppins', 'Inter', system-ui, sans-serif";
+// Paleta Fcamara: laranja #SangueLaranja sobre muito branco + charcoal (minimalista).
 const T = {
-  font: FONT,
-  brand:      "#4f46e5", // indigo-600
-  brandDark:  "#4338ca", // indigo-700
-  brandBg:    "#eef2ff", // indigo-50
-  brandSoft:  "#e0e7ff", // indigo-100
-  accent:     "#f59e0b", // amber-500 (complementar)
-  accentDark: "#b45309",
-  accentBg:   "#fffbeb",
-  ink:     "#0f172a", // títulos / texto principal (slate-900)
-  inkSoft: "#334155", // texto secundário (slate-700)
-  muted:   "#64748b", // texto terciário (slate-500)
-  faint:   "#94a3b8", // decorativo (slate-400)
+  font: FONT, fontDisplay: FONT_DISPLAY,
+  brand:      "#f1572c", // laranja Fcamara
+  brandDark:  "#d8431b",
+  brandBg:    "#fef1ec", // tint clara
+  brandSoft:  "#f9d3c6",
+  accent:     "#f1572c",
+  accentDark: "#d8431b",
+  accentBg:   "#fef1ec",
+  dark:       "#26221f", // charcoal (rodapé/realces escuros da marca)
+  ink:     "#1c1917", // texto principal (quase preto quente)
+  inkSoft: "#44403c",
+  muted:   "#78716c",
+  faint:   "#a8a29e",
   surface: "#ffffff",
-  canvas:  "#f8fafc", // slate-50
-  line:    "#e2e8f0", // slate-200
-  lineSoft:"#f1f5f9", // slate-100
+  canvas:  "#fafaf9", // branco quente
+  line:    "#e7e5e4",
+  lineSoft:"#f5f5f4",
   ok:      "#15803d", okBg:"#f0fdf4", okLine:"#86efac",
   warn:    "#b45309", warnBg:"#fffbeb", warnLine:"#fcd34d",
   danger:  "#dc2626", dangerBg:"#fef2f2", dangerLine:"#fca5a5",
   rSm:8, rMd:10, rLg:14, rXl:18, rPill:999,
-  shSm:"0 1px 2px rgba(15,23,42,.06)",
-  shMd:"0 6px 20px rgba(15,23,42,.08)",
-  shLg:"0 20px 50px rgba(15,23,42,.22)",
+  shSm:"0 1px 2px rgba(28,25,23,.05)",
+  shMd:"0 6px 20px rgba(28,25,23,.07)",
+  shLg:"0 20px 50px rgba(28,25,23,.16)",
 };
 
 // Escala tipográfica
 const Ty = {
-  h1:    { fontSize:20, fontWeight:800, color:T.ink, margin:0, letterSpacing:"-.02em" },
-  h2:    { fontSize:15, fontWeight:700, color:T.ink, margin:0, letterSpacing:"-.01em" },
+  h1:    { fontSize:20, fontWeight:700, fontFamily:FONT_DISPLAY, color:T.ink, margin:0, letterSpacing:"-.01em" },
+  h2:    { fontSize:15, fontWeight:600, fontFamily:FONT_DISPLAY, color:T.ink, margin:0 },
   body:  { fontSize:13, color:T.inkSoft },
   small: { fontSize:12, color:T.muted },
   label: { fontSize:12, fontWeight:600, color:T.inkSoft, display:"block", marginBottom:5 },
@@ -306,11 +308,11 @@ const GLOBAL_CSS = `
   body{margin:0;font-family:${FONT};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:${T.ink};background:${T.canvas}}
   button{font-family:inherit}
   :focus-visible{outline:2px solid ${T.brand};outline-offset:2px;border-radius:6px}
-  input:focus,select:focus,textarea:focus{border-color:${T.brand};box-shadow:0 0 0 3px rgba(79,70,229,.14)}
+  input:focus,select:focus,textarea:focus{border-color:${T.brand};box-shadow:0 0 0 3px rgba(241,87,44,.15)}
   .fc-btn{transition:filter .12s,box-shadow .12s,background .12s,transform .06s}
   .fc-btn:hover:not(:disabled){filter:brightness(.97)}
   .fc-btn:active:not(:disabled){transform:translateY(1px)}
-  .fc-row:hover{background:#eef2ff80}
+  .fc-row:hover{background:#fef1ec80}
   .fc-card-int{transition:box-shadow .15s,border-color .15s,transform .12s}
   .fc-card-int:hover{box-shadow:${T.shMd};border-color:${T.brandSoft};transform:translateY(-1px)}
   .fc-scroll::-webkit-scrollbar{height:9px;width:9px}
@@ -350,7 +352,7 @@ function ToastProvider({ children }) {
     setToasts(t => [...t, { id, text, type }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3800);
   }, []);
-  const tc = { ok:{bar:T.ok,ic:"✓"}, error:{bar:T.danger,ic:"✕"}, info:{bar:T.brand,ic:"ℹ"} };
+  const tc = { ok:{bar:T.ok,ic:"✓"}, error:{bar:T.danger,ic:"✕"}, info:{bar:T.brand,ic:""} };
   return (
     <ToastCtx.Provider value={push}>
       {children}
@@ -381,13 +383,54 @@ function Badge({ label, color="gray", small, dot }) {
   );
 }
 
-function Btn({ children, onClick, primary, danger, ghost, small, disabled, title, style:s={} }) {
+// Ícones minimalistas de traço (sem emojis) — Feather-style, herdam a cor do texto.
+function Icon({ name, size=16, style }) {
+  const p = { width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:1.8, strokeLinecap:"round", strokeLinejoin:"round", style:{display:"inline-block",flexShrink:0,verticalAlign:"-.15em",...style}, "aria-hidden":true };
+  switch (name) {
+    case "home":     return <svg {...p}><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/></svg>;
+    case "list":     return <svg {...p}><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>;
+    case "chart":    return <svg {...p}><path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="14" width="3" height="4"/></svg>;
+    case "receipt":  return <svg {...p}><path d="M6 2h12v20l-2.5-1.7L13 22l-2.5-1.7L8 22l-2-1.7V2z"/><path d="M9 7h6M9 11h6"/></svg>;
+    case "file":     return <svg {...p}><path d="M14 3H6v18h12V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>;
+    case "building": return <svg {...p}><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></svg>;
+    case "task":     return <svg {...p}><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>;
+    case "import":   return <svg {...p}><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>;
+    case "upload":   return <svg {...p}><path d="M12 15V3m0 0 4 4m-4-4L8 7"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>;
+    case "download": return <svg {...p}><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>;
+    case "lock":     return <svg {...p}><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>;
+    case "wallet":   return <svg {...p}><path d="M3 7a2 2 0 0 1 2-2h11v3"/><path d="M3 7v10a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H4"/><circle cx="17" cy="13" r="1.3"/></svg>;
+    case "gift":     return <svg {...p}><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13"/><path d="M12 8C11 4 7 4.5 7.5 6.5S12 8 12 8zM12 8c1-4 5-3.5 4.5-1.5S12 8 12 8z"/></svg>;
+    case "pin":      return <svg {...p}><path d="M12 21s-6-5.5-6-10a6 6 0 1 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>;
+    case "pencil":   return <svg {...p}><path d="M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3z"/><path d="m13.5 6.5 3 3"/></svg>;
+    case "trash":    return <svg {...p}><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m6 7 1 13h10l1-13"/></svg>;
+    case "undo":     return <svg {...p}><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v5"/></svg>;
+    case "search":   return <svg {...p}><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>;
+    case "star":     return <svg {...p}><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></svg>;
+    case "plus":     return <svg {...p}><path d="M12 5v14M5 12h14"/></svg>;
+    case "x":        return <svg {...p}><path d="M6 6l12 12M18 6 6 18"/></svg>;
+    case "check":    return <svg {...p}><path d="M5 12.5 10 17l9-10"/></svg>;
+    case "link":     return <svg {...p}><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg>;
+    case "alert":    return <svg {...p}><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/></svg>;
+    case "chevronDown":  return <svg {...p}><path d="m6 9 6 6 6-6"/></svg>;
+    case "chevronUp":    return <svg {...p}><path d="m6 15 6-6 6 6"/></svg>;
+    case "chevronLeft":  return <svg {...p}><path d="m15 6-6 6 6 6"/></svg>;
+    case "chevronRight": return <svg {...p}><path d="m9 6 6 6-6 6"/></svg>;
+    case "info":     return <svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>;
+    case "refresh":  return <svg {...p}><path d="M20 11a8 8 0 1 0-2 5"/><path d="M20 5v6h-6"/></svg>;
+    case "folder":   return <svg {...p}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>;
+    case "calendar": return <svg {...p}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>;
+    case "menu":     return <svg {...p}><path d="M4 7h16M4 12h16M4 17h16"/></svg>;
+    default:         return null;
+  }
+}
+
+function Btn({ children, onClick, primary, danger, ghost, small, disabled, title, icon, style:s={} }) {
   const base = { padding:small?"6px 12px":"9px 18px", borderRadius:T.rMd, fontSize:small?12:13, fontWeight:600, cursor:disabled?"not-allowed":"pointer", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, border:"none", opacity:disabled?.5:1, ...s };
   const v = primary ? { background:T.brand, color:"#fff" }
           : danger  ? { background:T.danger, color:"#fff" }
           : ghost   ? { background:"transparent", color:T.inkSoft }
           :           { background:"#fff", color:T.inkSoft, border:`1px solid ${T.line}` };
-  return <button className="fc-btn" title={title} aria-label={title} onClick={disabled?undefined:onClick} disabled={disabled} style={{...base,...v}}>{children}</button>;
+  return <button className="fc-btn" title={title} aria-label={title} onClick={disabled?undefined:onClick} disabled={disabled} style={{...base,...v}}>{icon && <Icon name={icon} size={small?13:15}/>}{children}</button>;
 }
 
 function Avatar({ name, size=30, admin }) {
@@ -552,7 +595,7 @@ function parseSheetRows(rows, empresa, tipo, competencia) {
   const colIdx={};
   for (const [key,cands] of Object.entries(TE_COL_MAP)) { const i=findCol(headers,cands); if(i!==-1) colIdx[key]=i; }
   const missing = Object.keys(TE_COL_MAP).filter(k=>colIdx[k]==null);
-  if (missing.length>4) return { records:[], errors:[`Cabeçalhos não encontrados: ${missing.join(", ")}. Use a aba "📥 Time & Expenses".`] };
+  if (missing.length>4) return { records:[], errors:[`Cabeçalhos não encontrados: ${missing.join(", ")}. Use a aba "Time & Expenses".`] };
   const records=[]; const skipped=[];
   for (let i=hi+1;i<rows.length;i++) {
     const row=rows[i];
@@ -674,7 +717,7 @@ function ImportModal({ onImport, onClose }) {
   return (
     <Modal title="Importar dados" subtitle="Carrega a planilha .xlsm/.xlsx de receitas" onClose={onClose} wide>
       <div style={{background:T.warnBg,border:`1px solid ${T.warnLine}`,borderRadius:T.rMd,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.warn,display:"flex",gap:8}}>
-        <span aria-hidden="true">🔒</span><span>Apenas administradores podem importar dados.</span>
+        <span aria-hidden="true"></span><span>Apenas administradores podem importar dados.</span>
       </div>
 
       {/* Layout da planilha */}
@@ -700,20 +743,20 @@ function ImportModal({ onImport, onClose }) {
       <div style={{marginBottom:14}}>
         <label style={Ty.label}>Modo de importação</label>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          {[{v:"add",l:"➕ Incluir novos",d:"Adiciona sem apagar registros existentes."},{v:"replace",l:"🔄 Substituir",d:"Remove e reimporta SOMENTE a competência (mês) + empresa + tipo informados. Outros meses não são afetados."}].map(opt=>(
+          {[{v:"add",l:"Incluir novos",d:"Adiciona sem apagar registros existentes."},{v:"replace",l:"Substituir",d:"Remove e reimporta SOMENTE a competência (mês) + empresa + tipo informados. Outros meses não são afetados."}].map(opt=>(
             <label key={opt.v} style={{flex:"1 1 200px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${mode===opt.v?T.brand:T.line}`,cursor:"pointer",background:mode===opt.v?T.brandBg:"#fff"}}>
               <input type="radio" name="mode" value={opt.v} checked={mode===opt.v} onChange={()=>setMode(opt.v)} style={{marginTop:2}}/>
               <div><div style={{fontSize:13,fontWeight:700,color:mode===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
             </label>
           ))}
         </div>
-        {mode==="replace"&&<div style={{marginTop:8,fontSize:12,color:T.danger,fontWeight:600}}>⚠ Apenas os registros desta competência (mês), empresa e tipo serão substituídos. O progresso já registrado para esse recorte será perdido; os demais meses permanecem intactos.</div>}
+        {mode==="replace"&&<div style={{marginTop:8,fontSize:12,color:T.danger,fontWeight:600}}>Apenas os registros desta competência (mês), empresa e tipo serão substituídos. O progresso já registrado para esse recorte será perdido; os demais meses permanecem intactos.</div>}
       </div>
       <div style={{marginBottom:14}}><Field label="Nota da importação (opcional)"><input style={inp} placeholder="Ex: Ajuste de valores de maio" value={note} onChange={e=>setNote(e.target.value)}/></Field></div>
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xlsm,.xls" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
       <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={onDrop} onClick={()=>fileRef.current.click()} role="button" tabIndex={0} aria-label="Carregar arquivo"
         style={{border:`2px dashed ${dragOver?T.brand:fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragOver?T.brandBg:fileName?T.okBg:"#fafbfc",marginBottom:14}}>
-        {loading?<div style={{color:T.muted,fontSize:13}}>⏳ Lendo arquivo...</div>:fileName?<><div style={{fontSize:24,marginBottom:6}}>✅</div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted,marginTop:4}}>Clique para trocar</div></>:<><div style={{fontSize:28,marginBottom:8}}>📂</div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique ou arraste o arquivo aqui</div><div style={{fontSize:12,color:T.muted,marginTop:4}}>Aceita .xlsm e .xlsx</div></>}
+        {loading?<div style={{color:T.muted,fontSize:13}}>Lendo arquivo...</div>:fileName?<><div style={{marginBottom:6,color:T.ok}}><Icon name="check" size={26}/></div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted,marginTop:4}}>Clique para trocar</div></>:<><div style={{marginBottom:8,color:T.muted}}><Icon name="upload" size={26}/></div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique ou arraste o arquivo aqui</div><div style={{fontSize:12,color:T.muted,marginTop:4}}>Aceita .xlsm e .xlsx</div></>}
       </div>
       {msgs.map((m,i)=><div key={i} style={{marginBottom:6,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>)}
       {preview&&<div style={{marginBottom:14,padding:"12px 14px",borderRadius:T.rMd,background:T.okBg,border:`1px solid ${T.okLine}`}}>
@@ -722,7 +765,7 @@ function ImportModal({ onImport, onClose }) {
       </div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary onClick={()=>{if(!preview)return;onImport({records:preview,competencia:comp,empresa,tipo,mode,note:note||(mode==="replace"?"Substituição":"Adição")});onClose();}} disabled={!preview}>{mode==="replace"?"⚠ Confirmar substituição":"✓ Confirmar importação"}</Btn>
+        <Btn primary onClick={()=>{if(!preview)return;onImport({records:preview,competencia:comp,empresa,tipo,mode,note:note||(mode==="replace"?"Substituição":"Adição")});onClose();}} disabled={!preview}>{mode==="replace"?"Confirmar substituição":"✓ Confirmar importação"}</Btn>
       </div>
     </Modal>
   );
@@ -757,7 +800,7 @@ function ExportModal({ records, onClose, onDone }) {
         <Field label="Competência"><select style={inp} value={comp} onChange={e=>setC(e.target.value)}><option value="todas">Todas</option>{comps.map(c=><option key={c}>{c}</option>)}</select></Field>
         <div style={{display:"flex",alignItems:"flex-end",paddingBottom:2}}><label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",color:T.inkSoft}}><input type="checkbox" checked={soNaoFat} onChange={e=>setSN(e.target.checked)} style={{width:16,height:16}}/>Somente não faturado</label></div>
       </div>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={doExport}>⬇ Exportar CSV</Btn></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={doExport}>Exportar CSV</Btn></div>
     </Modal>
   );
 }
@@ -894,7 +937,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
                 <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
                   <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
                   <button type="button" onClick={onOpenNF}
-                    style={{display:"inline-flex",alignItems:"center",gap:5,background:T.brandBg,border:`1px solid ${C.blue.border}`,color:T.brand,borderRadius:T.rMd,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>🧾 Atribuir nota</button>
+                    style={{display:"inline-flex",alignItems:"center",gap:5,background:T.brandBg,border:`1px solid ${C.blue.border}`,color:T.brand,borderRadius:T.rMd,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Atribuir nota</button>
                 </div>
               );
               return (
@@ -1036,7 +1079,7 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
                 </div>
               ))}
             </div>}
-        {groups.length>0 && semNf.length>0 && <div style={{fontSize:11,color:T.warn,marginTop:8}}>⚠ {semNf.length} profissional(is) ainda sem NF.</div>}
+        {groups.length>0 && semNf.length>0 && <div style={{fontSize:11,color:T.warn,marginTop:8}}>{semNf.length} profissional(is) ainda sem NF.</div>}
       </div>
 
       {/* Montar nova NF */}
@@ -1072,7 +1115,7 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
             Valor final da NF: <b style={{fontSize:16,color:T.ink}}>{fmtShort(valorFinal)}</b>
             <span style={{fontSize:12,color:T.muted}}> · {selected.size} selecionado(s)</span>
           </div>
-          <Btn primary onClick={assign} disabled={selected.size===0}>🧾 Atribuir NF aos selecionados</Btn>
+          <Btn primary onClick={assign} disabled={selected.size===0}>Atribuir NF aos selecionados</Btn>
         </div>
       </div>
 
@@ -1178,7 +1221,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
         onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
 
       <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-        <h1 style={Ty.h1}>📋 Minha visão</h1>
+        <h1 style={Ty.h1}>Minha visão</h1>
         <span style={Ty.small}>{groups.length} cliente(s) · {filtered.length} registro(s)</span>
       </div>
 
@@ -1221,10 +1264,10 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
           <select style={{...inp,width:selW,minWidth:160}} value={filterEtapa} onChange={e=>setFEt(e.target.value)} aria-label="Etapa do funil">
             <option value="todas">Todas as etapas</option>
             {STATUS_ORDER.map(s=><option key={s}>{s}</option>)}
-            <option value="_faltam_datas">⚠ Faltam datas</option>
+            <option value="_faltam_datas">Faltam datas</option>
           </select>
-          <input style={{...inp,width:isMobile?"100%":160}} placeholder="🔎 Cliente..." value={searchCliente} onChange={e=>setSC(e.target.value)}/>
-          <input style={{...inp,width:isMobile?"100%":160}} placeholder="🔎 Profissional..." value={searchProf} onChange={e=>setSP(e.target.value)}/>
+          <input style={{...inp,width:isMobile?"100%":160}} placeholder="Cliente..." value={searchCliente} onChange={e=>setSC(e.target.value)}/>
+          <input style={{...inp,width:isMobile?"100%":160}} placeholder="Profissional..." value={searchProf} onChange={e=>setSP(e.target.value)}/>
         </div>
       </Card>
 
@@ -1238,7 +1281,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
       </div>}
 
       {groups.length===0&&<Card style={{textAlign:"center",padding:"3rem"}}>
-        <div style={{fontSize:32,marginBottom:10}}>📭</div>
+        <div style={{fontSize:32,marginBottom:10}}></div>
         <div style={{fontSize:14,color:T.muted}}>Nenhum registro encontrado para os filtros selecionados.</div>
       </Card>}
 
@@ -1262,9 +1305,9 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
             <div onClick={()=>setExp(isOpen?null:(g.cliente+g.pep))} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",cursor:"pointer",userSelect:"none",flexWrap:"wrap"}}>
               <div style={{flex:1,minWidth:200}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
-                  <span style={{fontSize:14,fontWeight:700,color:T.ink}}>🏦 {g.cliente}</span>
+                  <span style={{fontSize:14,fontWeight:700,color:T.ink}}>{g.cliente}</span>
                   <Badge label={overallStatus} color={overallColor} small dot/>
-                  {faltam>0 && <Badge label={`⚠ faltam datas (${faltam})`} color="yellow" small/>}
+                  {faltam>0 && <Badge label={`faltam datas (${faltam})`} color="yellow" small/>}
                 </div>
                 <div style={{fontSize:11,color:T.muted}}>{g.pep} · {gtipo} · {g.records.length} {temProf?"profissionais":"registro(s)"} · {fmtShort(total)}</div>
               </div>
@@ -1273,8 +1316,8 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                 <div style={{fontSize:18,fontWeight:800,color:pct===100?T.ok:pct>50?T.brand:C.orange.solid}}>{pct}%</div>
                 <div style={{fontSize:10,color:T.muted}}>faturado</div>
               </div>
-              <Btn small onClick={e=>{e.stopPropagation();setNf({cliente:g.cliente,pep:g.pep,records:g.records});}}>🧾 Notas fiscais</Btn>
-              <Btn small onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>✎ Atualizar passos</Btn>
+              <Btn small onClick={e=>{e.stopPropagation();setNf({cliente:g.cliente,pep:g.pep,records:g.records});}}>Notas fiscais</Btn>
+              <Btn small onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>Atualizar passos</Btn>
               <span style={{fontSize:16,color:T.faint}} aria-hidden="true">{isOpen?"▲":"▼"}</span>
             </div>
 
@@ -1301,8 +1344,8 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
                       <td style={{padding:"7px 10px"}}><Badge label={calcStatus(r.progress)} color={calcStatusColor(r.progress)} small dot/></td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
-                        <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}>✎</button>
-                        <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}>🗑</button>
+                        <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}><Icon name="pencil" size={14}/></button>
+                        <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}><Icon name="trash" size={14}/></button>
                       </td>}
                     </tr>
                   ))}
@@ -1402,7 +1445,7 @@ function Dashboard({ records, analista, isAdmin }) {
 
   return (
     <div>
-      <h1 style={{...Ty.h1, marginBottom:14}}>📊 Dashboard</h1>
+      <h1 style={{...Ty.h1, marginBottom:14}}>Dashboard</h1>
 
       {/* Filtros */}
       <Card style={{ padding:"12px 14px", marginBottom:18 }}>
@@ -1494,7 +1537,7 @@ function Dashboard({ records, analista, isAdmin }) {
       <Card style={{padding:16}}>
         <SectionTitle count={Object.keys(naoFatByCliente).length}>Não faturados — resumo por cliente</SectionTitle>
         {Object.keys(naoFatByCliente).length===0
-          ?<div style={{textAlign:"center",padding:"1rem",color:T.muted,fontSize:13}}>🎉 Tudo faturado!</div>
+          ?<div style={{textAlign:"center",padding:"1rem",color:T.muted,fontSize:13}}>Tudo faturado!</div>
           :<div className="fc-scroll" style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:T.canvas}}>{[isAdmin&&"Analista","Cliente","PEP","Profissionais","Val. Total","Etapa atual"].filter(Boolean).map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
             <tbody>{Object.values(naoFatByCliente).sort((a,b)=>b.valor-a.valor).map((d,i)=><tr key={i} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
@@ -1515,13 +1558,13 @@ function Dashboard({ records, analista, isAdmin }) {
 // ─── SIDEBAR / NAV ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
-  { group:"", links:[ {id:"home",icon:"🏠",label:"Início"} ] },
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"}, {id:"concil",icon:"🧾",label:"Conciliação de notas"}, {id:"reports",icon:"📄",label:"Relatórios"} ] },
-  { group:"Cadastros", links:[ {id:"clients",icon:"🏢",label:"Clientes"} ] },
-  { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
+  { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"} ] },
+  { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
+  { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"📥",label:"Importar / Exportar"}, {id:"access",icon:"🔐",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -1541,7 +1584,7 @@ function NavLinks({ page, setPage, isAdmin, onNavigate }) {
                 color:active?T.brand:T.inkSoft,
                 borderLeft:active?`3px solid ${T.brand}`:"3px solid transparent",
               }}>
-                <span style={{fontSize:15}} aria-hidden="true">{l.icon}</span>{l.label}
+                <Icon name={l.icon} size={17}/>{l.label}
               </button>
             );
           })}
@@ -1615,7 +1658,7 @@ function TaskModal({ task, responsaveis, onSave, onDelete, onClose }) {
       <div style={{marginBottom:18}}><Field label="Coluna"><select style={inp} value={status} onChange={e=>setStatus(e.target.value)}>{TASK_COLUMNS.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select></Field></div>
       {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
       <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
-        <div>{!isNew&&<Btn danger small onClick={()=>{onDelete(task.id);onClose();}}>🗑 Excluir</Btn>}</div>
+        <div>{!isNew&&<Btn danger small onClick={()=>{onDelete(task.id);onClose();}}>Excluir</Btn>}</div>
         <div style={{display:"flex",gap:8}}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn primary onClick={save}>{isNew?"Criar tarefa":"Salvar"}</Btn>
@@ -1656,8 +1699,8 @@ function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd }) {
       <div style={{fontSize:13,fontWeight:600,color:T.ink,marginBottom:task.desc?4:8,lineHeight:1.35}}>{task.title}</div>
       {task.desc&&<div style={{fontSize:11.5,color:T.muted,marginBottom:8,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{task.desc}</div>}
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-        {task.recorrente&&<Badge label="🔁 Recorrente" color="teal" small/>}
-        {di&&<Badge label={"📅 "+di.label} color={di.color} small/>}
+        {task.recorrente&&<Badge label="Recorrente" color="teal" small/>}
+        {di&&<Badge label={""+di.label} color={di.color} small/>}
         <Badge label={task.assignee||"Não atribuído"} color={task.assignee?"purple":"gray"} small/>
         <div style={{flex:1}}/>
         <button title="Mover para a esquerda" aria-label="Mover para a esquerda" disabled={idx<=0} onClick={e=>{e.stopPropagation();onMove(task,TASK_COLUMNS[idx-1].id);}}
@@ -1723,7 +1766,7 @@ function DeliveryTemplateModal({ template, responsaveis, onSave, onDelete, onClo
       ))}
       {err&&<div style={{margin:"12px 0",fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
       <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:14}}>
-        <div>{!isNew && <Btn danger small onClick={()=>{onDelete(template.id);onClose();}}>🗑 Excluir modelo</Btn>}</div>
+        <div>{!isNew && <Btn danger small onClick={()=>{onDelete(template.id);onClose();}}>Excluir modelo</Btn>}</div>
         <div style={{display:"flex",gap:8}}><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={save}>{isNew?"Criar modelo":"Salvar"}</Btn></div>
       </div>
     </Modal>
@@ -1744,7 +1787,7 @@ function DeliveryManager({ templates, responsaveis, competenciaAtual, onTemplate
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:16,padding:"12px 14px",background:T.canvas,borderRadius:T.rLg,border:`1px solid ${T.line}`}}>
         <span style={{fontSize:13,fontWeight:600,color:T.ink}}>Gerar para a competência:</span>
         <input style={{...inp,width:120}} placeholder="MM/AAAA" value={comp} onChange={e=>setComp(e.target.value)}/>
-        <span style={{fontSize:11,color:T.muted}}>Use o botão "⚡ Gerar do mês" em cada modelo abaixo.</span>
+        <span style={{fontSize:11,color:T.muted}}>Use o botão "Gerar do mês" em cada modelo abaixo.</span>
       </div>
 
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
@@ -1757,11 +1800,11 @@ function DeliveryManager({ templates, responsaveis, competenciaAtual, onTemplate
         : templates.map(t=>(
           <div key={t.id} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:160}}>
-              <div style={{fontSize:14,fontWeight:700,color:T.ink}}>🔁 {t.title}</div>
+              <div style={{fontSize:14,fontWeight:700,color:T.ink}}>{t.title}</div>
               <div style={{fontSize:11,color:T.muted,marginTop:2}}>{t.items.length} tarefa(s): {t.items.map(i=>i.title).join(", ").slice(0,80)}{t.items.map(i=>i.title).join(", ").length>80?"…":""}</div>
             </div>
-            <Btn small onClick={()=>setEditing(t)}>✎ Editar</Btn>
-            <Btn primary small onClick={()=>{ if(!/^\d{2}\/\d{4}$/.test(comp)){alert("Informe a competência no formato MM/AAAA");return;} setConfirmGen(t); }}>⚡ Gerar do mês</Btn>
+            <Btn small onClick={()=>setEditing(t)}>Editar</Btn>
+            <Btn primary small onClick={()=>{ if(!/^\d{2}\/\d{4}$/.test(comp)){alert("Informe a competência no formato MM/AAAA");return;} setConfirmGen(t); }}>Gerar do mês</Btn>
           </div>
         ))}
 
@@ -1831,20 +1874,20 @@ function Kanban({ tasks, responsaveis, isAdmin, competenciaAtual, templates, del
 
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180}}>
-          <h1 style={Ty.h1}>✅ Tarefas do time</h1>
+          <h1 style={Ty.h1}>Tarefas do time</h1>
           <div style={{...Ty.small, marginTop:3}}>{tasks.length} tarefa(s) · arraste os cards entre as colunas ou use as setas</div>
         </div>
         <select style={{...inp,width:"auto"}} value={filterTipo} onChange={e=>setFilterTipo(e.target.value)} aria-label="Tipo de tarefa">
           <option value="todas">Todas</option>
-          <option value="recorrentes">🔁 Recorrentes</option>
+          <option value="recorrentes">Recorrentes</option>
           <option value="ordinarias">Ordinárias</option>
         </select>
         <select style={{...inp,width:"auto"}} value={filterResp} onChange={e=>setFilterResp(e.target.value)} aria-label="Filtrar responsável">
           <option value="todos">Todos os responsáveis</option>
           {responsaveis.map(r=><option key={r}>{r}</option>)}
         </select>
-        {isAdmin&&<Btn small onClick={()=>setByAnalyst(v=>!v)} style={byAnalyst?{borderColor:T.brand,color:T.brand}:{}}>👥 Por analista</Btn>}
-        {isAdmin&&<Btn small onClick={()=>setShowDeliv(true)}>🗂 Entregas</Btn>}
+        {isAdmin&&<Btn small onClick={()=>setByAnalyst(v=>!v)} style={byAnalyst?{borderColor:T.brand,color:T.brand}:{}}>Por analista</Btn>}
+        {isAdmin&&<Btn small onClick={()=>setShowDeliv(true)}>Entregas</Btn>}
         <Btn primary onClick={()=>setEditing({ status:"inbox" })}>+ Nova tarefa</Btn>
       </div>
 
@@ -1885,7 +1928,7 @@ function NewAccessInfoModal({ onClose }) {
         <li>Volte aqui e clique em <b>Atualizar lista</b>: a pessoa aparece como <b>Analista</b>.</li>
         <li>Ajuste o <b>nome</b> (para casar com o "Responsável" das planilhas) e, se precisar, marque como <b>Administrador</b>.</li>
       </ol>
-      <div style={{fontSize:12,color:T.muted,marginTop:6}}>💡 No próximo marco dá para trazer essa criação para dentro do app (função no servidor).</div>
+      <div style={{fontSize:12,color:T.muted,marginTop:6}}>No próximo marco dá para trazer essa criação para dentro do app (função no servidor).</div>
       <div style={{display:"flex",justifyContent:"flex-end",marginTop:18}}><Btn primary onClick={onClose}>Entendi</Btn></div>
     </Modal>
   );
@@ -1945,10 +1988,10 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>🔐 Gestão de acessos</h1>
+          <h1 style={Ty.h1}>Gestão de acessos</h1>
           <div style={{...Ty.small, marginTop:3}}>{profiles.length} usuário(s) · {adminCount} administrador(es). Ajuste papéis e remova acessos.</div>
         </div>
-        <Btn onClick={onRefresh}>↻ Atualizar lista</Btn>
+        <Btn onClick={onRefresh}>Atualizar lista</Btn>
         <Btn primary onClick={()=>setShowNew(true)}>+ Novo acesso</Btn>
       </div>
 
@@ -1974,9 +2017,9 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
                     </td>
                     <td style={{padding:"10px 14px"}}><Badge label={u.isAdmin?"Administrador":"Analista"} color={u.isAdmin?"blue":"gray"} small dot/></td>
                     <td style={{padding:"10px 14px",textAlign:"right",whiteSpace:"nowrap"}}>
-                      <Btn small onClick={()=>setEditing(u)} style={{marginRight:6}}>✎ Editar</Btn>
+                      <Btn small onClick={()=>setEditing(u)} style={{marginRight:6}}>Editar</Btn>
                       <Btn small danger disabled={isSelf||lastAdmin} onClick={()=>setConfirm(u)}
-                        title={isSelf?"Você não pode remover o próprio acesso":lastAdmin?"É preciso ao menos um administrador":"Remover acesso"}>🗑 Remover</Btn>
+                        title={isSelf?"Você não pode remover o próprio acesso":lastAdmin?"É preciso ao menos um administrador":"Remover acesso"}>Remover</Btn>
                     </td>
                   </tr>
                 );
@@ -1988,7 +2031,7 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
       </Card>
 
       <div style={{marginTop:14,fontSize:12,color:T.muted,display:"flex",gap:8,alignItems:"flex-start"}}>
-        <span aria-hidden="true">ℹ️</span>
+        <span aria-hidden="true"></span>
         <span>Os acessos ficam no banco (Supabase) e valem para todos. Sempre deve existir ao menos um administrador, e você não pode remover o seu próprio acesso. Para criar um login novo, use "+ Novo acesso".</span>
       </div>
     </div>
@@ -2060,14 +2103,14 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
     <Modal title={isNew?"Novo cliente":`Cliente — ${client.nome}`} subtitle="Perfil de faturamento do cliente" onClose={onClose} wide>
       {/* Abas: Dados x Calendário (passo a passo) */}
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
-        {[["dados","📋 Dados do cliente"],["calendario","🗓️ Calendário (passo a passo)"]].map(([id,label])=>(
+        {[["dados","Dados do cliente"],["calendario","Calendário (passo a passo)"]].map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 12px",fontSize:13,fontWeight:tab===id?700:500,color:tab===id?T.brand:T.muted,borderBottom:`2px solid ${tab===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
 
       {tab==="dados" && <>
       {f.incompleto && <div style={{marginBottom:16,padding:"11px 14px",borderRadius:T.rMd,background:T.warnBg,border:`1px solid ${T.warnLine}`,fontSize:12.5,color:T.warn,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <span style={{flex:1,minWidth:200}}>⚠ <b>Cadastro incompleto</b> (veio da carga em massa). Complete os dados e marque como concluído.</span>
+        <span style={{flex:1,minWidth:200}}><b>Cadastro incompleto</b> (veio da carga em massa). Complete os dados e marque como concluído.</span>
         <Btn small primary onClick={()=>set("incompleto",false)}>✓ Marcar como completo</Btn>
       </div>}
       <CSec title="Identificação">
@@ -2209,7 +2252,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
       {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
 
       <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
-        <div>{!isNew && <Btn danger small onClick={()=>{onDelete(client.id);onClose();}}>🗑 Excluir</Btn>}</div>
+        <div>{!isNew && <Btn danger small onClick={()=>{onDelete(client.id);onClose();}}>Excluir</Btn>}</div>
         <div style={{display:"flex",gap:8}}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn primary onClick={save}>{isNew?"Criar cliente":"Salvar"}</Btn>
@@ -2276,7 +2319,7 @@ function ClientImportModal({ existing, onImport, onClose }) {
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xls,.csv" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
       <div onClick={()=>fileRef.current.click()} role="button" tabIndex={0}
         style={{border:`2px dashed ${fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:fileName?T.okBg:"#fafbfc",marginBottom:14}}>
-        {loading?<div style={{color:T.muted,fontSize:13}}>⏳ Lendo...</div>:fileName?<><div style={{fontSize:24}}>✅</div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted}}>Clique para trocar</div></>:<><div style={{fontSize:28}}>📂</div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique para selecionar a planilha</div></>}
+        {loading?<div style={{color:T.muted,fontSize:13}}>Lendo...</div>:fileName?<><div style={{color:T.ok,marginBottom:6}}><Icon name="check" size={26}/></div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted}}>Clique para trocar</div></>:<><div style={{color:T.muted,marginBottom:8}}><Icon name="upload" size={26}/></div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique para selecionar a planilha</div></>}
       </div>
       {msgs.map((m,i)=><div key={i} style={{marginBottom:6,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>)}
       {preview&&<div style={{marginBottom:14,padding:"10px 14px",borderRadius:T.rMd,background:T.okBg,border:`1px solid ${T.okLine}`,fontSize:12,color:T.ok}}>
@@ -2284,7 +2327,7 @@ function ClientImportModal({ existing, onImport, onClose }) {
       </div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary disabled={!preview} onClick={()=>{ if(preview){onImport(preview);} onClose(); }}>⬆ Importar {preview?`(${preview.length})`:""}</Btn>
+        <Btn primary disabled={!preview} onClick={()=>{ if(preview){onImport(preview);} onClose(); }}>Importar {preview?`(${preview.length})`:""}</Btn>
       </div>
     </Modal>
   );
@@ -2449,7 +2492,7 @@ function NotesImportModal({ onImport, onClose }) {
         onClick={()=>fileRef.current?.click()}
         style={{border:`2px dashed ${dragOver?T.brand:T.line}`,borderRadius:T.rLg,padding:"26px",textAlign:"center",cursor:"pointer",background:dragOver?T.brandBg:T.canvas}}>
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)readFile(f);}}/>
-        <div style={{fontSize:26,marginBottom:6}}>🧾</div>
+        <div style={{marginBottom:6,color:T.muted}}><Icon name="receipt" size={26}/></div>
         <div style={{fontSize:13,fontWeight:600,color:T.ink}}>{fileName||"Arraste o .csv/.xlsx aqui ou clique para escolher"}</div>
         <div style={{fontSize:11,color:T.muted,marginTop:3}}>{loading?"Lendo…":"Relatório de NFS-e (SP em .csv · Maringá em .xlsx)"}</div>
       </div>
@@ -2560,11 +2603,11 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>🧾 Conciliação de notas</h1>
+          <h1 style={Ty.h1}>Conciliação de notas</h1>
           <div style={{...Ty.small,marginTop:3}}>{notes.length} nota(s) importada(s) · conciliação por empresa do grupo</div>
         </div>
-        {isAdmin && <Btn onClick={()=>setManage(true)}>🗂️ Importações</Btn>}
-        {isAdmin && <Btn primary onClick={()=>setImporting(true)}>⬆ Importar notas</Btn>}
+        {isAdmin && <Btn icon="folder" onClick={()=>setManage(true)}>Importações</Btn>}
+        {isAdmin && <Btn primary icon="upload" onClick={()=>setImporting(true)}>Importar notas</Btn>}
       </div>
 
       <Card style={{padding:"10px 12px",marginBottom:14}}>
@@ -2579,7 +2622,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
       {!empresa ? (
         <Card style={{textAlign:"center",padding:"3rem"}}>
-          <div style={{fontSize:32,marginBottom:10}}>🏢</div>
+          <div style={{fontSize:32,marginBottom:10}}></div>
           <div style={{fontSize:14,color:T.muted}}>Escolha uma empresa do grupo acima para conciliar as notas com as receitas.</div>
         </Card>
       ) : (
@@ -2614,13 +2657,13 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             <Card style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                  <span style={{fontWeight:700,fontSize:13}}>🧾 Notas da prefeitura</span>
+                  <span style={{fontWeight:700,fontSize:13}}>Notas da prefeitura</span>
                   <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{leftNotes.length}</b> · {brl(leftTotVal)}</span>
                   <div style={{flex:1}}/>
-                  {leftPendFiltered.length>0 && <Btn small onClick={toggleAllNotes}>{allLeftSel?"☐ Limpar":"☑ Tudo filtrado"}</Btn>}
+                  {leftPendFiltered.length>0 && <Btn small onClick={toggleAllNotes}>{allLeftSel?"Limpar":"Tudo filtrado"}</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="🔎 nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
+                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
                   <SortSel value={noteStat} onChange={setNoteStat} opts={[["pendentes","Pendentes"],["conciliadas","Conciliadas"],["todas","Todas"]]}/>
                   <SortSel value={noteSort} onChange={setNoteSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["data_desc","↓ Data"],["data_asc","↑ Data"],["tomador_az","A–Z"]]}/>
                 </div>
@@ -2642,7 +2685,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
                             </div>
                             {conc && <button onClick={()=>onReopen({ conciliacaoId:n.conciliacaoId, noteId:n.id })} title="Desfazer conciliação" style={{background:"none",border:"none",cursor:"pointer",color:T.warn,fontSize:14}}>↩</button>}
                             <button onClick={()=>setExpNote(exp?"":n.id)} title="Detalhes" style={{background:"none",border:"none",cursor:"pointer",color:T.muted,fontSize:14}}>{exp?"▲":"ⓘ"}</button>
-                            {isAdmin && <button onClick={()=>setNoteDel(n)} title="Excluir nota da base" style={{background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:14}}>🗑</button>}
+                            {isAdmin && <button onClick={()=>setNoteDel(n)} title="Excluir nota da base" style={{background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:14}}><Icon name="trash" size={14}/></button>}
                           </div>
                           {exp && <div style={{padding:"0 12px 11px 33px",fontSize:11.5,color:T.inkSoft,lineHeight:1.5}}>
                             <div><b>Tomador:</b> {n.tomadorNome||"—"} · {n.tomadorCnpj||"—"}</div>
@@ -2661,14 +2704,14 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
             <Card style={{padding:0,overflow:"hidden"}}>
               <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                  <span style={{fontWeight:700,fontSize:13}}>📋 Receitas reconhecidas</span>
+                  <span style={{fontWeight:700,fontSize:13}}>Receitas reconhecidas</span>
                   <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{rightRecs.length}</b> · {brl(rightTotVal)}</span>
                   <div style={{flex:1}}/>
-                  {rightPend.length>0 && <Btn small onClick={toggleAllRecs}>{allRightSel?"☐ Limpar":"☑ Tudo filtrado"}</Btn>}
-                  {selectedNotes.length>0 && <Btn small onClick={selSugeridos}>✨ Sugeridos</Btn>}
+                  {rightPend.length>0 && <Btn small onClick={toggleAllRecs}>{allRightSel?"Limpar":"Tudo filtrado"}</Btn>}
+                  {selectedNotes.length>0 && <Btn small onClick={selSugeridos}>Sugeridos</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="🔎 cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
+                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
                   <SortSel value={recComp} onChange={setRecComp} opts={[["todas","Todas comp."],...compsUsadas.map(c=>[c,c])]}/>
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
@@ -2804,7 +2847,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
                     <button key={c.id} onClick={()=>setAdding(a=>({...a,target:c}))} className="fc-row" style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandSoft||"#eef2ff":"#fff",cursor:"pointer",padding:"10px 12px",fontSize:13,color:T.ink}}>
                       <span style={{width:16,color:T.brand,fontWeight:800}}>{on?"✓":""}</span>
                       <span style={{flex:1,fontWeight:600}}>{c.nome}</span>
-                      {n>1 && <Badge label={`🔗 ${n} CNPJs`} color="blue" small/>}
+                      {n>1 && <Badge label={`${n} CNPJs`} color="blue" small/>}
                     </button>
                   );
                 })}
@@ -2814,20 +2857,20 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
 
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>🏢 Clientes</h1>
+          <h1 style={Ty.h1}>Clientes</h1>
           <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s){incompletos>0 && <> · <b style={{color:T.warn}}>{incompletos} incompleto(s)</b></>}</div>
         </div>
-        {isAdmin && <Btn onClick={()=>setImporting(true)}>⬆ Importar clientes</Btn>}
-        <Btn primary onClick={()=>setEditing({ temPortal:false })}>+ Novo cliente</Btn>
+        {isAdmin && <Btn icon="upload" onClick={()=>setImporting(true)}>Importar clientes</Btn>}
+        <Btn primary icon="plus" onClick={()=>setEditing({ temPortal:false })}>Novo cliente</Btn>
       </div>
 
       <Card style={{padding:"10px 12px",marginBottom:14}}>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <select style={{...inp,width:"auto"}} value={status} onChange={e=>resetPage(setStatus)(e.target.value)} aria-label="Status do cadastro">
             <option value="todos">Todos os cadastros</option>
-            <option value="incompletos">⚠ Incompletos</option>
+            <option value="incompletos">Incompletos</option>
             <option value="completos">✓ Completos</option>
-            <option value="grupos">🔗 Grupos (vários CNPJs)</option>
+            <option value="grupos">Grupos (vários CNPJs)</option>
           </select>
           {grupos.length>0 && (
             <>
@@ -2835,7 +2878,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
               <datalist id="fc-grupos">{grupos.map(g=><option key={g} value={g}/>)}</datalist>
             </>
           )}
-          <input style={{...inp,flex:1,minWidth:200}} placeholder="🔎 Nome, Cód. SAP ou CNPJ..." value={q} onChange={e=>resetPage(setQ)(e.target.value)}/>
+          <input style={{...inp,flex:1,minWidth:200}} placeholder="Nome, Cód. SAP ou CNPJ..." value={q} onChange={e=>resetPage(setQ)(e.target.value)}/>
         </div>
       </Card>
 
@@ -2844,14 +2887,14 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
           <b style={{fontSize:13,color:T.ink}}>{sel.size} selecionado(s)</b>
           <Btn small onClick={()=>setSel(new Set())}>Limpar</Btn>
           <div style={{flex:1}}/>
-          <Btn small onClick={startAdd}>➕ Incluir em grupo existente</Btn>
-          <Btn primary small disabled={sel.size<2} onClick={startMerge}>🔗 Agrupar (novo grupo)</Btn>
+          <Btn small icon="plus" onClick={startAdd}>Incluir em grupo existente</Btn>
+          <Btn primary small icon="link" disabled={sel.size<2} onClick={startMerge}>Agrupar (novo grupo)</Btn>
         </Card>
       )}
 
       {filtered.length===0
         ? <Card style={{textAlign:"center",padding:"3rem"}}>
-            <div style={{fontSize:32,marginBottom:10}}>🏢</div>
+            <div style={{fontSize:32,marginBottom:10}}></div>
             <div style={{fontSize:14,color:T.muted}}>{clients.length===0?"Nenhum cliente cadastrado. Importe a base ou clique em “+ Novo cliente”.":"Nenhum cliente encontrado."}</div>
           </Card>
         : <Card style={{padding:0,overflow:"hidden"}}>
@@ -2874,7 +2917,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
                         <input type="checkbox" checked={sel.has(c.id)} onChange={()=>toggle(c.id)} aria-label={`Selecionar ${c.nome}`}/>
                       </td>
                       <td style={{padding:"10px 14px",fontWeight:600,color:T.ink}} onClick={()=>setEditing(c)}>
-                        {c.nome} {cs.length>1 && <Badge label={`🔗 ${cs.length} CNPJs`} color="blue" small/>}
+                        {c.nome} {cs.length>1 && <Badge label={`${cs.length} CNPJs`} color="blue" small/>}
                       </td>
                       <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace"}} onClick={()=>setEditing(c)}>{c.codSap||"—"}</td>
                       <td style={{padding:"10px 14px",color:T.inkSoft,fontFamily:"monospace",fontSize:11}} onClick={()=>setEditing(c)}>{cs[0]||"—"}{cs.length>1 && <span style={{color:T.muted}}> +{cs.length-1}</span>}</td>
@@ -2911,7 +2954,7 @@ function MuralEditModal({ mural, onSave, onClose }) {
   return (
     <Modal title="Editar mural da semana" subtitle="Aparece na tela inicial de todo mundo" onClose={onClose}
       footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={save}>Salvar mural</Btn></>}>
-      <Field label="Frase da semana"><textarea style={{...inp,minHeight:70,resize:"vertical"}} value={frase} onChange={e=>setFrase(e.target.value)} placeholder="Ex.: Feito é melhor que perfeito. Bora fechar o mês! 🚀"/></Field>
+      <Field label="Frase da semana"><textarea style={{...inp,minHeight:70,resize:"vertical"}} value={frase} onChange={e=>setFrase(e.target.value)} placeholder="Ex.: Feito é melhor que perfeito. Bora fechar o mês!"/></Field>
       <Field label="Autor (opcional)"><input style={inp} value={autor} onChange={e=>setAutor(e.target.value)} placeholder="Ex.: Daniela"/></Field>
       <div style={{marginTop:6}}>
         <label style={Ty.label}>Lembretes da semana</label>
@@ -2930,7 +2973,7 @@ function MuralEditModal({ mural, onSave, onClose }) {
 function ApelidoModal({ atual, onSave, onClose }) {
   const [v, setV] = useState(atual||"");
   return (
-    <Modal title="Como querem te chamar? 😄" subtitle="Seu apelido aparece na saudação da tela inicial" onClose={onClose}
+    <Modal title="Como querem te chamar?" subtitle="Seu apelido aparece na saudação da tela inicial" onClose={onClose}
       footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={()=>{ onSave(v.trim()); onClose(); }}>Salvar</Btn></>}>
       <Field label="Apelido"><input style={inp} autoFocus value={v} onChange={e=>setV(e.target.value)} placeholder="Ex.: Fê, Lay, Dani…"/></Field>
     </Modal>
@@ -2975,9 +3018,9 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
     .sort((a,b)=>String(a.aniversario).localeCompare(String(b.aniversario)));
 
   const Pend = ({ icon, n, label, color, to }) => (
-    <button onClick={()=>onNavigate(to)} className="fc-btn fc-card-int" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,borderLeft:`4px solid ${color}`}}>
-      <div style={{fontSize:22}}>{icon}</div>
-      <div style={{fontSize:24,fontWeight:800,color:T.ink}}>{n}</div>
+    <button onClick={()=>onNavigate(to)} className="fc-btn fc-card-int" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:6,borderLeft:`4px solid ${color}`}}>
+      <span style={{color}}><Icon name={icon} size={22}/></span>
+      <div style={{fontSize:24,fontWeight:800,color:T.ink,fontFamily:T.fontDisplay}}>{n}</div>
       <div style={{fontSize:12,color:T.muted}}>{label}</div>
     </button>
   );
@@ -2990,9 +3033,9 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
       {/* Hero */}
       <div style={{background:`linear-gradient(120deg, ${T.brandDark}, ${T.brand} 60%, ${T.accent})`,borderRadius:T.rXl,padding:"26px 28px",color:"#fff",marginBottom:18,boxShadow:T.shMd}}>
         <div style={{fontSize:12,opacity:.85,textTransform:"capitalize"}}>{hoje}</div>
-        <div style={{fontSize:26,fontWeight:800,marginTop:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          {saud}, {nome}! 👋
-          <button onClick={()=>setEditApelido(true)} title="Editar meu apelido" style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",borderRadius:T.rPill,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>✎ apelido</button>
+        <div style={{fontSize:26,fontWeight:700,fontFamily:T.fontDisplay,marginTop:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          {saud}, {nome}!
+          <button onClick={()=>setEditApelido(true)} title="Editar meu apelido" style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",borderRadius:T.rPill,padding:"4px 11px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5,fontFamily:T.font}}><Icon name="pencil" size={12}/>apelido</button>
         </div>
         <div style={{fontSize:13,opacity:.92,marginTop:4}}>Bem-vindo(a) ao <b>Order to Cash</b> — o painel do time O2C.</div>
       </div>
@@ -3001,7 +3044,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14,marginBottom:18}}>
         <Card style={{padding:"16px 18px"}}>
           <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:10}}>
-            <span style={{fontSize:14,fontWeight:800,color:T.ink,flex:1}}>💵 Faturamento do mês</span>
+            <span style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,flex:1,display:"inline-flex",alignItems:"center",gap:7}}><span style={{color:T.brand}}><Icon name="wallet" size={18}/></span>Faturamento do mês</span>
             <span style={{fontSize:12,color:T.muted}}>{compAtual||"—"}</span>
           </div>
           <div style={{display:"flex",alignItems:"baseline",gap:8}}>
@@ -3015,7 +3058,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
         </Card>
 
         <Card style={{padding:"16px 18px"}}>
-          <div style={{fontSize:14,fontWeight:800,color:T.ink,marginBottom:10}}>🎂 Aniversariantes de {agora.toLocaleDateString("pt-BR",{month:"long"})}</div>
+          <div style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,marginBottom:10,display:"flex",alignItems:"center",gap:7}}><span style={{color:T.brand}}><Icon name="gift" size={18}/></span>Aniversariantes de {agora.toLocaleDateString("pt-BR",{month:"long"})}</div>
           {aniversariantes.length===0
             ? <div style={{fontSize:13,color:T.muted}}>Ninguém faz aniversário este mês. {isAdmin?"(Cadastre em Gestão de acessos)":""}</div>
             : <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -3023,7 +3066,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
                   <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
                     <Avatar name={p.name} size={26}/>
                     <span style={{fontWeight:600,color:T.ink,flex:1}}>{p.apelido||p.name}</span>
-                    <span style={{fontSize:12,color:hoje?T.accentDark:T.muted,fontWeight:hoje?700:500}}>{p.aniversario}{hoje?" 🎉 hoje!":""}</span>
+                    <span style={{fontSize:12,color:hoje?T.brand:T.muted,fontWeight:hoje?700:500}}>{p.aniversario}{hoje?" · hoje!":""}</span>
                   </div>
                 );})}
               </div>}
@@ -3033,13 +3076,13 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
       {/* Mural da semana */}
       <Card style={{padding:0,overflow:"hidden",marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"12px 16px",borderBottom:`1px solid ${T.line}`}}>
-          <span style={{fontSize:14,fontWeight:800,color:T.ink,flex:1}}>📌 Mural da semana</span>
-          {isAdmin && <Btn small onClick={()=>setEditing(true)}>✎ Editar</Btn>}
+          <span style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,flex:1,display:"inline-flex",alignItems:"center",gap:7}}><span style={{color:T.brand}}><Icon name="pin" size={18}/></span>Mural da semana</span>
+          {isAdmin && <Btn small icon="pencil" onClick={()=>setEditing(true)}>Editar</Btn>}
         </div>
         <div style={{padding:"18px 20px"}}>
           {mural.frase
             ? <div style={{fontSize:18,fontWeight:700,color:T.ink,lineHeight:1.5,fontStyle:"italic"}}>“{mural.frase}”{mural.autor && <span style={{display:"block",fontSize:12,fontWeight:500,color:T.muted,fontStyle:"normal",marginTop:6}}>— {mural.autor}</span>}</div>
-            : <div style={{fontSize:14,color:T.muted}}>{isAdmin?"Nenhuma frase ainda — clique em ✎ Editar para escrever a frase da semana.":"Bora fazer um mês incrível! 🚀"}</div>}
+            : <div style={{fontSize:14,color:T.muted}}>{isAdmin?"Nenhuma frase ainda — clique em Editar para escrever a frase da semana.":"Bora fazer um mês incrível!"}</div>}
           {mural.lembretes?.length>0 && (
             <div style={{marginTop:16}}>
               <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".5px",marginBottom:8}}>Lembretes</div>
@@ -3058,10 +3101,10 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
       {/* Pendências */}
       <div style={{fontSize:13,fontWeight:700,color:T.ink,margin:"0 2px 10px"}}>Seus atalhos de hoje</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12}}>
-        <Pend icon="🧾" n={notasPend} label="notas a conciliar" color={T.warn} to="concil"/>
-        <Pend icon="💰" n={semNota} label="receitas sem nota" color={C.blue.solid} to="concil"/>
-        <Pend icon="⚠️" n={faltamDatas} label="faturados sem datas" color={C.yellow?.solid||"#eab308"} to="time"/>
-        <Pend icon="✅" n={minhasTarefas} label="tarefas em aberto" color={T.ok} to="tasks"/>
+        <Pend icon="receipt" n={notasPend} label="notas a conciliar" color={T.brand} to="concil"/>
+        <Pend icon="wallet" n={semNota} label="receitas sem nota" color={C.blue.solid} to="concil"/>
+        <Pend icon="alert" n={faltamDatas} label="faturados sem datas" color={T.warn} to="time"/>
+        <Pend icon="task" n={minhasTarefas} label="tarefas em aberto" color={T.ok} to="tasks"/>
       </div>
     </div>
   );
@@ -3157,11 +3200,11 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
 
   return (
     <div>
-      <h1 style={{...Ty.h1,marginBottom:6}}>📄 Relatórios</h1>
+      <h1 style={{...Ty.h1,marginBottom:6}}>Relatórios</h1>
       <div style={{...Ty.small,marginBottom:16}}>Extraia relatórios em Excel (.xlsx) já formatados — números como número e datas em dd/mm/aaaa.</div>
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
-        {[["receitas","📋 Receitas"],["clientes","🏢 Clientes"]].map(([id,label])=>(
+        {[["receitas","Receitas"],["clientes","Clientes"]].map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:tab===id?700:500,color:tab===id?T.brand:T.muted,borderBottom:`2px solid ${tab===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -3174,23 +3217,23 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
             <Sel label="Tipo de contrato" value={tipo} onChange={setTipo}><option value="todos">Todos</option>{tipos.map(t=><option key={t}>{t}</option>)}</Sel>
             <Sel label="Competência (de)" value={compDe} onChange={setCompDe}><option value="todas">Início</option>{comps.map(c=><option key={c}>{c}</option>)}</Sel>
             <Sel label="Competência (até)" value={compAte} onChange={setCompAte}><option value="todas">Fim</option>{comps.map(c=><option key={c}>{c}</option>)}</Sel>
-            <Sel label="Status" value={status} onChange={setStatus}><option value="todos">Todos</option>{STATUS_ORDER.map(s=><option key={s}>{s}</option>)}<option value="_faltam_datas">⚠ Faltam datas</option></Sel>
+            <Sel label="Status" value={status} onChange={setStatus}><option value="todos">Todos</option>{STATUS_ORDER.map(s=><option key={s}>{s}</option>)}<option value="_faltam_datas">Faltam datas</option></Sel>
             <Sel label="Conciliação" value={concil} onChange={setConcil}><option value="todas">Todas</option><option value="conciliado">Conciliadas</option><option value="sem_nota">Sem nota</option></Sel>
-            <Field label="Cliente"><input style={inp} placeholder="🔎 nome" value={qCli} onChange={e=>setQCli(e.target.value)}/></Field>
-            <Field label="Profissional"><input style={inp} placeholder="🔎 nome" value={qProf} onChange={e=>setQProf(e.target.value)}/></Field>
+            <Field label="Cliente"><input style={inp} placeholder="nome" value={qCli} onChange={e=>setQCli(e.target.value)}/></Field>
+            <Field label="Profissional"><input style={inp} placeholder="nome" value={qProf} onChange={e=>setQProf(e.target.value)}/></Field>
           </div>
         </Card>
         <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no CSV <span style={{color:T.muted,fontSize:11}}>(uma por nota; receita com 2 notas gera 2 linhas)</span></div>
           <div style={{flex:1}}/>
-          <Btn primary disabled={!recFiltered.length} onClick={exportReceitas}>⬇ Exportar receitas (.xlsx)</Btn>
+          <Btn primary icon="download" disabled={!recFiltered.length} onClick={exportReceitas}>Exportar receitas (.xlsx)</Btn>
         </Card>
       </>}
 
       {tab==="clientes" && <>
         <Card style={{padding:"14px 16px",marginBottom:14}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12}}>
-            <Field label="Cliente / Cód SAP / CNPJ"><input style={inp} placeholder="🔎 buscar" value={cq} onChange={e=>setCq(e.target.value)}/></Field>
+            <Field label="Cliente / Cód SAP / CNPJ"><input style={inp} placeholder="buscar" value={cq} onChange={e=>setCq(e.target.value)}/></Field>
             <Field label="Grupo de empresa"><input style={inp} list="rep-grupos" placeholder="Todos" value={cGrupo} onChange={e=>setCGrupo(e.target.value)}/><datalist id="rep-grupos">{gruposEmp.map(g=><option key={g} value={g}/>)}</datalist></Field>
             <Sel label="Status do cadastro" value={cStatus} onChange={setCStatus}><option value="todos">Todos</option><option value="completos">Completos</option><option value="incompletos">Incompletos</option></Sel>
             {isAdmin && <Sel label="Analista responsável" value={cOwner} onChange={setCOwner}><option value="todos">Todos</option>{owners.map(o=><option key={o}>{o}</option>)}</Sel>}
@@ -3200,7 +3243,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
         <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <div style={{fontSize:13}}><b>{cliFiltered.length}</b> cliente(s) no relatório</div>
           <div style={{flex:1}}/>
-          <Btn primary disabled={!cliFiltered.length} onClick={exportClientes}>⬇ Exportar clientes (.xlsx)</Btn>
+          <Btn primary icon="download" disabled={!cliFiltered.length} onClick={exportClientes}>Exportar clientes (.xlsx)</Btn>
         </Card>
       </>}
     </div>
@@ -3220,11 +3263,11 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
   );
   return (
     <div>
-      <h1 style={{ ...Ty.h1, marginBottom:6 }}>📥 Importar documentos</h1>
+      <h1 style={{ ...Ty.h1, marginBottom:6 }}>Importar documentos</h1>
       <div style={{ ...Ty.small, marginBottom:18 }}>Carga de dados de reconhecimento. As exportações agora ficam na aba <b>Relatórios</b>.</div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
-        <Tile icon="⬆️" title="Importar receitas" primary desc={`Carregar a planilha de T&E / Fee-WIP / Usage (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
-        <Tile icon="🕐" title="Histórico de importações" desc="Ver o log de todas as importações realizadas." btn="Ver histórico" onClick={onHistory}/>
+        <Tile icon="" title="Importar receitas" primary desc={`Carregar a planilha de T&E / Fee-WIP / Usage (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
+        <Tile icon="" title="Histórico de importações" desc="Ver o log de todas as importações realizadas." btn="Ver histórico" onClick={onHistory}/>
       </div>
     </div>
   );
@@ -3233,18 +3276,18 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
 // ─── TOPBAR ──────────────────────────────────────────────────────────────────
 
 function Topbar({ user, isAdmin, isMobile, onMenu, onLogout }) {
-  const ghostBtn = { background:"rgba(255,255,255,.16)", border:"none", color:"#fff", borderRadius:T.rMd, padding:"6px 12px", fontSize:12, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:5 };
   return (
-    <div style={{background:T.brand,color:"#fff",padding:"0 16px",display:"flex",alignItems:"center",gap:10,height:54,boxShadow:T.shSm}}>
-      {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", lineHeight:1, padding:4 }}>☰</button>}
-      <span style={{fontSize:14,fontWeight:800,flex:1,display:"flex",alignItems:"center",gap:9}}>
-        <FcamaraLogo size={30}/>{isMobile ? "Order to Cash" : "Order to Cash · Grupo Fcamara"}
+    <div style={{background:"#fff",color:T.ink,padding:"0 16px",display:"flex",alignItems:"center",gap:10,height:56,borderBottom:`1px solid ${T.line}`}}>
+      {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:T.ink, cursor:"pointer", lineHeight:1, padding:4, display:"inline-flex" }}><Icon name="menu" size={22}/></button>}
+      <span style={{fontSize:15,fontWeight:700,fontFamily:T.fontDisplay,flex:1,display:"flex",alignItems:"center",gap:10}}>
+        <FcamaraLogo size={30}/>{isMobile ? "Order to Cash" : "Order to Cash"}
+        {!isMobile && <span style={{fontSize:12,fontWeight:500,color:T.muted,fontFamily:T.font}}>· Grupo Fcamara</span>}
       </span>
 
-      {!isMobile && <span style={{display:"flex",alignItems:"center",gap:7,fontSize:12,opacity:.95,paddingLeft:4}}>
-        <Avatar name={user.name} size={26} admin={isAdmin}/>{user.name}{isAdmin?" · Admin":""}
+      {!isMobile && <span style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.inkSoft,paddingLeft:4}}>
+        <Avatar name={user.name} size={28} admin={isAdmin}/>{user.name}{isAdmin?" · Admin":""}
       </span>}
-      <button className="fc-btn" onClick={onLogout} style={{...ghostBtn, background:"rgba(255,255,255,.12)"}}>Sair</button>
+      <button className="fc-btn" onClick={onLogout} style={{ background:"#fff", border:`1px solid ${T.line}`, color:T.inkSoft, borderRadius:T.rMd, padding:"6px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>Sair</button>
     </div>
   );
 }
@@ -3595,7 +3638,7 @@ function AppInner() {
       if (reabrir.length) await db.reopenRecords(reabrir);
       await Promise.all([reloadNotes(), reabrir.length ? reloadRecords() : Promise.resolve()]);
       const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${canceladas?` · ${canceladas} cancelada(s)`:""}`;
-      if (reabrir.length) toast(`${base} · ⚠ ${reabrir.length} registro(s) reabertos: NF cancelada`, "error");
+      if (reabrir.length) toast(`${base} · ${reabrir.length} registro(s) reabertos: NF cancelada`, "error");
       else toast(`Importação: ${base}`);
     } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
   }
@@ -3647,11 +3690,11 @@ function AppInner() {
   }
 
   async function handleMuralSave(m) {
-    try { await db.saveMural(m); await reloadMural(); toast("Mural atualizado ✨"); }
+    try { await db.saveMural(m); await reloadMural(); toast("Mural atualizado"); }
     catch(e) { toast("Erro ao salvar mural: "+e.message, "error"); }
   }
   async function handleSaveApelido(apelido) {
-    try { await db.setMyApelido(apelido); setUser(u=>({...u, apelido})); await reloadProfiles(); toast("Apelido atualizado ✨"); }
+    try { await db.setMyApelido(apelido); setUser(u=>({...u, apelido})); await reloadProfiles(); toast("Apelido atualizado"); }
     catch(e) { toast("Erro ao salvar apelido: "+e.message, "error"); }
   }
 
