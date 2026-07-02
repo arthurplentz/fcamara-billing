@@ -774,6 +774,8 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
   const [selected, setSelected] = useState(new Set(records.map(r=>r.id)));
   const [sharedProg, setSharedProg] = useState(() => ({ ...records[0]?.progress } || makeProgress()));
   const [obs, setObs] = useState("");
+  const [ovMap, setOvMap] = useState(() => Object.fromEntries(records.map(r=>[r.id, r.ordemVenda||""])));
+  const setOV = (id,v) => setOvMap(m=>({...m,[id]:v}));
   const [error, setError] = useState("");
 
   const toggleAll = () => setSelected(s => s.size === records.length ? new Set() : new Set(records.map(r=>r.id)));
@@ -805,10 +807,15 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
     const now = nowISO();
     // A emissão da NF (p5_nf / data / número) é gerida na tela "Notas fiscais".
     // Aqui preservamos esses campos por profissional e atualizamos só o restante do funil.
-    const updated = records.map(r => selected.has(r.id)
-      ? { ...r, progress: { ...sharedProg, p5_nf: r.progress?.p5_nf || false, p5_data_nf: r.progress?.p5_data_nf || "" }, obs: obs || r.obs, updatedAt: now }
-      : r
-    );
+    // A Ordem de venda é por profissional (independe da seleção de passos).
+    const updated = records.map(r => {
+      const ovChanged = (ovMap[r.id]||"") !== (r.ordemVenda||"");
+      if (!selected.has(r.id) && !ovChanged) return null;
+      const base = { ...r, ordemVenda: ovMap[r.id]||"", updatedAt: now };
+      return selected.has(r.id)
+        ? { ...base, progress: { ...sharedProg, p5_nf: r.progress?.p5_nf || false, p5_data_nf: r.progress?.p5_data_nf || "" }, obs: obs || r.obs }
+        : base;
+    }).filter(Boolean);
     onSave(updated);
     onClose();
   }
@@ -875,6 +882,19 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
             })}
           </div>
         );})}
+      </div>
+
+      {/* Ordem de venda — por profissional (organização interna do analista) */}
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.ink,marginBottom:8}}>Ordem de venda <span style={{fontWeight:400,color:T.muted,fontSize:11}}>(opcional · por profissional · uso interno)</span></div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8}}>
+          {records.map(r=>(
+            <div key={r.id} style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,color:T.inkSoft,flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.profissional}>{r.profissional}</span>
+              <input style={{...inp,width:140,fontSize:12,padding:"5px 8px"}} placeholder="OV…" value={ovMap[r.id]||""} onChange={e=>setOV(r.id,e.target.value)}/>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Obs */}
@@ -1235,7 +1255,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
               <div className="fc-scroll" style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginTop:10}}>
                 <thead><tr style={{background:T.canvas}}>
-                  {[isAdmin&&"Analista","Profissional","Funil","Período","Val. Total","NF","Status",isAdmin&&"Ações"].filter(Boolean).map(h=>
+                  {[isAdmin&&"Analista","Profissional","OV","Funil","Período","Val. Total","NF","Status",isAdmin&&"Ações"].filter(Boolean).map(h=>
                     <th key={h} style={{padding:"7px 10px",textAlign:h==="Ações"?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
                   )}
                 </tr></thead>
@@ -1244,6 +1264,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                     <tr key={r.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
                       {isAdmin&&<td style={{padding:"7px 10px"}}><Badge label={r.responsavel} color="purple" small/></td>}
                       <td style={{padding:"7px 10px",fontWeight:500,color:T.ink}}>{r.profissional}</td>
+                      <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11,color:r.ordemVenda?T.inkSoft:T.faint}}>{r.ordemVenda||"—"}</td>
                       <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} size="sm"/></td>
                       <td style={{padding:"7px 10px",color:T.muted,whiteSpace:"nowrap"}}>{r.inicio} → {r.fim}</td>
                       <td style={{padding:"7px 10px",fontWeight:500}}>{fmtShort(r.valorTotal)}</td>
@@ -1464,7 +1485,7 @@ function Dashboard({ records, analista, isAdmin }) {
 // ─── SIDEBAR / NAV ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"}, {id:"concil",icon:"🧾",label:"Conciliação de notas"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"}, {id:"concil",icon:"🧾",label:"Conciliação de notas"}, {id:"reports",icon:"📄",label:"Relatórios"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"🏢",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
 ];
@@ -2843,7 +2864,145 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   );
 }
 
-// ─── IMPORTAR / EXPORTAR (admin) ─────────────────────────────────────────────
+// ─── RELATÓRIOS ──────────────────────────────────────────────────────────────
+const compRank = (c) => { const [m,y]=String(c||"").split("/"); return (y||"0000")+String(m||"").padStart(2,"0"); };
+// Notas ligadas a um registro (conjunto de conciliação ou vínculo antigo).
+function notesForRecord(r, notes) {
+  if (r.conciliacaoId) return notes.filter(n=>n.conciliacaoId===r.conciliacaoId);
+  if (r.municipalNoteId) return notes.filter(n=>n.id===r.municipalNoteId);
+  return [];
+}
+
+function ReportsView({ records, clients, notes, isAdmin, analistas }) {
+  const [tab, setTab] = useState("receitas");
+
+  // ── Filtros de receitas ──
+  const [empresa, setEmpresa] = useState("todas");
+  const [analista, setAnalista] = useState("todos");
+  const [tipo, setTipo] = useState("todos");
+  const [status, setStatus] = useState("todos");
+  const [concil, setConcil] = useState("todas");
+  const [compDe, setCompDe] = useState("todas");
+  const [compAte, setCompAte] = useState("todas");
+  const [qCli, setQCli] = useState("");
+  const [qProf, setQProf] = useState("");
+
+  const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  const tipos = [...new Set(records.map(r=>r.tipo).filter(Boolean))].sort();
+
+  let recFiltered = records;
+  if (empresa!=="todas") recFiltered = recFiltered.filter(r=>r.empresa===empresa);
+  if (analista!=="todos") recFiltered = recFiltered.filter(r=>r.responsavel===analista);
+  if (tipo!=="todos") recFiltered = recFiltered.filter(r=>r.tipo===tipo);
+  if (compDe!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)>=compRank(compDe));
+  if (compAte!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)<=compRank(compAte));
+  if (status==="_faltam_datas") recFiltered = recFiltered.filter(faltaDatas);
+  else if (status!=="todos") recFiltered = recFiltered.filter(r=>calcStatus(r.progress)===status);
+  if (concil==="conciliado") recFiltered = recFiltered.filter(r=>r.conciliacaoId||r.municipalNoteId);
+  if (concil==="sem_nota") recFiltered = recFiltered.filter(r=>!(r.conciliacaoId||r.municipalNoteId));
+  if (qCli.trim()) { const s=qCli.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.cliente||"").toLowerCase().includes(s)); }
+  if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
+
+  // Explode: uma linha por receita × nota (nota duplicada quando há 2+ notas).
+  function buildRecRows() {
+    const rows = [];
+    recFiltered.forEach(r=>{
+      const p=r.progress||{};
+      const ns=notesForRecord(r, notes);
+      const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
+      const baseB=[r.valorVenda,r.hrsAprovadas,r.valorTotal,r.valorLiquido,calcStatus(p)];
+      const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",p.p3_data_retorno||"",p.p4_aprovacao?"S":"N",p.p4_data_aprov||"",p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",r.conciliadoEm?fmtDT(r.conciliadoEm):""];
+      if (ns.length===0) rows.push([...baseA,...baseB,"","","","",...funil]);
+      else ns.forEach(n=>rows.push([...baseA,...baseB,n.numero,n.emitidaEm?fmtDT(n.emitidaEm):"",n.valorServicos,n.municipio||"",...funil]));
+    });
+    return rows;
+  }
+  const previewLines = recFiltered.reduce((s,r)=>{ const n=notesForRecord(r,notes).length; return s+(n||1); },0);
+
+  function exportReceitas() {
+    const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
+    downloadCSV(`Relatorio_Receitas_${previewLines}linhas.csv`, headers, buildRecRows());
+  }
+
+  // ── Filtros de clientes ──
+  const [cq, setCq] = useState("");
+  const [cGrupo, setCGrupo] = useState("");
+  const [cStatus, setCStatus] = useState("todos");
+  const [cOwner, setCOwner] = useState("todos");
+  const [cPortal, setCPortal] = useState("todos");
+  const gruposEmp = [...new Set(clients.map(c=>(c.grupoEmpresa||"").trim()).filter(Boolean))].sort();
+  const owners = [...new Set(clients.map(c=>(c.owner||"").trim()).filter(Boolean))].sort();
+
+  let cliFiltered = clients;
+  if (cStatus==="incompletos") cliFiltered = cliFiltered.filter(c=>c.incompleto);
+  if (cStatus==="completos")   cliFiltered = cliFiltered.filter(c=>!c.incompleto);
+  if (cGrupo.trim()) { const g=cGrupo.trim().toLowerCase(); cliFiltered = cliFiltered.filter(c=>(c.grupoEmpresa||"").toLowerCase().includes(g)); }
+  if (cOwner!=="todos") cliFiltered = cliFiltered.filter(c=>(c.owner||"")===cOwner);
+  if (cPortal==="com") cliFiltered = cliFiltered.filter(c=>c.temPortal);
+  if (cPortal==="sem") cliFiltered = cliFiltered.filter(c=>!c.temPortal);
+  if (cq.trim()) { const s=cq.trim().toLowerCase(); const dig=s.replace(/\D/g,""); cliFiltered = cliFiltered.filter(c=>(c.nome||"").toLowerCase().includes(s)||(c.codSap||"").toLowerCase().includes(s)||(!!dig&&clientCnpjs(c).some(x=>x.includes(dig)))); }
+
+  function exportClientes() {
+    const headers=["Nome/Grupo","Cód SAP","CNPJs","Grupo de empresa","Analista responsável","Status cadastro","Tipos de contrato","PEPs","Propostas","Período faturamento","Tem portal","Classificação portal","Prazo vencimento","Forma de pagamento","Contato financeiro","E-mail financeiro","Account manager","E-mail AM"];
+    const rows = cliFiltered.map(c=>[c.nome,c.codSap,clientCnpjs(c).join(" ; "),c.grupoEmpresa,c.owner,c.incompleto?"Incompleto":"Completo",c.tiposContrato,fmtPepsCSV(c.tiposPeps),fmtPropostasCSV(c.propostas),c.periodoFaturamento,c.temPortal?"Sim":"Não",c.portalTipo,c.prazoVencimento,c.formaPagamento,c.contatoFinanceiro,c.contatoFinanceiroEmail,c.accountManager,c.accountManagerEmail]);
+    downloadCSV(`Relatorio_Clientes_${rows.length}.csv`, headers, rows);
+  }
+
+  const Sel = ({label,value,onChange,children}) => <Field label={label}><select style={inp} value={value} onChange={e=>onChange(e.target.value)}>{children}</select></Field>;
+
+  return (
+    <div>
+      <h1 style={{...Ty.h1,marginBottom:6}}>📄 Relatórios</h1>
+      <div style={{...Ty.small,marginBottom:16}}>Extraia relatórios em CSV com filtros. Abra no Excel/Sheets.</div>
+
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
+        {[["receitas","📋 Receitas"],["clientes","🏢 Clientes"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:tab===id?700:500,color:tab===id?T.brand:T.muted,borderBottom:`2px solid ${tab===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {tab==="receitas" && <>
+        <Card style={{padding:"14px 16px",marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12}}>
+            <Sel label="Empresa" value={empresa} onChange={setEmpresa}><option value="todas">Todas</option>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</Sel>
+            {isAdmin && <Sel label="Analista" value={analista} onChange={setAnalista}><option value="todos">Todos</option>{analistas.map(a=><option key={a}>{a}</option>)}</Sel>}
+            <Sel label="Tipo de contrato" value={tipo} onChange={setTipo}><option value="todos">Todos</option>{tipos.map(t=><option key={t}>{t}</option>)}</Sel>
+            <Sel label="Competência (de)" value={compDe} onChange={setCompDe}><option value="todas">Início</option>{comps.map(c=><option key={c}>{c}</option>)}</Sel>
+            <Sel label="Competência (até)" value={compAte} onChange={setCompAte}><option value="todas">Fim</option>{comps.map(c=><option key={c}>{c}</option>)}</Sel>
+            <Sel label="Status" value={status} onChange={setStatus}><option value="todos">Todos</option>{STATUS_ORDER.map(s=><option key={s}>{s}</option>)}<option value="_faltam_datas">⚠ Faltam datas</option></Sel>
+            <Sel label="Conciliação" value={concil} onChange={setConcil}><option value="todas">Todas</option><option value="conciliado">Conciliadas</option><option value="sem_nota">Sem nota</option></Sel>
+            <Field label="Cliente"><input style={inp} placeholder="🔎 nome" value={qCli} onChange={e=>setQCli(e.target.value)}/></Field>
+            <Field label="Profissional"><input style={inp} placeholder="🔎 nome" value={qProf} onChange={e=>setQProf(e.target.value)}/></Field>
+          </div>
+        </Card>
+        <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no CSV <span style={{color:T.muted,fontSize:11}}>(uma por nota; receita com 2 notas gera 2 linhas)</span></div>
+          <div style={{flex:1}}/>
+          <Btn primary disabled={!recFiltered.length} onClick={exportReceitas}>⬇ Exportar receitas</Btn>
+        </Card>
+      </>}
+
+      {tab==="clientes" && <>
+        <Card style={{padding:"14px 16px",marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12}}>
+            <Field label="Cliente / Cód SAP / CNPJ"><input style={inp} placeholder="🔎 buscar" value={cq} onChange={e=>setCq(e.target.value)}/></Field>
+            <Field label="Grupo de empresa"><input style={inp} list="rep-grupos" placeholder="Todos" value={cGrupo} onChange={e=>setCGrupo(e.target.value)}/><datalist id="rep-grupos">{gruposEmp.map(g=><option key={g} value={g}/>)}</datalist></Field>
+            <Sel label="Status do cadastro" value={cStatus} onChange={setCStatus}><option value="todos">Todos</option><option value="completos">Completos</option><option value="incompletos">Incompletos</option></Sel>
+            {isAdmin && <Sel label="Analista responsável" value={cOwner} onChange={setCOwner}><option value="todos">Todos</option>{owners.map(o=><option key={o}>{o}</option>)}</Sel>}
+            <Sel label="Portal" value={cPortal} onChange={setCPortal}><option value="todos">Todos</option><option value="com">Com portal</option><option value="sem">Sem portal</option></Sel>
+          </div>
+        </Card>
+        <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <div style={{fontSize:13}}><b>{cliFiltered.length}</b> cliente(s) no relatório</div>
+          <div style={{flex:1}}/>
+          <Btn primary disabled={!cliFiltered.length} onClick={exportClientes}>⬇ Exportar clientes</Btn>
+        </Card>
+      </>}
+    </div>
+  );
+}
+
+// ─── IMPORTAR DOCUMENTOS (admin) ─────────────────────────────────────────────
 
 function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory, onExportClients }) {
   const Tile = ({ icon, title, desc, btn, onClick, primary }) => (
@@ -2856,12 +3015,10 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
   );
   return (
     <div>
-      <h1 style={{ ...Ty.h1, marginBottom:6 }}>📥 Importar / Exportar</h1>
-      <div style={{ ...Ty.small, marginBottom:18 }}>Carga de dados de reconhecimento e exportações</div>
+      <h1 style={{ ...Ty.h1, marginBottom:6 }}>📥 Importar documentos</h1>
+      <div style={{ ...Ty.small, marginBottom:18 }}>Carga de dados de reconhecimento. As exportações agora ficam na aba <b>Relatórios</b>.</div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
-        <Tile icon="⬆️" title="Importar receitas" primary desc={`Carregar a planilha de T&E (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
-        <Tile icon="⬇️" title="Exportar receitas" desc="Baixar os registros de faturamento em CSV, com filtros." btn="Exportar receitas" onClick={onExport}/>
-        <Tile icon="🏢" title="Exportar clientes" desc={`Baixar os cadastros completos de clientes em CSV. ${clientsCount} cliente(s).`} btn="Exportar clientes" onClick={onExportClients}/>
+        <Tile icon="⬆️" title="Importar receitas" primary desc={`Carregar a planilha de T&E / Fee-WIP / Usage (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
         <Tile icon="🕐" title="Histórico de importações" desc="Ver o log de todas as importações realizadas." btn="Ver histórico" onClick={onHistory}/>
       </div>
     </div>
@@ -3342,6 +3499,11 @@ function AppInner() {
               <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
+            </div>
+          )}
+          {page==="reports"&&(
+            <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ReportsView records={records} clients={clients} notes={notes} isAdmin={isAdmin} analistas={responsaveis}/>
             </div>
           )}
           {page==="clients"&&(
