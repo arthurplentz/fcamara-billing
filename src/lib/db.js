@@ -333,17 +333,23 @@ export async function deleteClient(id) {
 
 // ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
 export async function fetchProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,responsavel,apelido").order("name", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,responsavel,apelido,aniversario").order("name", { ascending: true });
   if (error) throw error;
-  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, responsavel: p.responsavel || "", apelido: p.apelido || "" }));
+  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, responsavel: p.responsavel || "", apelido: p.apelido || "", aniversario: p.aniversario || "" }));
 }
-export async function updateProfile({ id, name, isAdmin, responsavel, apelido }) {
+export async function updateProfile({ id, name, isAdmin, responsavel, apelido, aniversario }) {
   const patch = {};
   if (name != null) patch.name = name;
   if (isAdmin != null) patch.is_admin = isAdmin;
   if (responsavel !== undefined) patch.responsavel = responsavel || null;
   if (apelido !== undefined) patch.apelido = apelido || null;
+  if (aniversario !== undefined) patch.aniversario = aniversario || null;
   const { error } = await supabase.from("profiles").update(patch).eq("id", id);
+  if (error) throw error;
+}
+// O próprio usuário edita o apelido (via função SECURITY DEFINER — só o apelido).
+export async function setMyApelido(apelido) {
+  const { error } = await supabase.rpc("set_my_apelido", { p: apelido || "" });
   if (error) throw error;
 }
 
