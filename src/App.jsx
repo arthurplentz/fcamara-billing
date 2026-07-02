@@ -127,6 +127,27 @@ function downloadCSV(filename, headers, rows) {
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
   a.download = filename; a.click();
 }
+// Exporta .xlsx com tipos corretos: números viram célula numérica e datas (JS
+// Date) recebem formato dd/mm/aaaa — assim o Excel já abre formatado.
+function downloadXLSX(filename, headers, rows) {
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows], { cellDates: true });
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  for (let R = 1; R <= range.e.r; R++) for (let Cc = range.s.c; Cc <= range.e.c; Cc++) {
+    const cell = ws[XLSX.utils.encode_cell({ r: R, c: Cc })];
+    if (cell && cell.t === "d") cell.z = "dd/mm/yyyy";
+  }
+  ws["!cols"] = headers.map(h => ({ wch: Math.min(40, Math.max(10, String(h).length + 2)) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+  XLSX.writeFile(wb, filename);
+}
+// dd/mm/aaaa ou aaaa-mm-dd (ou ISO) → Date (para célula de data no xlsx).
+function toDate(v) {
+  const s = String(v || "").trim(); if (!s) return "";
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);        if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);           if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  return "";
+}
 function fmtPepsCSV(json)      { const m = parseJSON(json, {}); if (!m || typeof m !== "object") return ""; return Object.entries(m).map(([k, v]) => `${k}: ${(Array.isArray(v) ? v : []).join(", ")}`).join(" | "); }
 function fmtPropostasCSV(json) { const a = parseJSON(json, []); return Array.isArray(a) ? a.join(" ; ") : ""; }
 function fmtCalendarioCSV(json){ const a = parseJSON(json, []); return Array.isArray(a) ? a.map((p, i) => `${i+1}) ${p.quando || ""} - ${p.etapa || ""}: ${p.oQueFazer || ""}`).join(" | ") : ""; }
@@ -3003,16 +3024,17 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
 
   // Explode: uma linha por receita × nota (nota duplicada quando há 2+ notas).
+  // Valores como número e datas como Date → xlsx já formatado.
   function buildRecRows() {
     const rows = [];
     recFiltered.forEach(r=>{
       const p=r.progress||{};
       const ns=notesForRecord(r, notes);
       const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
-      const baseB=[r.valorVenda,r.hrsAprovadas,r.valorTotal,r.valorLiquido,calcStatus(p)];
-      const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",p.p3_data_retorno||"",p.p4_aprovacao?"S":"N",p.p4_data_aprov||"",p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",r.conciliadoEm?fmtDT(r.conciliadoEm):""];
+      const baseB=[r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,calcStatus(p)];
+      const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov),p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];
       if (ns.length===0) rows.push([...baseA,...baseB,"","","","",...funil]);
-      else ns.forEach(n=>rows.push([...baseA,...baseB,n.numero,n.emitidaEm?fmtDT(n.emitidaEm):"",n.valorServicos,n.municipio||"",...funil]));
+      else ns.forEach(n=>rows.push([...baseA,...baseB,n.numero,toDate(n.emitidaEm),n.valorServicos||0,n.municipio||"",...funil]));
     });
     return rows;
   }
@@ -3020,7 +3042,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
 
   function exportReceitas() {
     const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
-    downloadCSV(`Relatorio_Receitas_${previewLines}linhas.csv`, headers, buildRecRows());
+    downloadXLSX(`Relatorio_Receitas_${previewLines}linhas.xlsx`, headers, buildRecRows());
   }
 
   // ── Filtros de clientes ──
@@ -3043,8 +3065,9 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
 
   function exportClientes() {
     const headers=["Nome/Grupo","Cód SAP","CNPJs","Grupo de empresa","Analista responsável","Status cadastro","Tipos de contrato","PEPs","Propostas","Período faturamento","Tem portal","Classificação portal","Prazo vencimento","Forma de pagamento","Contato financeiro","E-mail financeiro","Account manager","E-mail AM"];
+    // CNPJ/Cód SAP como texto (preserva zeros à esquerda no Excel).
     const rows = cliFiltered.map(c=>[c.nome,c.codSap,clientCnpjs(c).join(" ; "),c.grupoEmpresa,c.owner,c.incompleto?"Incompleto":"Completo",c.tiposContrato,fmtPepsCSV(c.tiposPeps),fmtPropostasCSV(c.propostas),c.periodoFaturamento,c.temPortal?"Sim":"Não",c.portalTipo,c.prazoVencimento,c.formaPagamento,c.contatoFinanceiro,c.contatoFinanceiroEmail,c.accountManager,c.accountManagerEmail]);
-    downloadCSV(`Relatorio_Clientes_${rows.length}.csv`, headers, rows);
+    downloadXLSX(`Relatorio_Clientes_${rows.length}.xlsx`, headers, rows);
   }
 
   const Sel = ({label,value,onChange,children}) => <Field label={label}><select style={inp} value={value} onChange={e=>onChange(e.target.value)}>{children}</select></Field>;
@@ -3052,7 +3075,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
   return (
     <div>
       <h1 style={{...Ty.h1,marginBottom:6}}>📄 Relatórios</h1>
-      <div style={{...Ty.small,marginBottom:16}}>Extraia relatórios em CSV com filtros. Abra no Excel/Sheets.</div>
+      <div style={{...Ty.small,marginBottom:16}}>Extraia relatórios em Excel (.xlsx) já formatados — números como número e datas em dd/mm/aaaa.</div>
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
         {[["receitas","📋 Receitas"],["clientes","🏢 Clientes"]].map(([id,label])=>(
@@ -3077,7 +3100,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
         <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no CSV <span style={{color:T.muted,fontSize:11}}>(uma por nota; receita com 2 notas gera 2 linhas)</span></div>
           <div style={{flex:1}}/>
-          <Btn primary disabled={!recFiltered.length} onClick={exportReceitas}>⬇ Exportar receitas</Btn>
+          <Btn primary disabled={!recFiltered.length} onClick={exportReceitas}>⬇ Exportar receitas (.xlsx)</Btn>
         </Card>
       </>}
 
@@ -3094,7 +3117,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
         <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <div style={{fontSize:13}}><b>{cliFiltered.length}</b> cliente(s) no relatório</div>
           <div style={{flex:1}}/>
-          <Btn primary disabled={!cliFiltered.length} onClick={exportClientes}>⬇ Exportar clientes</Btn>
+          <Btn primary disabled={!cliFiltered.length} onClick={exportClientes}>⬇ Exportar clientes (.xlsx)</Btn>
         </Card>
       </>}
     </div>
@@ -3320,7 +3343,7 @@ function AppInner() {
         // Mantém a MESMA referência do usuário se nada mudou — evita recarregar
         // a tela (e fechar modais) quando o app volta do foco / renova o token.
         setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin && prev.apelido===next.apelido) ? prev : next);
-        if (greet && isNewLogin) toast(`Bem-vindo(a), ${next.apelido || (next.name||"").split(" ")[0]}!`, "info");
+        if (greet && isNewLogin) { setPage("home"); toast(`Bem-vindo(a), ${next.apelido || (next.name||"").split(" ")[0]}!`, "info"); }
       } else if (mounted) {
         userIdRef.current = null;
         setUser(null);
