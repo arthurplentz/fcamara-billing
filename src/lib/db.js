@@ -15,6 +15,7 @@ function dbToRec(row) {
     valorTotal: Number(row.valor_total) || 0, valorLiquido: Number(row.valor_liquido) || 0,
     competencia: row.competencia, progress: row.progress || {},
     nfNumero: row.nf_numero || "", obs: row.obs || "", updatedAt: row.updated_at,
+    ordemVenda: row.ordem_venda || "",
     importId: row.import_id || null,
     municipalNoteId: row.municipal_note_id || null, conciliacaoId: row.conciliacao_id || null,
     conciliadoEm: row.conciliado_em || null, conciliadoPor: row.conciliado_por || "",
@@ -29,6 +30,7 @@ function recToDb(r, withId) {
     valor_total: r.valorTotal || 0, valor_liquido: r.valorLiquido || 0,
     competencia: r.competencia, progress: r.progress || {},
     nf_numero: r.nfNumero || "", obs: r.obs || "", updated_at: r.updatedAt || nowISO(),
+    ordem_venda: r.ordemVenda || null,
     import_id: r.importId || null,
   };
   if (withId && r.id) o.id = r.id;
