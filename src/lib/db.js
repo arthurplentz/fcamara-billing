@@ -333,17 +333,33 @@ export async function deleteClient(id) {
 
 // ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
 export async function fetchProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,responsavel").order("name", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,responsavel,apelido").order("name", { ascending: true });
   if (error) throw error;
-  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, responsavel: p.responsavel || "" }));
+  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, responsavel: p.responsavel || "", apelido: p.apelido || "" }));
 }
-export async function updateProfile({ id, name, isAdmin, responsavel }) {
+export async function updateProfile({ id, name, isAdmin, responsavel, apelido }) {
   const patch = {};
   if (name != null) patch.name = name;
   if (isAdmin != null) patch.is_admin = isAdmin;
   if (responsavel !== undefined) patch.responsavel = responsavel || null;
+  if (apelido !== undefined) patch.apelido = apelido || null;
   const { error } = await supabase.from("profiles").update(patch).eq("id", id);
   if (error) throw error;
+}
+
+// ─── MURAL (tela inicial) ────────────────────────────────────────────────────
+export async function fetchMural() {
+  const { data, error } = await supabase.from("mural").select("*").order("updated_at", { ascending: false }).limit(1);
+  if (error) throw error;
+  const r = data && data[0];
+  if (!r) return { id: null, frase: "", autor: "", lembretes: [] };
+  let lembretes = []; try { const v = JSON.parse(r.lembretes); if (Array.isArray(v)) lembretes = v; } catch {}
+  return { id: r.id, frase: r.frase || "", autor: r.autor || "", lembretes };
+}
+export async function saveMural({ id, frase, autor, lembretes }) {
+  const row = { frase: frase || null, autor: autor || null, lembretes: JSON.stringify(lembretes || []), updated_at: nowISO() };
+  if (id) { const { error } = await supabase.from("mural").update(row).eq("id", id); if (error) throw error; }
+  else { const { error } = await supabase.from("mural").insert(row); if (error) throw error; }
 }
 export async function deleteProfile(id) {
   const { error } = await supabase.from("profiles").delete().eq("id", id);

@@ -1485,6 +1485,7 @@ function Dashboard({ records, analista, isAdmin }) {
 // ─── SIDEBAR / NAV ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
+  { group:"", links:[ {id:"home",icon:"🏠",label:"Início"} ] },
   { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"📋",label:"Minha visão"}, {id:"dash",icon:"📊",label:"Dashboard"}, {id:"concil",icon:"🧾",label:"Conciliação de notas"}, {id:"reports",icon:"📄",label:"Relatórios"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"🏢",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"✅",label:"Tarefas"} ] },
@@ -1497,8 +1498,8 @@ function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   return (
     <>
       {sections.map(sec=>(
-        <div key={sec.group} style={{marginBottom:18}}>
-          <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".5px",padding:"0 8px",marginBottom:6}}>{sec.group}</div>
+        <div key={sec.group||"__home"} style={{marginBottom:18}}>
+          {sec.group && <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".5px",padding:"0 8px",marginBottom:6}}>{sec.group}</div>}
           {sec.links.map(l=>{
             const active = page===l.id;
             return (
@@ -1862,19 +1863,21 @@ function NewAccessInfoModal({ onClose }) {
 
 function AccessEditModal({ profile, onSave, onClose }) {
   const [name, setName]       = useState(profile.name || "");
+  const [apelido, setApelido] = useState(profile.apelido || "");
   const [responsavel, setResp]= useState(profile.responsavel || "");
   const [isAdmin, setIsAdmin] = useState(!!profile.isAdmin);
   const [err, setErr]         = useState("");
   function save() {
     const nm = name.trim();
     if (!nm) { setErr("Informe o nome de exibição."); return; }
-    onSave({ id: profile.id, name: nm, isAdmin, responsavel: responsavel.trim() });
+    onSave({ id: profile.id, name: nm, isAdmin, responsavel: responsavel.trim(), apelido: apelido.trim() });
     onClose();
   }
   return (
-    <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome, o vínculo de receitas e o papel" onClose={onClose}>
-      <div style={{marginBottom:14}}>
+    <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome, o apelido, o vínculo de receitas e o papel" onClose={onClose}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
         <Field label="Nome de exibição *"><input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="Ex: Fernanda"/></Field>
+        <Field label="Apelido" hint="(usado na saudação)"><input style={inp} value={apelido} onChange={e=>setApelido(e.target.value)} placeholder="Ex: Fê"/></Field>
       </div>
       <div style={{marginBottom:14}}>
         <Field label="Responsável na base de receitas"><input style={inp} value={responsavel} onChange={e=>setResp(e.target.value)} placeholder="Ex: Juliana Teles"/></Field>
@@ -2864,6 +2867,102 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
   );
 }
 
+// ─── HOME (tela inicial) ─────────────────────────────────────────────────────
+function MuralEditModal({ mural, onSave, onClose }) {
+  const [frase, setFrase] = useState(mural.frase||"");
+  const [autor, setAutor] = useState(mural.autor||"");
+  const [lembretes, setLem] = useState(() => mural.lembretes?.length ? [...mural.lembretes] : [""]);
+  const setL = (i,v) => setLem(a=>a.map((x,j)=>j===i?v:x));
+  const addL = () => setLem(a=>[...a,""]);
+  const delL = (i) => setLem(a=>a.filter((_,j)=>j!==i));
+  function save() { onSave({ id:mural.id, frase:frase.trim(), autor:autor.trim(), lembretes:lembretes.map(s=>s.trim()).filter(Boolean) }); onClose(); }
+  return (
+    <Modal title="Editar mural da semana" subtitle="Aparece na tela inicial de todo mundo" onClose={onClose}
+      footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={save}>Salvar mural</Btn></>}>
+      <Field label="Frase da semana"><textarea style={{...inp,minHeight:70,resize:"vertical"}} value={frase} onChange={e=>setFrase(e.target.value)} placeholder="Ex.: Feito é melhor que perfeito. Bora fechar o mês! 🚀"/></Field>
+      <Field label="Autor (opcional)"><input style={inp} value={autor} onChange={e=>setAutor(e.target.value)} placeholder="Ex.: Daniela"/></Field>
+      <div style={{marginTop:6}}>
+        <label style={Ty.label}>Lembretes da semana</label>
+        {lembretes.map((l,i)=>(
+          <div key={i} style={{display:"flex",gap:8,marginBottom:6}}>
+            <input style={inp} value={l} onChange={e=>setL(i,e.target.value)} placeholder="Ex.: Corte dia 25 · fechar conciliação de SP"/>
+            <Btn small onClick={()=>delL(i)}>✕</Btn>
+          </div>
+        ))}
+        <Btn small onClick={addL}>+ Lembrete</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function HomeView({ user, isAdmin, records, notes, tasks, mural, onSaveMural, onNavigate }) {
+  const [editing, setEditing] = useState(false);
+  const nome = user.apelido || (user.name||"").split(" ")[0];
+  const hora = new Date().getHours();
+  const saud = hora<12 ? "Bom dia" : hora<18 ? "Boa tarde" : "Boa noite";
+  const hoje = new Date().toLocaleDateString("pt-BR", { weekday:"long", day:"2-digit", month:"long" });
+
+  const semNota   = records.filter(r=>!(r.conciliacaoId||r.municipalNoteId)).length;
+  const notasPend = notes.filter(n=>!n.cancelada && !n.conciliacaoId && !records.some(r=>r.municipalNoteId===n.id)).length;
+  const faltamDatas = records.filter(faltaDatas).length;
+  const minhasTarefas = tasks.filter(t=>t.status!=="done" && (t.assignee===user.name || !t.assignee)).length;
+
+  const Pend = ({ icon, n, label, color, to }) => (
+    <button onClick={()=>onNavigate(to)} className="fc-btn" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,borderLeft:`4px solid ${color}`}}>
+      <div style={{fontSize:22}}>{icon}</div>
+      <div style={{fontSize:24,fontWeight:800,color:T.ink}}>{n}</div>
+      <div style={{fontSize:12,color:T.muted}}>{label}</div>
+    </button>
+  );
+
+  return (
+    <div>
+      {editing && <MuralEditModal mural={mural} onSave={onSaveMural} onClose={()=>setEditing(false)}/>}
+
+      {/* Hero */}
+      <div style={{background:`linear-gradient(120deg, ${T.brand}, ${T.brandDark||T.brand})`,borderRadius:T.rXl,padding:"26px 28px",color:"#fff",marginBottom:18,boxShadow:T.shMd}}>
+        <div style={{fontSize:12,opacity:.85,textTransform:"capitalize"}}>{hoje}</div>
+        <div style={{fontSize:26,fontWeight:800,marginTop:4}}>{saud}, {nome}! 👋</div>
+        <div style={{fontSize:13,opacity:.9,marginTop:4}}>Bem-vindo(a) ao <b>Order to Cash</b> — o painel do time O2C.</div>
+      </div>
+
+      {/* Mural da semana */}
+      <Card style={{padding:0,overflow:"hidden",marginBottom:18}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"12px 16px",borderBottom:`1px solid ${T.line}`}}>
+          <span style={{fontSize:14,fontWeight:800,color:T.ink,flex:1}}>📌 Mural da semana</span>
+          {isAdmin && <Btn small onClick={()=>setEditing(true)}>✎ Editar</Btn>}
+        </div>
+        <div style={{padding:"18px 20px"}}>
+          {mural.frase
+            ? <div style={{fontSize:18,fontWeight:700,color:T.ink,lineHeight:1.5,fontStyle:"italic"}}>“{mural.frase}”{mural.autor && <span style={{display:"block",fontSize:12,fontWeight:500,color:T.muted,fontStyle:"normal",marginTop:6}}>— {mural.autor}</span>}</div>
+            : <div style={{fontSize:14,color:T.muted}}>{isAdmin?"Nenhuma frase ainda — clique em ✎ Editar para escrever a frase da semana.":"Bora fazer um mês incrível! 🚀"}</div>}
+          {mural.lembretes?.length>0 && (
+            <div style={{marginTop:16}}>
+              <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".5px",marginBottom:8}}>Lembretes</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {mural.lembretes.map((l,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:13,color:T.inkSoft,background:T.canvas,borderRadius:T.rMd,padding:"9px 12px"}}>
+                    <span style={{color:T.brand}}>▸</span>{l}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Pendências */}
+      <div style={{fontSize:13,fontWeight:700,color:T.ink,margin:"0 2px 10px"}}>Seus atalhos de hoje</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12}}>
+        <Pend icon="🧾" n={notasPend} label="notas a conciliar" color={T.warn} to="concil"/>
+        <Pend icon="💰" n={semNota} label="receitas sem nota" color={C.blue.solid} to="concil"/>
+        <Pend icon="⚠️" n={faltamDatas} label="faturados sem datas" color={C.yellow?.solid||"#eab308"} to="time"/>
+        <Pend icon="✅" n={minhasTarefas} label="tarefas em aberto" color={T.ok} to="tasks"/>
+      </div>
+    </div>
+  );
+}
+
 // ─── RELATÓRIOS ──────────────────────────────────────────────────────────────
 const compRank = (c) => { const [m,y]=String(c||"").split("/"); return (y||"0000")+String(m||"").padStart(2,"0"); };
 // Notas ligadas a um registro (conjunto de conciliação ou vínculo antigo).
@@ -3033,7 +3132,7 @@ function Topbar({ user, isAdmin, isMobile, onMenu, onLogout }) {
     <div style={{background:T.brand,color:"#fff",padding:"0 16px",display:"flex",alignItems:"center",gap:10,height:54,boxShadow:T.shSm}}>
       {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:"#fff", fontSize:22, cursor:"pointer", lineHeight:1, padding:4 }}>☰</button>}
       <span style={{fontSize:14,fontWeight:800,flex:1,display:"flex",alignItems:"center",gap:9}}>
-        <FcamaraLogo size={30}/>{isMobile ? "Faturamento" : "Faturamento Grupo Fcamara"}
+        <FcamaraLogo size={30}/>{isMobile ? "Order to Cash" : "Order to Cash · Grupo Fcamara"}
       </span>
 
       {!isMobile && <span style={{display:"flex",alignItems:"center",gap:7,fontSize:12,opacity:.95,paddingLeft:4}}>
@@ -3138,8 +3237,8 @@ function Login() {
       <div style={{background:"#fff",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
         <div style={{textAlign:"center",marginBottom:24}}>
           <div style={{ display:"inline-flex", marginBottom:12 }}><FcamaraLogo size={62}/></div>
-          <h1 style={{fontSize:19,fontWeight:800,color:T.ink,lineHeight:1.3,margin:0}}>Controle de Faturamento</h1>
-          <p style={{fontSize:13,color:T.brand,fontWeight:600,marginTop:4,marginBottom:0}}>Grupo Fcamara</p>
+          <h1 style={{fontSize:22,fontWeight:800,color:T.ink,lineHeight:1.3,margin:0}}>Order to Cash</h1>
+          <p style={{fontSize:13,color:T.brand,fontWeight:600,marginTop:4,marginBottom:0}}>Grupo Fcamara · time O2C</p>
           <p style={{fontSize:11,color:T.muted,marginTop:6}}>{APP_VERSION}</p>
         </div>
         <form onSubmit={submit}>
@@ -3165,7 +3264,7 @@ function AppInner() {
   const [user, setUser]         = useState(null);
   const [authReady, setAuthRdy] = useState(false);
   const [recovery, setRecovery] = useState(false);
-  const [page, setPage]         = useState("dash");
+  const [page, setPage]         = useState("home");
   const [showImport, setImp]    = useState(false);
   const [showExport, setExp]    = useState(false);
   const [showHistory, setHist]  = useState(false);
@@ -3179,6 +3278,7 @@ function AppInner() {
   const [templates, setTemplates] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
   const [notes, setNotes] = useState([]);   // notas da prefeitura (NFS-e)
+  const [mural, setMural] = useState({ id:null, frase:"", autor:"", lembretes:[] });
   const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
@@ -3192,14 +3292,15 @@ function AppInner() {
   const reloadTemplates = useCallback(async () => { try { setTemplates(await db.fetchTemplates()); } catch(e){ /* entregas: só admin */ } }, []);
   const reloadDeliveries = useCallback(async () => { try { setDeliveries(await db.fetchDeliveries()); } catch(e){ /* idem */ } }, []);
   const reloadNotes = useCallback(async () => { try { setNotes(await db.fetchMunicipalNotes()); } catch(e){ /* notas: tabela pode não existir ainda */ } }, []);
+  const reloadMural = useCallback(async () => { try { setMural(await db.fetchMural()); } catch(e){ /* mural: tabela pode não existir ainda */ } }, []);
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[])])
-      .then(([r, t, h, p, c, tm, dv, nt]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] }))])
+      .then(([r, t, h, p, c, tm, dv, nt, mu]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -3211,15 +3312,15 @@ function AppInner() {
     let mounted = true;
     async function applySession(session, greet) {
       if (session?.user) {
-        const { data: prof } = await supabase.from("profiles").select("name,is_admin").eq("id", session.user.id).single();
+        const { data: prof } = await supabase.from("profiles").select("name,is_admin,apelido").eq("id", session.user.id).single();
         if (!mounted) return;
-        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, email: session.user.email };
+        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, apelido: prof?.apelido || "", email: session.user.email };
         const isNewLogin = userIdRef.current !== next.id;
         userIdRef.current = next.id;
         // Mantém a MESMA referência do usuário se nada mudou — evita recarregar
         // a tela (e fechar modais) quando o app volta do foco / renova o token.
-        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin) ? prev : next);
-        if (greet && isNewLogin) toast(`Bem-vinda, ${(next.name||"").split(" ")[0]}!`, "info");
+        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin && prev.apelido===next.apelido) ? prev : next);
+        if (greet && isNewLogin) toast(`Bem-vindo(a), ${next.apelido || (next.name||"").split(" ")[0]}!`, "info");
       } else if (mounted) {
         userIdRef.current = null;
         setUser(null);
@@ -3306,7 +3407,7 @@ function AppInner() {
       await db.updateProfile(data);
       await reloadProfiles();
       // Se o admin alterou o próprio papel/nome, reflete na sessão atual.
-      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin }));
+      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin, apelido: data.apelido ?? u.apelido }));
       toast(`Acesso de ${(data.name||"").split(" ")[0]} atualizado`);
     } catch(e) { toast("Erro ao atualizar acesso: "+e.message, "error"); }
   }
@@ -3439,6 +3540,11 @@ function AppInner() {
     } catch(e) { toast("Erro ao remover nota: "+e.message, "error"); }
   }
 
+  async function handleMuralSave(m) {
+    try { await db.saveMural(m); await reloadMural(); toast("Mural atualizado ✨"); }
+    catch(e) { toast("Erro ao salvar mural: "+e.message, "error"); }
+  }
+
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
   if (recovery) return (
@@ -3481,6 +3587,11 @@ function AppInner() {
       <div style={{display:"flex",flex:1,minHeight:0}}>
         {!isMobile && <Sidebar page={page} setPage={setPage} user={user} isAdmin={isAdmin}/>}
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
+          {page==="home"&&(
+            <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} mural={mural} onSaveMural={handleMuralSave} onNavigate={setPage}/>
+            </div>
+          )}
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
