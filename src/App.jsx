@@ -248,31 +248,39 @@ function saveState(s) { try { localStorage.setItem(LS_KEY, JSON.stringify({ comp
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
 // Fonte única de cores, raios, sombras e tipografia. Mantém o azul da marca.
 
+// Tipografia: Plus Jakarta Sans (bonita, moderna e muito legível).
+const FONT = "'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+// Paleta profissional: índigo (primária) × âmbar (complementar) sobre neutros slate.
 const T = {
-  brand:      "#1d4ed8",
-  brandDark:  "#1e3a8a",
-  brandBg:    "#eff6ff",
-  ink:     "#111827", // títulos / texto principal
-  inkSoft: "#374151", // texto secundário
-  muted:   "#5b6472", // texto terciário (era #9ca3af — não passava contraste AA)
-  faint:   "#9ca3af", // apenas decorativo (ícones, divisores)
+  font: FONT,
+  brand:      "#4f46e5", // indigo-600
+  brandDark:  "#4338ca", // indigo-700
+  brandBg:    "#eef2ff", // indigo-50
+  brandSoft:  "#e0e7ff", // indigo-100
+  accent:     "#f59e0b", // amber-500 (complementar)
+  accentDark: "#b45309",
+  accentBg:   "#fffbeb",
+  ink:     "#0f172a", // títulos / texto principal (slate-900)
+  inkSoft: "#334155", // texto secundário (slate-700)
+  muted:   "#64748b", // texto terciário (slate-500)
+  faint:   "#94a3b8", // decorativo (slate-400)
   surface: "#ffffff",
-  canvas:  "#f6f8fb",
-  line:    "#e5e7eb",
-  lineSoft:"#f1f3f5",
+  canvas:  "#f8fafc", // slate-50
+  line:    "#e2e8f0", // slate-200
+  lineSoft:"#f1f5f9", // slate-100
   ok:      "#15803d", okBg:"#f0fdf4", okLine:"#86efac",
-  warn:    "#92400e", warnBg:"#fffbeb", warnLine:"#fde68a",
-  danger:  "#b91c1c", dangerBg:"#fef2f2", dangerLine:"#fca5a5",
-  rSm:6, rMd:8, rLg:10, rXl:12, rPill:999,
-  shSm:"0 1px 2px rgba(16,24,40,.05)",
-  shMd:"0 4px 14px rgba(16,24,40,.08)",
-  shLg:"0 16px 48px rgba(16,24,40,.20)",
+  warn:    "#b45309", warnBg:"#fffbeb", warnLine:"#fcd34d",
+  danger:  "#dc2626", dangerBg:"#fef2f2", dangerLine:"#fca5a5",
+  rSm:8, rMd:10, rLg:14, rXl:18, rPill:999,
+  shSm:"0 1px 2px rgba(15,23,42,.06)",
+  shMd:"0 6px 20px rgba(15,23,42,.08)",
+  shLg:"0 20px 50px rgba(15,23,42,.22)",
 };
 
 // Escala tipográfica
 const Ty = {
-  h1:    { fontSize:18, fontWeight:800, color:T.ink, margin:0, letterSpacing:"-.01em" },
-  h2:    { fontSize:15, fontWeight:700, color:T.ink, margin:0 },
+  h1:    { fontSize:20, fontWeight:800, color:T.ink, margin:0, letterSpacing:"-.02em" },
+  h2:    { fontSize:15, fontWeight:700, color:T.ink, margin:0, letterSpacing:"-.01em" },
   body:  { fontSize:13, color:T.inkSoft },
   small: { fontSize:12, color:T.muted },
   label: { fontSize:12, fontWeight:600, color:T.inkSoft, display:"block", marginBottom:5 },
@@ -295,17 +303,18 @@ const inp = { padding:"8px 11px", borderRadius:T.rMd, border:`1px solid ${T.line
 
 const GLOBAL_CSS = `
   *{box-sizing:border-box}
-  body{margin:0}
+  body{margin:0;font-family:${FONT};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:${T.ink};background:${T.canvas}}
   button{font-family:inherit}
   :focus-visible{outline:2px solid ${T.brand};outline-offset:2px;border-radius:6px}
-  input:focus,select:focus,textarea:focus{border-color:${T.brand};box-shadow:0 0 0 3px rgba(29,78,216,.12)}
-  .fc-btn{transition:filter .12s,box-shadow .12s,background .12s}
-  .fc-btn:hover:not(:disabled){filter:brightness(.96)}
-  .fc-row:hover{background:#eff6ff80}
-  .fc-card-int{transition:box-shadow .15s,border-color .15s}
-  .fc-card-int:hover{box-shadow:${T.shMd};border-color:#cdd5e0}
+  input:focus,select:focus,textarea:focus{border-color:${T.brand};box-shadow:0 0 0 3px rgba(79,70,229,.14)}
+  .fc-btn{transition:filter .12s,box-shadow .12s,background .12s,transform .06s}
+  .fc-btn:hover:not(:disabled){filter:brightness(.97)}
+  .fc-btn:active:not(:disabled){transform:translateY(1px)}
+  .fc-row:hover{background:#eef2ff80}
+  .fc-card-int{transition:box-shadow .15s,border-color .15s,transform .12s}
+  .fc-card-int:hover{box-shadow:${T.shMd};border-color:${T.brandSoft};transform:translateY(-1px)}
   .fc-scroll::-webkit-scrollbar{height:9px;width:9px}
-  .fc-scroll::-webkit-scrollbar-thumb{background:#cbd2dc;border-radius:9px}
+  .fc-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
   .fc-scroll::-webkit-scrollbar-track{background:transparent}
   @keyframes fcToastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   @keyframes fcOverlay{from{opacity:0}to{opacity:1}}
@@ -1885,20 +1894,22 @@ function NewAccessInfoModal({ onClose }) {
 function AccessEditModal({ profile, onSave, onClose }) {
   const [name, setName]       = useState(profile.name || "");
   const [apelido, setApelido] = useState(profile.apelido || "");
+  const [aniversario, setAniv]= useState(profile.aniversario || "");
   const [responsavel, setResp]= useState(profile.responsavel || "");
   const [isAdmin, setIsAdmin] = useState(!!profile.isAdmin);
   const [err, setErr]         = useState("");
   function save() {
     const nm = name.trim();
     if (!nm) { setErr("Informe o nome de exibição."); return; }
-    onSave({ id: profile.id, name: nm, isAdmin, responsavel: responsavel.trim(), apelido: apelido.trim() });
+    onSave({ id: profile.id, name: nm, isAdmin, responsavel: responsavel.trim(), apelido: apelido.trim(), aniversario: aniversario.trim() });
     onClose();
   }
   return (
     <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome, o apelido, o vínculo de receitas e o papel" onClose={onClose}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
         <Field label="Nome de exibição *"><input style={inp} value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="Ex: Fernanda"/></Field>
-        <Field label="Apelido" hint="(usado na saudação)"><input style={inp} value={apelido} onChange={e=>setApelido(e.target.value)} placeholder="Ex: Fê"/></Field>
+        <Field label="Apelido" hint="(saudação)"><input style={inp} value={apelido} onChange={e=>setApelido(e.target.value)} placeholder="Ex: Fê"/></Field>
+        <Field label="Aniversário" hint="(dd/mm)"><input style={inp} value={aniversario} onChange={e=>setAniv(e.target.value)} placeholder="Ex: 07/03"/></Field>
       </div>
       <div style={{marginBottom:14}}>
         <Field label="Responsável na base de receitas"><input style={inp} value={responsavel} onChange={e=>setResp(e.target.value)} placeholder="Ex: Juliana Teles"/></Field>
@@ -2916,20 +2927,46 @@ function MuralEditModal({ mural, onSave, onClose }) {
   );
 }
 
-function HomeView({ user, isAdmin, records, notes, tasks, mural, onSaveMural, onNavigate }) {
+function ApelidoModal({ atual, onSave, onClose }) {
+  const [v, setV] = useState(atual||"");
+  return (
+    <Modal title="Como querem te chamar? 😄" subtitle="Seu apelido aparece na saudação da tela inicial" onClose={onClose}
+      footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={()=>{ onSave(v.trim()); onClose(); }}>Salvar</Btn></>}>
+      <Field label="Apelido"><input style={inp} autoFocus value={v} onChange={e=>setV(e.target.value)} placeholder="Ex.: Fê, Lay, Dani…"/></Field>
+    </Modal>
+  );
+}
+
+function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSaveMural, onSaveApelido, onNavigate }) {
   const [editing, setEditing] = useState(false);
+  const [editApelido, setEditApelido] = useState(false);
   const nome = user.apelido || (user.name||"").split(" ")[0];
-  const hora = new Date().getHours();
+  const agora = new Date();
+  const hora = agora.getHours();
   const saud = hora<12 ? "Bom dia" : hora<18 ? "Boa tarde" : "Boa noite";
-  const hoje = new Date().toLocaleDateString("pt-BR", { weekday:"long", day:"2-digit", month:"long" });
+  const hoje = agora.toLocaleDateString("pt-BR", { weekday:"long", day:"2-digit", month:"long" });
 
   const semNota   = records.filter(r=>!(r.conciliacaoId||r.municipalNoteId)).length;
   const notasPend = notes.filter(n=>!n.cancelada && !n.conciliacaoId && !records.some(r=>r.municipalNoteId===n.id)).length;
   const faltamDatas = records.filter(faltaDatas).length;
   const minhasTarefas = tasks.filter(t=>t.status!=="done" && (t.assignee===user.name || !t.assignee)).length;
 
+  // Faturamento do mês (competência mais recente presente na base)
+  const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  const compAtual = comps[comps.length-1] || "";
+  const doMes = records.filter(r=>r.competencia===compAtual);
+  const totalMes = doMes.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const fatMes = doMes.filter(r=>r.progress?.p5_nf).reduce((s,r)=>s+(r.valorTotal||0),0);
+  const pctMes = totalMes ? Math.round(fatMes/totalMes*100) : 0;
+
+  // Aniversariantes do mês
+  const mesAtual = String(agora.getMonth()+1).padStart(2,"0");
+  const diaAtual = String(agora.getDate()).padStart(2,"0");
+  const aniversariantes = (profiles||[]).filter(p=>{ const [,mm]=String(p.aniversario||"").split("/"); return mm===mesAtual; })
+    .sort((a,b)=>String(a.aniversario).localeCompare(String(b.aniversario)));
+
   const Pend = ({ icon, n, label, color, to }) => (
-    <button onClick={()=>onNavigate(to)} className="fc-btn" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,borderLeft:`4px solid ${color}`}}>
+    <button onClick={()=>onNavigate(to)} className="fc-btn fc-card-int" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:2,borderLeft:`4px solid ${color}`}}>
       <div style={{fontSize:22}}>{icon}</div>
       <div style={{fontSize:24,fontWeight:800,color:T.ink}}>{n}</div>
       <div style={{fontSize:12,color:T.muted}}>{label}</div>
@@ -2939,12 +2976,49 @@ function HomeView({ user, isAdmin, records, notes, tasks, mural, onSaveMural, on
   return (
     <div>
       {editing && <MuralEditModal mural={mural} onSave={onSaveMural} onClose={()=>setEditing(false)}/>}
+      {editApelido && <ApelidoModal atual={user.apelido} onSave={onSaveApelido} onClose={()=>setEditApelido(false)}/>}
 
       {/* Hero */}
-      <div style={{background:`linear-gradient(120deg, ${T.brand}, ${T.brandDark||T.brand})`,borderRadius:T.rXl,padding:"26px 28px",color:"#fff",marginBottom:18,boxShadow:T.shMd}}>
+      <div style={{background:`linear-gradient(120deg, ${T.brandDark}, ${T.brand} 60%, ${T.accent})`,borderRadius:T.rXl,padding:"26px 28px",color:"#fff",marginBottom:18,boxShadow:T.shMd}}>
         <div style={{fontSize:12,opacity:.85,textTransform:"capitalize"}}>{hoje}</div>
-        <div style={{fontSize:26,fontWeight:800,marginTop:4}}>{saud}, {nome}! 👋</div>
-        <div style={{fontSize:13,opacity:.9,marginTop:4}}>Bem-vindo(a) ao <b>Order to Cash</b> — o painel do time O2C.</div>
+        <div style={{fontSize:26,fontWeight:800,marginTop:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          {saud}, {nome}! 👋
+          <button onClick={()=>setEditApelido(true)} title="Editar meu apelido" style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",borderRadius:T.rPill,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>✎ apelido</button>
+        </div>
+        <div style={{fontSize:13,opacity:.92,marginTop:4}}>Bem-vindo(a) ao <b>Order to Cash</b> — o painel do time O2C.</div>
+      </div>
+
+      {/* Faturamento do mês + Aniversariantes */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14,marginBottom:18}}>
+        <Card style={{padding:"16px 18px"}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:10}}>
+            <span style={{fontSize:14,fontWeight:800,color:T.ink,flex:1}}>💵 Faturamento do mês</span>
+            <span style={{fontSize:12,color:T.muted}}>{compAtual||"—"}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+            <span style={{fontSize:24,fontWeight:800,color:T.brand}}>{fmtShort(fatMes)}</span>
+            <span style={{fontSize:12,color:T.muted}}>de {fmtShort(totalMes)} reconhecido</span>
+          </div>
+          <div style={{height:10,background:T.lineSoft,borderRadius:6,marginTop:12,overflow:"hidden"}}>
+            <div style={{height:10,width:`${pctMes}%`,borderRadius:6,background:`linear-gradient(90deg,${T.brand},${T.accent})`,transition:"width .5s"}}/>
+          </div>
+          <div style={{fontSize:12,color:T.muted,marginTop:6}}><b style={{color:T.ink}}>{pctMes}%</b> faturado · {doMes.length} registro(s)</div>
+        </Card>
+
+        <Card style={{padding:"16px 18px"}}>
+          <div style={{fontSize:14,fontWeight:800,color:T.ink,marginBottom:10}}>🎂 Aniversariantes de {agora.toLocaleDateString("pt-BR",{month:"long"})}</div>
+          {aniversariantes.length===0
+            ? <div style={{fontSize:13,color:T.muted}}>Ninguém faz aniversário este mês. {isAdmin?"(Cadastre em Gestão de acessos)":""}</div>
+            : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {aniversariantes.map(p=>{ const hoje=(p.aniversario||"").split("/")[0]===diaAtual; return (
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,fontSize:13}}>
+                    <Avatar name={p.name} size={26}/>
+                    <span style={{fontWeight:600,color:T.ink,flex:1}}>{p.apelido||p.name}</span>
+                    <span style={{fontSize:12,color:hoje?T.accentDark:T.muted,fontWeight:hoje?700:500}}>{p.aniversario}{hoje?" 🎉 hoje!":""}</span>
+                  </div>
+                );})}
+              </div>}
+        </Card>
       </div>
 
       {/* Mural da semana */}
@@ -3255,7 +3329,7 @@ function Login() {
   }
 
   return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,fontFamily:"system-ui,sans-serif",padding:16}}>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,fontFamily:T.font,padding:16}}>
       {showForgot && <ForgotPasswordModal onClose={()=>setSF(false)}/>}
       <div style={{background:"#fff",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
         <div style={{textAlign:"center",marginBottom:24}}>
@@ -3567,6 +3641,10 @@ function AppInner() {
     try { await db.saveMural(m); await reloadMural(); toast("Mural atualizado ✨"); }
     catch(e) { toast("Erro ao salvar mural: "+e.message, "error"); }
   }
+  async function handleSaveApelido(apelido) {
+    try { await db.setMyApelido(apelido); setUser(u=>({...u, apelido})); await reloadProfiles(); toast("Apelido atualizado ✨"); }
+    catch(e) { toast("Erro ao salvar apelido: "+e.message, "error"); }
+  }
 
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
@@ -3577,7 +3655,7 @@ function AppInner() {
   );
 
   if (!authReady) return (
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:"system-ui,sans-serif"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:T.font}}>
       <FcamaraLogo size={54}/>
       <div style={{fontSize:13}}>Carregando…</div>
     </div>
@@ -3586,14 +3664,14 @@ function AppInner() {
   if (!user) return <Login/>;
 
   if (!dataReady) return (
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:"system-ui,sans-serif"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:T.font}}>
       <FcamaraLogo size={54}/>
       <div style={{fontSize:13}}>Carregando dados…</div>
     </div>
   );
 
   return (
-    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",color:T.ink,minHeight:"100vh",background:T.canvas,display:"flex",flexDirection:"column"}}>
+    <div style={{fontFamily:T.font,color:T.ink,minHeight:"100vh",background:T.canvas,display:"flex",flexDirection:"column"}}>
       {showImport  && <ImportModal onImport={handleImport} onClose={()=>setImp(false)}/>}
       {showExport  && <ExportModal records={records} onClose={()=>setExp(false)} onDone={(n)=>toast(`CSV exportado — ${n} registros`)}/>}
       {showHistory && <HistoryModal history={history} onClose={()=>setHist(false)} onUndo={(entry)=>handleUndoImport(entry)}/>}
@@ -3612,7 +3690,7 @@ function AppInner() {
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
           {page==="home"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} mural={mural} onSaveMural={handleMuralSave} onNavigate={setPage}/>
+              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} profiles={profiles} mural={mural} onSaveMural={handleMuralSave} onSaveApelido={handleSaveApelido} onNavigate={setPage}/>
             </div>
           )}
           {(page==="time"||page==="dash")&&(
