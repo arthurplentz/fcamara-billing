@@ -441,19 +441,14 @@ function Avatar({ name, size=30, admin }) {
   );
 }
 
-// Marca Fcamara — "F" branca sobre quadrado laranja arredondado (SVG, sem assets externos)
-const FC_ORANGE = "#F1572C";
-function FcamaraLogo({ size = 40 }) {
+// Marca Fcamara — wordmark "FCamara": "FC" laranja + "amara" (escuro no claro,
+// branco no escuro). Mesma leitura do logo do site.
+function FcamaraLogo({ size = 22, onDark }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" role="img" aria-label="Logo Fcamara" style={{ display:"block", flexShrink:0 }}>
-      <rect width="64" height="64" rx="16" fill={FC_ORANGE} />
-      {/* haste vertical */}
-      <rect x="19" y="15" width="11" height="35" rx="5.5" fill="#fff" />
-      {/* braço superior, canto direito arredondado (folha) */}
-      <path d="M25 15 h12 a9 9 0 0 1 0 18 H25 Z" fill="#fff" />
-      {/* braço central */}
-      <rect x="25" y="33" width="18" height="10.5" rx="5.25" fill="#fff" />
-    </svg>
+    <span aria-label="FCamara" style={{ fontFamily:FONT_DISPLAY, fontWeight:700, fontSize:size, letterSpacing:"-.03em", lineHeight:1, whiteSpace:"nowrap", display:"inline-flex", alignItems:"baseline" }}>
+      <span style={{ color:T.brand }}>FC</span>
+      <span style={{ color:onDark ? "#ffffff" : T.ink }}>amara</span>
+    </span>
   );
 }
 
@@ -3030,14 +3025,14 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
       {editing && <MuralEditModal mural={mural} onSave={onSaveMural} onClose={()=>setEditing(false)}/>}
       {editApelido && <ApelidoModal atual={user.apelido} onSave={onSaveApelido} onClose={()=>setEditApelido(false)}/>}
 
-      {/* Hero */}
-      <div style={{background:`linear-gradient(120deg, ${T.brandDark}, ${T.brand} 60%, ${T.accent})`,borderRadius:T.rXl,padding:"26px 28px",color:"#fff",marginBottom:18,boxShadow:T.shMd}}>
-        <div style={{fontSize:12,opacity:.85,textTransform:"capitalize"}}>{hoje}</div>
+      {/* Hero — charcoal (neutro), com laranja só de acento */}
+      <div style={{background:`linear-gradient(120deg, #201b18, ${T.dark})`,borderRadius:T.rXl,padding:"26px 28px",color:"#fff",marginBottom:18,boxShadow:T.shMd,borderLeft:`4px solid ${T.brand}`}}>
+        <div style={{fontSize:12,color:"rgba(255,255,255,.6)",textTransform:"capitalize"}}>{hoje}</div>
         <div style={{fontSize:26,fontWeight:700,fontFamily:T.fontDisplay,marginTop:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           {saud}, {nome}!
-          <button onClick={()=>setEditApelido(true)} title="Editar meu apelido" style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",borderRadius:T.rPill,padding:"4px 11px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5,fontFamily:T.font}}><Icon name="pencil" size={12}/>apelido</button>
+          <button onClick={()=>setEditApelido(true)} title="Editar meu apelido" style={{background:T.brand,border:"none",color:"#fff",borderRadius:T.rPill,padding:"4px 11px",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5,fontFamily:T.font}}><Icon name="pencil" size={12}/>apelido</button>
         </div>
-        <div style={{fontSize:13,opacity:.92,marginTop:4}}>Bem-vindo(a) ao <b>Order to Cash</b> — o painel do time O2C.</div>
+        <div style={{fontSize:13,color:"rgba(255,255,255,.8)",marginTop:4}}>Bem-vindo(a) ao <b style={{color:"#fff"}}>Order to Cash</b> — o painel do time O2C.</div>
       </div>
 
       {/* Faturamento do mês + Aniversariantes */}
@@ -3277,17 +3272,19 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
 
 function Topbar({ user, isAdmin, isMobile, onMenu, onLogout }) {
   return (
-    <div style={{background:"#fff",color:T.ink,padding:"0 16px",display:"flex",alignItems:"center",gap:10,height:56,borderBottom:`1px solid ${T.line}`}}>
-      {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:T.ink, cursor:"pointer", lineHeight:1, padding:4, display:"inline-flex" }}><Icon name="menu" size={22}/></button>}
-      <span style={{fontSize:15,fontWeight:700,fontFamily:T.fontDisplay,flex:1,display:"flex",alignItems:"center",gap:10}}>
-        <FcamaraLogo size={30}/>{isMobile ? "Order to Cash" : "Order to Cash"}
-        {!isMobile && <span style={{fontSize:12,fontWeight:500,color:T.muted,fontFamily:T.font}}>· Grupo Fcamara</span>}
+    <div style={{background:T.dark,color:"#fff",padding:"0 16px",display:"flex",alignItems:"center",gap:12,height:56}}>
+      {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:"#fff", cursor:"pointer", lineHeight:1, padding:4, display:"inline-flex" }}><Icon name="menu" size={22}/></button>}
+      <span style={{flex:1,display:"flex",alignItems:"center",gap:11}}>
+        <FcamaraLogo size={20} onDark/>
+        <span style={{width:1,height:20,background:"rgba(255,255,255,.22)"}}/>
+        <span style={{fontSize:14,fontWeight:600,fontFamily:T.fontDisplay,color:"#fff"}}>Order to Cash</span>
+        {!isMobile && <span style={{fontSize:12,fontWeight:500,color:"rgba(255,255,255,.6)"}}>Grupo Fcamara</span>}
       </span>
 
-      {!isMobile && <span style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.inkSoft,paddingLeft:4}}>
+      {!isMobile && <span style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"rgba(255,255,255,.9)",paddingLeft:4}}>
         <Avatar name={user.name} size={28} admin={isAdmin}/>{user.name}{isAdmin?" · Admin":""}
       </span>}
-      <button className="fc-btn" onClick={onLogout} style={{ background:"#fff", border:`1px solid ${T.line}`, color:T.inkSoft, borderRadius:T.rMd, padding:"6px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>Sair</button>
+      <button className="fc-btn" onClick={onLogout} style={{ background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.18)", color:"#fff", borderRadius:T.rMd, padding:"6px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>Sair</button>
     </div>
   );
 }
@@ -3381,14 +3378,14 @@ function Login() {
   }
 
   return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,fontFamily:T.font,padding:16}}>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,#201b18,${T.dark})`,fontFamily:T.font,padding:16}}>
       {showForgot && <ForgotPasswordModal onClose={()=>setSF(false)}/>}
       <div style={{background:"#fff",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
         <div style={{textAlign:"center",marginBottom:24}}>
-          <div style={{ display:"inline-flex", marginBottom:12 }}><FcamaraLogo size={62}/></div>
-          <h1 style={{fontSize:22,fontWeight:800,color:T.ink,lineHeight:1.3,margin:0}}>Order to Cash</h1>
-          <p style={{fontSize:13,color:T.brand,fontWeight:600,marginTop:4,marginBottom:0}}>Grupo Fcamara · time O2C</p>
-          <p style={{fontSize:11,color:T.muted,marginTop:6}}>{APP_VERSION}</p>
+          <div style={{ display:"inline-flex", marginBottom:14 }}><FcamaraLogo size={34}/></div>
+          <h1 style={{fontSize:22,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,lineHeight:1.3,margin:0}}>Order to Cash</h1>
+          <p style={{fontSize:13,color:T.muted,fontWeight:500,marginTop:4,marginBottom:0}}>Grupo Fcamara · time O2C</p>
+          <p style={{fontSize:11,color:T.faint,marginTop:6}}>{APP_VERSION}</p>
         </div>
         <form onSubmit={submit}>
           <div style={{marginBottom:12}}><Field label="E-mail"><input style={inp} type="email" placeholder="seu.email@empresa.com" value={email} onChange={e=>{setEmail(e.target.value);setLE("");}} autoFocus/></Field></div>
@@ -3701,14 +3698,14 @@ function AppInner() {
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
   if (recovery) return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${T.brandDark},${T.brand})`,padding:16}}>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,#201b18,${T.dark})`,padding:16}}>
       <RecoveryModal onClose={()=>{ setRecovery(false); }}/>
     </div>
   );
 
   if (!authReady) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:T.font}}>
-      <FcamaraLogo size={54}/>
+      <FcamaraLogo size={30}/>
       <div style={{fontSize:13}}>Carregando…</div>
     </div>
   );
@@ -3717,7 +3714,7 @@ function AppInner() {
 
   if (!dataReady) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.canvas,color:T.muted,fontFamily:T.font}}>
-      <FcamaraLogo size={54}/>
+      <FcamaraLogo size={30}/>
       <div style={{fontSize:13}}>Carregando dados…</div>
     </div>
   );
