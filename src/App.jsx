@@ -2940,8 +2940,17 @@ function ApelidoModal({ atual, onSave, onClose }) {
 function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSaveMural, onSaveApelido, onNavigate }) {
   const [editing, setEditing] = useState(false);
   const [editApelido, setEditApelido] = useState(false);
+  // Relógio leve: mantém data/saudação sempre corretas (vira o dia / muda o turno)
+  // sem depender de refresh. Atualiza a cada minuto e ao voltar o foco pra aba.
+  const [agora, setAgora] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setAgora(new Date());
+    const id = setInterval(tick, 60000);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(id); window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); };
+  }, []);
   const nome = user.apelido || (user.name||"").split(" ")[0];
-  const agora = new Date();
   const hora = agora.getHours();
   const saud = hora<12 ? "Bom dia" : hora<18 ? "Boa tarde" : "Boa noite";
   const hoje = agora.toLocaleDateString("pt-BR", { weekday:"long", day:"2-digit", month:"long" });
