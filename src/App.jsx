@@ -3626,21 +3626,19 @@ function AppInner() {
         const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
         // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
         // uma FILA por chave e casamos por posição: 1ª linha ↔ 1º registro, etc.
+        // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
+        // uma FILA por chave e casamos POR VALOR: as linhas sem mudança batem
+        // exatamente com a sua gêmea; só a que realmente mudou preenche o resto.
         const byKey = {}; escopo.forEach(r => { const k=keyOf(r); (byKey[k]=byKey[k]||[]).push(r); });
+        const newByKey = {}; newRecs.forEach(nr => { const k=keyOf(nr); (newByKey[k]=newByKey[k]||[]).push(nr); });
         const consumidos = new Set();
-        const upserts = []; const inserts = [];
+        const upserts = []; const inserts = []; const snapshot = [];
         const importId = uuid();
         let novos=0, mudados=0, mudadosFat=0;
-        newRecs.forEach(nr => {
-          const k = keyOf(nr);
-          const fila = byKey[k];
-          const ex = (fila && fila.length) ? fila.shift() : null;
-          if (!ex) { inserts.push({ ...nr, importId }); novos++; return; }
+        const casar = (nr, ex) => {
           consumidos.add(ex.id);
+          snapshot.push(ex);   // guarda o estado ANTERIOR para permitir desfazer
           const antigo = ex.valorTotal||0, novo = nr.valorTotal||0;
-          const mudouValor = Math.abs(novo-antigo) > 0.01
-            || Math.abs((nr.valorVenda||0)-(ex.valorVenda||0)) > 0.01
-            || Math.abs((nr.hrsAprovadas||0)-(ex.hrsAprovadas||0)) > 0.001;
           const merged = { ...ex,
             cliente: nr.cliente||ex.cliente, codCliente: nr.codCliente||ex.codCliente,
             inicio: nr.inicio||ex.inicio, fim: nr.fim||ex.fim,
@@ -3648,7 +3646,7 @@ function AppInner() {
             valorTotal: nr.valorTotal, valorLiquido: nr.valorLiquido,
             ausenteRelatorio: false, updatedAt: nowISO(),
           };
-          if (mudouValor && Math.abs(novo-antigo) > 0.01) {
+          if (Math.abs(novo-antigo) > 0.01) {
             const iniciado = calcStatus(ex.progress) !== "Não iniciado";
             const fat = fatByRec[ex.id]||0;
             if (iniciado || fat>0) {           // cenário 1 = atualiza em silêncio
@@ -3658,10 +3656,27 @@ function AppInner() {
             }
           }
           upserts.push(merged);
+        };
+        Object.entries(newByKey).forEach(([k, news]) => {
+          const bucket = (byKey[k]||[]).slice();
+          const pend = [];
+          // 1) casa exato por valor (linhas inalteradas travam na gêmea certa)
+          news.forEach(nr => {
+            const i = bucket.findIndex(ex => Math.abs((ex.valorTotal||0)-(nr.valorTotal||0)) < 0.01);
+            if (i>=0) casar(nr, bucket.splice(i,1)[0]);
+            else pend.push(nr);
+          });
+          // 2) as que sobraram (valor mudou) → o registro restante de valor mais próximo
+          pend.forEach(nr => {
+            if (!bucket.length) { inserts.push({ ...nr, importId }); novos++; return; }
+            let bi=0, bd=Infinity;
+            bucket.forEach((ex,idx)=>{ const d=Math.abs((ex.valorTotal||0)-(nr.valorTotal||0)); if(d<bd){bd=d;bi=idx;} });
+            casar(nr, bucket.splice(bi,1)[0]);
+          });
         });
         const absentIds = escopo.filter(r => !consumidos.has(r.id) && !r.ausenteRelatorio).map(r=>r.id);
         await db.mergeImport({ upserts, inserts, absentIds });
-        try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId }); } catch {}
+        try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId, snapshot }); } catch {}
         await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
         setState(s=>({...s, competenciaAtual:competencia}));
         toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${mudadosFat?` (${mudadosFat} já faturado → saldo)`:""}, ${absentIds.length} fora do relatório`);
@@ -3687,10 +3702,14 @@ function AppInner() {
   async function handleUndoImport(entry) {
     if (!entry?.importId) { toast("Esta importação é antiga e não pode ser desfeita automaticamente.", "error"); return; }
     try {
+      // 1) apaga os registros incluídos por esta importação
       const removed = await db.deleteRecordsByImport(entry.importId);
+      // 2) restaura os registros que esta importação atualizou (merge) ao estado anterior
+      let restored = 0;
+      if (Array.isArray(entry.snapshot) && entry.snapshot.length) { await db.restoreRecords(entry.snapshot); restored = entry.snapshot.length; }
       await db.deleteHistory(entry.id);
-      await Promise.all([reloadRecords(), reloadHistory()]);
-      toast(`Importação desfeita — ${removed} registro(s) removido(s)`, "info");
+      await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
+      toast(`Importação desfeita — ${removed} incluído(s) removido(s)${restored?` · ${restored} restaurado(s)`:""}`, "info");
     } catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
   }
 
