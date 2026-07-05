@@ -3716,8 +3716,18 @@ function AppInner() {
   function handleCompetencia(val) { setState(s=>({...s, competenciaAtual:val})); }
 
   async function handleRecordDelete(id) {
-    try { await db.deleteRecord(id); await reloadRecords(); toast("Registro excluído", "info"); }
-    catch(e) { toast("Erro ao excluir registro: "+e.message, "error"); }
+    try {
+      const rec = records.find(r => r.id === id);
+      // Lotes de conciliação aos quais este registro está alocado.
+      const cids = new Set(faturamentos.filter(a => a.recordId === id && a.conciliacaoId).map(a => a.conciliacaoId));
+      if (rec?.conciliacaoId) cids.add(rec.conciliacaoId);   // conciliação antiga
+      await db.deleteRecord(id);   // cascade remove as alocações deste registro
+      // Reabre as notas de cada lote que ficou sem nenhuma outra receita alocada.
+      const cidsToFree = [...cids].filter(cid => !faturamentos.some(a => a.conciliacaoId === cid && a.recordId !== id));
+      if (cidsToFree.length) await db.freeNotes(cidsToFree);
+      await Promise.all([reloadRecords(), reloadNotes(), reloadFaturamentos()]);
+      toast(`Registro excluído${cidsToFree.length ? " · nota(s) reaberta(s) na conciliação" : ""}`, "info");
+    } catch(e) { toast("Erro ao excluir registro: "+e.message, "error"); }
   }
   async function handleClearAlert(id) {
     try { await db.clearRecordAlert(id); await reloadRecords(); toast("Alerta baixado", "info"); }

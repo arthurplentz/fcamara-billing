@@ -60,6 +60,13 @@ export async function mergeImport({ upserts, inserts, absentIds }) {
   }
 }
 
+// Libera notas de um ou mais lotes de conciliação (volta a aparecer em aberto).
+export async function freeNotes(cids) {
+  if (!cids || !cids.length) return;
+  const { error } = await supabase.from("municipal_notes").update({ conciliacao_id: null }).in("conciliacao_id", cids);
+  if (error) throw error;
+}
+
 // Baixa o alerta de mudança de valor (ou "fora do relatório") de um registro.
 export async function clearRecordAlert(id) {
   const { error } = await supabase.from("records")
