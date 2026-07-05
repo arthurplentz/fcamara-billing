@@ -22,6 +22,7 @@ function dbToRec(row) {
     valorAnterior: row.valor_anterior == null ? null : Number(row.valor_anterior),
     valorAlteradoEm: row.valor_alterado_em || null,
     ausenteRelatorio: !!row.ausente_relatorio,
+    valorBaseDivergente: row.valor_base_divergente == null ? null : Number(row.valor_base_divergente),
   };
 }
 function recToDb(r, withId) {
@@ -38,6 +39,7 @@ function recToDb(r, withId) {
     valor_anterior: r.valorAnterior == null ? null : r.valorAnterior,
     valor_alterado_em: r.valorAlteradoEm || null,
     ausente_relatorio: !!r.ausenteRelatorio,
+    valor_base_divergente: r.valorBaseDivergente == null ? null : r.valorBaseDivergente,
   };
   if (withId && r.id) o.id = r.id;
   return o;
@@ -156,10 +158,14 @@ export async function conciliateSet({ cid, allocations, recordItems, noteIds, us
 export async function reopenConciliacao(cid, recordItems) {
   { const { error } = await supabase.from("record_faturamentos").delete().eq("conciliacao_id", cid); if (error) throw error; }
   for (const it of (recordItems || [])) {
-    const { error } = await supabase.from("records").update({
+    const upd = {
       conciliacao_id: null, municipal_note_id: null, nf_numero: it.nfNumero ?? "", progress: it.progress,
       conciliado_em: it.conciliadoEm ?? null, conciliado_por: it.conciliadoPor ?? null, updated_at: nowISO(),
-    }).eq("id", it.id);
+    };
+    // Ao reabrir, aplica o valor que a base trouxe (se divergia) e limpa o marcador.
+    if (it.valorTotal != null) upd.valor_total = it.valorTotal;
+    if ("valorBaseDivergente" in it) upd.valor_base_divergente = it.valorBaseDivergente;
+    const { error } = await supabase.from("records").update(upd).eq("id", it.id);
     if (error) throw error;
   }
   const { error } = await supabase.from("municipal_notes").update({ conciliacao_id: null }).eq("conciliacao_id", cid);
