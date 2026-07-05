@@ -2572,6 +2572,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const [expNote, setExpNote] = useState("");
   const [showConf, setShowConf] = useState(false);   // painel de conferência de lotes
   const [confSoDif, setConfSoDif] = useState(true);  // só lotes que não batem
+  const toast = useToast();
   // filtros e ordenação — lado esquerdo (notas)
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState(""); const [noteCli, setNoteCli] = useState("todos");
   // filtros e ordenação — lado direito (receitas)
@@ -2648,7 +2649,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const selRecList = empRecs.filter(r=>selRecs.has(r.id));
   const somaSel = selRecList.reduce((s,r)=>s+valorDe(r),0);   // soma dos valores a faturar
   const diff = Math.abs(somaSel-somaNotes);
-  const bate = selectedNotes.length>0 && selRecs.size>0 && diff <= Math.max(1, somaNotes*0.005);
+  // Tolerância dura: só concilia se a diferença for de no máximo R$ 1,00.
+  const bate = selectedNotes.length>0 && selRecs.size>0 && diff <= 1.005;
 
   const toggleRec = (id) => setSelRecs(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
   // Conciliação é NOTA A NOTA: só uma nota por vez (evita amarrar várias notas
@@ -2666,6 +2668,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
 
   function confirmar() {
     if(!selectedNotes.length||!selRecs.size) return;
+    if(diff > 1.005) { toast(`Diferença de ${brl(diff)} — só é possível conciliar com diferença de até R$ 1,00.`, "error"); return; }
     const valoresMap = {}; selRecList.forEach(r=>{ valoresMap[r.id] = valorDe(r); });
     onConciliate([...selRecs], selectedNotes, valoresMap); resetSel();
   }
@@ -2788,7 +2791,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
               </div>
               <div style={{flex:1}}/>
               <Btn onClick={resetSel}>Limpar</Btn>
-              <Btn primary disabled={!selectedNotes.length||!selRecs.size} onClick={confirmar}>Conciliar {selectedNotes.length}×{selRecs.size}</Btn>
+              <Btn primary disabled={!selectedNotes.length||!selRecs.size||!bate} onClick={confirmar}>Conciliar {selectedNotes.length}×{selRecs.size}</Btn>
             </Card>
           )}
 
