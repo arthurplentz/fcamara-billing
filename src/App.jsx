@@ -27,9 +27,7 @@ const STEPS = [
   { id: "p4_envio_cli",    group: 4, label: "P4a", name: "Envio ao Cliente",         type: "check" },
   { id: "p4_aprovacao",    group: 4, label: "P4b", name: "Aprovação do Cliente",     type: "check" },
   { id: "p4_data_aprov",   group: 4, label: "P4c", name: "Data Aprovação",           type: "date"  },
-  { id: "p5_nf",           group: 5, label: "P5a", name: "NF Emitida?",              type: "check" },
-  { id: "p5_data_nf",      group: 5, label: "P5b", name: "Data Emissão NF",          type: "date"  },
-  { id: "p5_no_corte",     group: 5, label: "P5c", name: "Dentro do Corte?",         type: "check" },
+  { id: "p5_liberado",     group: 5, label: "P5",  name: "Liberado para faturamento", type: "check" },
 ];
 
 const STEP_GROUPS = [
@@ -37,7 +35,7 @@ const STEP_GROUPS = [
   { num: 2, title: "Racional",             short: "Racional",  steps: ["p2_racional"] },
   { num: 3, title: "Validação comercial",  short: "Comercial", steps: ["p3_envio_com","p3_retorno_com","p3_data_retorno"] },
   { num: 4, title: "Aprovação do cliente", short: "Cliente",   steps: ["p4_envio_cli","p4_aprovacao","p4_data_aprov"] },
-  { num: 5, title: "Faturamento",          short: "NF",        steps: ["p5_nf","p5_data_nf","p5_no_corte"] },
+  { num: 5, title: "Liberação p/ faturamento", short: "Liberado", steps: ["p5_liberado"] },
 ];
 
 // Funil por tipo de projeto. Fee e WIP não passam por comercial nem cliente:
@@ -56,7 +54,7 @@ const GROUP_DONE_KEYS = {
   2: ["p2_racional"],
   3: ["p3_envio_com", "p3_retorno_com"],
   4: ["p4_envio_cli", "p4_aprovacao"],
-  5: ["p5_nf"],
+  5: ["p5_liberado"],
 };
 
 function groupState(prog, num) {
@@ -159,10 +157,12 @@ function exportClientsCSV(clients) {
 
 const PORTAL_TIPOS = ["Inclusão de notas", "Medição de serviços"];
 
+// "faturado" = conciliado (a NF é amarrada na tela de Conciliação, não no passo a passo).
+const isFaturado = (prog) => !!(prog && (prog.p5_nf || prog.p5_no_corte));
 function calcStatus(prog) {
   if (!prog) return "Não iniciado";
-  if (prog.p5_no_corte)    return "Faturado no corte";
-  if (prog.p5_nf)          return "NF emitida";
+  if (isFaturado(prog))    return "Faturado";
+  if (prog.p5_liberado)    return "Liberado para faturamento";
   if (prog.p4_aprovacao)   return "Cliente aprovou";
   if (prog.p4_envio_cli)   return "Aguard. aprovação cliente";
   if (prog.p3_retorno_com) return "Retorno comercial recebido";
@@ -174,15 +174,15 @@ function calcStatus(prog) {
 
 function calcStatusColor(prog) {
   if (!prog) return "gray";
-  if (prog.p5_no_corte)    return "green";
-  if (prog.p5_nf)          return "teal";
+  if (isFaturado(prog))    return "green";
+  if (prog.p5_liberado)    return "teal";
   if (prog.p4_aprovacao)   return "blue";
   if (prog.p4_envio_cli || prog.p3_retorno_com || prog.p3_envio_com) return "yellow";
   if (prog.p1_extrair || prog.p2_racional) return "orange";
   return "gray";
 }
 
-const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Aguard. retorno comercial","Retorno comercial recebido","Aguard. aprovação cliente","Cliente aprovou","NF emitida","Faturado no corte"];
+const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Aguard. retorno comercial","Retorno comercial recebido","Aguard. aprovação cliente","Cliente aprovou","Liberado para faturamento","Faturado"];
 
 // Datas obrigatórias do funil (só as etapas que existem no funil do tipo).
 function reqDateSteps(tipo) {
@@ -208,7 +208,8 @@ function faturarProgress(record, note) {
   if (nums.includes(2)) p.p2_racional = true;
   if (nums.includes(3)) { p.p3_envio_com = true; p.p3_retorno_com = true; }
   if (nums.includes(4)) { p.p4_envio_cli = true; p.p4_aprovacao = true; }
-  p.p5_nf = true;
+  p.p5_liberado = true;
+  p.p5_nf = true; // marcador interno de "faturado" (a NF vem da conciliação)
   p.p5_data_nf = String(note?.emitidaEm || "").slice(0, 10) || p.p5_data_nf || "";
   p.p5_no_corte = true;
   return p;
@@ -940,15 +941,6 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
               <span style={{fontWeight:700,fontSize:13,color:T.ink}}>{g.title}</span>
             </div>
             {STEPS.filter(s=>g.steps.includes(s.id)).map(s=>{
-              // A NF (emitida e data de emissão) é tratada na tela "Notas fiscais".
-              if (s.id === "p5_data_nf") return null;
-              if (s.id === "p5_nf") return (
-                <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
-                  <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
-                  <button type="button" onClick={onOpenNF}
-                    style={{display:"inline-flex",alignItems:"center",gap:5,background:T.brandBg,border:`1px solid ${C.blue.border}`,color:T.brand,borderRadius:T.rMd,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Atribuir nota</button>
-                </div>
-              );
               return (
                 <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
                   <span style={{fontSize:12,color:T.inkSoft,flex:1}}>{s.name}</span>
@@ -1222,8 +1214,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
 
   return (
     <div>
-      {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onOpenNF={()=>{ const t=bulkTarget; setBulk(null); setNf(t); }} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
-      {nfTarget&&<NFGroupModal {...nfTarget} onClose={()=>setNf(null)} onSave={updated=>{onUpdateBulk(updated);setNf(null);}}/>}
+      {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
       {recordEdit&&<RecordEditModal record={recordEdit} onClose={()=>setRecEdit(null)} onSave={r=>{onUpdateBulk([r]);setRecEdit(null);}}/>}
       {recordDel&&<ConfirmDialog title="Excluir registro" danger confirmLabel="Excluir"
         message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.`}
@@ -1300,8 +1291,8 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
         const faturados = g.records.filter(r=>r.progress?.p5_nf).length;
         const pct     = Math.round((faturados/g.records.length)*100)||0;
         const isOpen  = expandedCliente===(g.cliente+g.pep);
-        const overallStatus = g.records.every(r=>r.progress?.p5_no_corte)?"Faturado no corte":g.records.every(r=>r.progress?.p5_nf)?"NF emitida":g.records.some(r=>r.progress?.p5_nf)?"Faturado parcialmente":"Em andamento";
-        const overallColor  = g.records.every(r=>r.progress?.p5_no_corte)?"green":g.records.every(r=>r.progress?.p5_nf)?"teal":g.records.some(r=>r.progress?.p5_nf)?"orange":"yellow";
+        const overallStatus = g.records.every(r=>isFaturado(r.progress))?"Faturado":g.records.some(r=>isFaturado(r.progress))?"Faturado parcial":g.records.every(r=>r.progress?.p5_liberado)?"Liberado p/ faturamento":"Em andamento";
+        const overallColor  = g.records.every(r=>isFaturado(r.progress))?"green":g.records.some(r=>isFaturado(r.progress))?"orange":g.records.every(r=>r.progress?.p5_liberado)?"teal":"yellow";
         const gtipo = g.records[0]?.tipo;
         const ggrupos = funnelGroups(gtipo);
         const agg = aggregateStates(g.records, gtipo);
@@ -1325,8 +1316,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                 <div style={{fontSize:18,fontWeight:800,color:pct===100?T.ok:pct>50?T.brand:C.orange.solid}}>{pct}%</div>
                 <div style={{fontSize:10,color:T.muted}}>faturado</div>
               </div>
-              <Btn small onClick={e=>{e.stopPropagation();setNf({cliente:g.cliente,pep:g.pep,records:g.records});}}>Notas fiscais</Btn>
-              <Btn small onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>Atualizar passos</Btn>
+              <Btn small icon="pencil" onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>Atualizar passos</Btn>
               <span style={{fontSize:16,color:T.faint}} aria-hidden="true">{isOpen?"▲":"▼"}</span>
             </div>
 
@@ -1443,7 +1433,7 @@ function Dashboard({ records, analista, isAdmin }) {
     naoFatByCliente[key].count++; naoFatByCliente[key].valor+=(r.valorTotal||0);
   });
 
-  const etapaColors = { "Faturado no corte":"green","NF emitida":"teal","Cliente aprovou":"blue","Aguard. aprovação cliente":"yellow","Retorno comercial recebido":"yellow","Aguard. retorno comercial":"orange","Racional montado":"orange","Dados extraídos":"orange","Não iniciado":"gray" };
+  const etapaColors = { "Faturado":"green","Liberado para faturamento":"teal","Cliente aprovou":"blue","Aguard. aprovação cliente":"yellow","Retorno comercial recebido":"yellow","Aguard. retorno comercial":"orange","Racional montado":"orange","Dados extraídos":"orange","Não iniciado":"gray" };
   const MetCard=({label,value,color,sub,highlight})=>(
     <Card style={{padding:"14px 16px", ...(highlight?{borderColor:C.orange.border,background:"#fffaf3"}:{})}}>
       <div style={{fontSize:11,color:T.muted,marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:".3px"}}>{label}</div>
@@ -2551,7 +2541,8 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
   let rightRecs = empRecs.slice();
-  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>!recConc(r));
+  // Só entra na conciliação quem está "Liberado para faturamento" (gate).
+  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>!recConc(r) && r.progress?.p5_liberado);
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>recConc(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
@@ -2570,7 +2561,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
   // Pendências (sempre sobre o total da empresa, não o filtrado)
   const notasPend = empNotes.filter(n=>!notaConc(n)); const notasPendVal = notasPend.reduce((s,n)=>s+(n.valorServicos||0),0);
-  const recsPend = empRecs.filter(r=>!recConc(r)); const recsPendVal = recsPend.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const recsPend = empRecs.filter(r=>!recConc(r) && r.progress?.p5_liberado); const recsPendVal = recsPend.reduce((s,r)=>s+(r.valorTotal||0),0);
 
   const selectedNotes = empNotes.filter(n=>selNotes.has(n.id));
   const somaNotes = selectedNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
@@ -3010,7 +3001,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
   const saud = hora<12 ? "Bom dia" : hora<18 ? "Boa tarde" : "Boa noite";
   const hoje = agora.toLocaleDateString("pt-BR", { weekday:"long", day:"2-digit", month:"long" });
 
-  const semNota   = records.filter(r=>!(r.conciliacaoId||r.municipalNoteId)).length;
+  const semNota   = records.filter(r=>!(r.conciliacaoId||r.municipalNoteId) && r.progress?.p5_liberado).length;
   const notasPendList = notes.filter(n=>!n.cancelada && !n.conciliacaoId && !records.some(r=>r.municipalNoteId===n.id));
   const notasPend = notasPendList.length;
   // Conciliação atrasada: nota emitida em dia(s) ANTERIORES ainda sem conciliar.
