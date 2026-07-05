@@ -2551,7 +2551,7 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
+function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, faturamentos=[], orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
@@ -2560,6 +2560,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, orfas
   const [selRecs, setSelRecs] = useState(() => new Set());
   const [valores, setValores] = useState({});   // valor a faturar por registro (parcial)
   const [expNote, setExpNote] = useState("");
+  const [showConf, setShowConf] = useState(false);   // painel de conferência de lotes
+  const [confSoDif, setConfSoDif] = useState(true);  // só lotes que não batem
   // filtros e ordenação — lado esquerdo (notas)
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState("");
   // filtros e ordenação — lado direito (receitas)
@@ -2649,6 +2651,20 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, orfas
   const importBatches = [...new Set(notes.map(n=>n.importId).filter(Boolean))];
   const SortSel = ({value,onChange,opts}) => <select style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={value} onChange={e=>onChange(e.target.value)}>{opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>;
 
+  // ── Conferência: lotes de conciliação (nota × receita) da empresa selecionada.
+  // Agrupa por conciliacao_id e compara Σnotas vs Σreceitas alocadas → acha o
+  // par errado mesmo quando o total do cliente "bate".
+  const lotesMap = {};
+  notes.forEach(n => { if (n.conciliacaoId && n.empresa===empresa && !n.cancelada) { (lotesMap[n.conciliacaoId] = lotesMap[n.conciliacaoId] || { cid:n.conciliacaoId, notas:[], recs:[] }).notas.push(n); } });
+  faturamentos.forEach(a => { const L = a.conciliacaoId && lotesMap[a.conciliacaoId]; if (L) { const r = records.find(x=>x.id===a.recordId); L.recs.push({ r, valor:a.valor||0 }); } });
+  const lotes = Object.values(lotesMap).map(L => {
+    const sn = L.notas.reduce((s,n)=>s+(n.valorServicos||0),0);
+    const sr = L.recs.reduce((s,x)=>s+(x.valor||0),0);
+    return { ...L, sn, sr, dif: sn-sr, bate: Math.abs(sn-sr) < 0.01 };
+  }).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
+  const lotesDiverg = lotes.filter(L=>!L.bate).length;
+  const lotesShown = confSoDif ? lotes.filter(L=>!L.bate) : lotes;
+
   return (
     <div>
       {importing && <NotesImportModal onImport={onImport} onClose={()=>setImporting(false)}/>}
@@ -2704,7 +2720,43 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, orfas
               <div style={{fontSize:18,fontWeight:800,color:T.ink}}>{recsPend.length}</div>
               <div style={{fontSize:11,color:T.muted}}>{brl(recsPendVal)} a faturar</div>
             </Card>
+            <Card style={{flex:1,minWidth:200,padding:"12px 14px",borderLeft:`3px solid ${lotesDiverg>0?T.danger:T.ok}`,cursor:"pointer"}} onClick={()=>setShowConf(v=>!v)}>
+              <div style={Ty.small}>Conferência de conciliações</div>
+              <div style={{fontSize:18,fontWeight:800,color:lotesDiverg>0?T.danger:T.ok}}>{lotesDiverg>0?`${lotesDiverg} divergente(s)`:`✓ ${lotes.length} ok`}</div>
+              <div style={{fontSize:11,color:T.muted}}>{lotes.length} lote(s) · clique para {showConf?"ocultar":"conferir"}</div>
+            </Card>
           </div>
+
+          {showConf && (
+            <Card style={{padding:0,overflow:"hidden",marginBottom:14,border:`1px solid ${lotesDiverg>0?T.dangerLine:T.line}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${T.line}`,flexWrap:"wrap"}}>
+                <span style={{fontWeight:700,fontSize:13,color:T.ink}}>Conferência nota × receita por lote</span>
+                <span style={{fontSize:12,color:T.muted}}>{lotesShown.length} de {lotes.length}</span>
+                <div style={{flex:1}}/>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,cursor:"pointer"}}>
+                  <input type="checkbox" checked={confSoDif} onChange={e=>setConfSoDif(e.target.checked)} style={{width:14,height:14}}/> só divergentes
+                </label>
+              </div>
+              <div className="fc-scroll" style={{maxHeight:360,overflowY:"auto"}}>
+                {lotesShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>{lotes.length===0?"Nenhuma conciliação nesta empresa.":"Todos os lotes batem. ✓"}</div>
+                  : lotesShown.map(L=>(
+                    <div key={L.cid} style={{padding:"10px 14px",borderBottom:`1px solid ${T.lineSoft}`,background:L.bate?"#fff":"#fef2f2"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                        <Badge label={L.bate?"✓ bate":`≠ dif. ${brl(L.dif)}`} color={L.bate?"green":"red"} small/>
+                        <span style={{fontSize:12,color:T.ink,fontWeight:600}}>{L.recs[0]?.r?.cliente || L.notas[0]?.tomadorNome || "—"}</span>
+                        <div style={{flex:1}}/>
+                        <span style={{fontSize:12,color:T.muted}}>Notas <b style={{color:T.ink}}>{brl(L.sn)}</b> ↔ Receitas <b style={{color:T.ink}}>{brl(L.sr)}</b></span>
+                        <Btn small icon="undo" onClick={()=>onReopen({ conciliacaoId:L.cid })}>Reabrir</Btn>
+                      </div>
+                      <div style={{fontSize:11,color:T.muted,display:"flex",gap:16,flexWrap:"wrap"}}>
+                        <span><b>Notas:</b> {L.notas.map(n=>`${n.numero} (${brl(n.valorServicos)})`).join(", ")||"—"}</span>
+                        <span><b>Receitas:</b> {L.recs.map(x=>`${x.r?.profissional||x.r?.pep||"?"} (${brl(x.valor)})`).join(", ")||"—"}</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </Card>
+          )}
 
           {(selRecs.size>0 || selectedNotes.length>0) && (
             <Card style={{padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",position:"sticky",top:12,zIndex:20,boxShadow:T.shMd,border:`1px solid ${bate?T.okLine:T.line}`}}>
@@ -4002,7 +4054,7 @@ function AppInner() {
           )}
           {page==="concil"&&(
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec}
+              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec} faturamentos={faturamentos}
                 orfas={notasOrfas.length} onReopenOrphans={handleReopenOrphans}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
