@@ -186,14 +186,14 @@ const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Agu
 // Status considerando o faturamento parcial (allocated = quanto já foi faturado).
 function recStatus(r, allocated) {
   const total = r.valorTotal||0, a = allocated||0;
-  if (total>0 && a >= total-0.01) return "Faturado";
-  if (a > 0.001)                  return "Faturado parcial";
+  if (Math.abs(total) > 0.01 && Math.abs(total - a) < 0.01) return "Faturado";
+  if (Math.abs(a) > 0.001)                                  return "Faturado parcial";
   return calcStatus(r.progress);
 }
 function recStatusColor(r, allocated) {
   const total = r.valorTotal||0, a = allocated||0;
-  if (total>0 && a >= total-0.01) return "green";
-  if (a > 0.001)                  return "orange";
+  if (Math.abs(total) > 0.01 && Math.abs(total - a) < 0.01) return "green";
+  if (Math.abs(a) > 0.001)                                  return "orange";
   return calcStatusColor(r.progress);
 }
 
@@ -1311,8 +1311,8 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
         const fatG    = g.records.reduce((a,r)=>a+(fatByRec[r.id]||0),0);
         const pct     = totalG>0 ? Math.round(fatG/totalG*100) : 0;
         const isOpen  = expandedCliente===(g.cliente+g.pep);
-        const fullG = g.records.filter(r=>{const t=r.valorTotal||0;return t>0 && (fatByRec[r.id]||0)>=t-0.01;}).length;
-        const anyG  = g.records.filter(r=>(fatByRec[r.id]||0)>0.001).length;
+        const fullG = g.records.filter(r=>{const t=r.valorTotal||0;return Math.abs(t)>0.01 && Math.abs(t-(fatByRec[r.id]||0))<0.01;}).length;
+        const anyG  = g.records.filter(r=>Math.abs(fatByRec[r.id]||0)>0.001).length;
         const overallStatus = fullG===g.records.length?"Faturado":anyG>0?"Faturado parcial":g.records.every(r=>r.progress?.p5_liberado)?"Liberado p/ faturamento":"Em andamento";
         const overallColor  = fullG===g.records.length?"green":anyG>0?"orange":g.records.every(r=>r.progress?.p5_liberado)?"teal":"yellow";
         const gtipo = g.records[0]?.tipo;
@@ -1457,9 +1457,9 @@ function Dashboard({ records, analista, isAdmin, fatByRec={} }) {
   if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id])===filterEtapa);
 
   const fat = (r) => fatByRec[r.id]||0;                     // já faturado (alocado)
-  const saldo = (r) => Math.max(0, (r.valorTotal||0) - fat(r)); // a faturar
+  const saldo = (r) => (r.valorTotal||0) - fat(r);          // a faturar (com sinal: desconto negativo)
   const totalValor = f.reduce((a,r)=>a+(r.valorTotal||0),0);
-  const naoFat     = f.filter(r=>saldo(r) > 0.01);          // tem saldo a faturar
+  const naoFat     = f.filter(r=>Math.abs(saldo(r)) > 0.01); // tem saldo a faturar (inclui descontos)
   const valorFat   = f.reduce((a,r)=>a+fat(r),0);           // faturado = só o emitido
   const valorRep   = f.reduce((a,r)=>a+saldo(r),0);         // represado = saldo
   const pctFat     = totalValor>0 ? Math.round((valorFat/totalValor)*100) : 0;
@@ -2573,9 +2573,9 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const [showConf, setShowConf] = useState(false);   // painel de conferência de lotes
   const [confSoDif, setConfSoDif] = useState(true);  // só lotes que não batem
   // filtros e ordenação — lado esquerdo (notas)
-  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState("");
+  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState(""); const [noteCli, setNoteCli] = useState("todos");
   // filtros e ordenação — lado direito (receitas)
-  const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas"); const [recCli, setRecCli] = useState("todos");
+  const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
   // Incluir receitas ainda não "Liberadas para faturamento" (ex.: conciliação
   // adiantada antes do time preencher o passo a passo). Conciliar já libera o funil.
   const [incluirNaoLib, setIncluirNaoLib] = useState(true);
@@ -2589,11 +2589,19 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const notaConc = (n) => !!n.conciliacaoId || records.some(r => r.municipalNoteId === n.id);
   // Faturamento parcial: quanto já foi faturado e quanto falta (saldo).
   const fat    = (r) => fatByRec[r.id] || 0;
-  const saldoR = (r) => Math.max(0, (r.valorTotal||0) - fat(r));
-  const hasSaldo = (r) => saldoR(r) > 0.01;
-  const hasFat   = (r) => fat(r) > 0.001;
-  // valor a faturar do registro (padrão = saldo; digitável; nunca passa do saldo)
-  const valorDe = (r) => { const v = valores[r.id]; return (v===undefined || v==="") ? saldoR(r) : Math.min(parseBR(v), saldoR(r)); };
+  // Saldo COM sinal: descontos (valor negativo) também precisam ser conciliados
+  // para fechar o total da nota. Ex.: +10.500 serviço − 500 desconto = 10.000.
+  const saldoR = (r) => (r.valorTotal||0) - fat(r);
+  const hasSaldo = (r) => Math.abs(saldoR(r)) > 0.01;
+  const hasFat   = (r) => Math.abs(fat(r)) > 0.001;
+  // valor a faturar do registro (padrão = saldo; digitável; nunca passa do saldo,
+  // respeitando o sinal — negativo não pode ficar mais negativo que o saldo).
+  const valorDe = (r) => {
+    const v = valores[r.id]; const s = saldoR(r);
+    if (v===undefined || v==="") return s;
+    let x = parseBR(v);
+    return s >= 0 ? Math.max(0, Math.min(x, s)) : Math.min(0, Math.max(x, s));
+  };
 
   const compKey = (c) => { const [m,y]=String(c||"").split("/"); return (y||"0000")+(m||"00"); };
   const sortNotes = (a,b) => ({ valor_desc:b.valorServicos-a.valorServicos, valor_asc:a.valorServicos-b.valorServicos,
@@ -2606,18 +2614,18 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaConc(n));
   if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaConc(n));
   if (noteDia) leftNotes = leftNotes.filter(n=>String(n.emitidaEm||"").slice(0,10)===noteDia);
+  if (noteCli!=="todos") leftNotes = leftNotes.filter(n=>(n.tomadorNome||"")===noteCli);
   if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
   leftNotes = leftNotes.sort(sortNotes);
 
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
-  const clientesUsados = [...new Set(empRecs.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const tomadoresUsados = [...new Set(empNotes.map(n=>n.tomadorNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   let rightRecs = empRecs.slice();
   // Só entra na conciliação quem está "Liberado para faturamento" e tem saldo (gate).
   if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
-  if (recCli!=="todos") rightRecs = rightRecs.filter(r=>(r.cliente||"")===recCli);
-  if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
+  if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
 
@@ -2794,6 +2802,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
+                  <SortSel value={noteCli} onChange={setNoteCli} opts={[["todos","Todos os clientes"],...tomadoresUsados.map(c=>[c,c])]}/>
                   <input type="date" title="Dia de emissão" style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={noteDia} onChange={e=>setNoteDia(e.target.value)}/>
                   {noteDia && <Btn small onClick={()=>setNoteDia("")}>limpar dia</Btn>}
                   <SortSel value={noteStat} onChange={setNoteStat} opts={[["pendentes","Pendentes"],["conciliadas","Conciliadas"],["todas","Todas"]]}/>
@@ -2843,8 +2852,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
                   {selectedNotes.length>0 && <Btn small onClick={selSugeridos}>Sugeridos</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
-                  <SortSel value={recCli} onChange={setRecCli} opts={[["todos","Todos os clientes"],...clientesUsados.map(c=>[c,c])]}/>
+                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
                   <SortSel value={recComp} onChange={setRecComp} opts={[["todas","Todas comp."],...compsUsadas.map(c=>[c,c])]}/>
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
@@ -3937,11 +3945,13 @@ function AppInner() {
       recordIds.forEach(id => {
         const r = records.find(x => x.id === id); if (!r) return;
         const jaFat = fatByRec[r.id] || 0;
-        const saldo = (r.valorTotal||0) - jaFat;
-        const valor = Math.min(valoresMap?.[id] ?? saldo, saldo);
-        if (valor <= 0.001) return;
+        const saldo = (r.valorTotal||0) - jaFat;   // com sinal (aceita desconto negativo)
+        const bruto = valoresMap?.[id] ?? saldo;
+        // Clampa ao saldo respeitando o sinal (não ultrapassa nem inverte).
+        const valor = saldo >= 0 ? Math.max(0, Math.min(bruto, saldo)) : Math.min(0, Math.max(bruto, saldo));
+        if (Math.abs(valor) <= 0.001) return;
         allocations.push({ recordId: id, valor });
-        const full = (jaFat + valor) >= (r.valorTotal||0) - 0.01;
+        const full = Math.abs((r.valorTotal||0) - (jaFat + valor)) <= 0.01;
         const progress = full ? faturarProgress(r, { emitidaEm: dataNf }) : { ...(r.progress||{}), p5_liberado: true };
         const nfNumero = [...new Set([r.nfNumero, numero].join(", ").split(", ").map(s=>s.trim()).filter(Boolean))].join(", ");
         recordItems.push({ id, progress, nfNumero });
