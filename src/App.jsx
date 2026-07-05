@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext, Fragment } from "react";
 import * as XLSX from "xlsx";
 import { supabase, SITE_URL } from "./lib/supabase";
 import * as db from "./lib/db";
@@ -685,7 +685,7 @@ function ImportModal({ onImport, onClose }) {
   const [empresa,setEmpresa]=useState("BR02");
   const [tipo,setTipo]=useState("Time & Expenses");
   const [tipoFb,setTipoFb]=useState("Fee"); // padrão p/ Fee/WIP quando a planilha não tem coluna TIPO
-  const [mode,setMode]=useState("add");
+  const [mode,setMode]=useState("merge");
   const [note,setNote]=useState("");
   const [preview,setPreview]=useState(null);
   const [fileName,setFileName]=useState("");
@@ -752,7 +752,7 @@ function ImportModal({ onImport, onClose }) {
       <div style={{marginBottom:14}}>
         <label style={Ty.label}>Modo de importação</label>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          {[{v:"add",l:"Incluir novos",d:"Adiciona sem apagar registros existentes."},{v:"replace",l:"Substituir",d:"Remove e reimporta SOMENTE a competência (mês) + empresa + tipo informados. Outros meses não são afetados."}].map(opt=>(
+          {[{v:"merge",l:"Atualizar mês",d:"Reprocessa o mês: casa por PEP+profissional, atualiza valores mantendo passo a passo e conciliação, e sinaliza mudanças. Use no fechamento diário."},{v:"add",l:"Incluir novos",d:"Adiciona sem apagar nem casar. Use só na 1ª carga do mês."},{v:"replace",l:"Substituir (apagar e refazer)",d:"Remove e reimporta a competência + empresa + tipo do zero. Perde o progresso desse recorte."}].map(opt=>(
             <label key={opt.v} style={{flex:"1 1 200px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${mode===opt.v?T.brand:T.line}`,cursor:"pointer",background:mode===opt.v?T.brandBg:"#fff"}}>
               <input type="radio" name="mode" value={opt.v} checked={mode===opt.v} onChange={()=>setMode(opt.v)} style={{marginTop:2}}/>
               <div><div style={{fontSize:13,fontWeight:700,color:mode===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
@@ -760,6 +760,7 @@ function ImportModal({ onImport, onClose }) {
           ))}
         </div>
         {mode==="replace"&&<div style={{marginTop:8,fontSize:12,color:T.danger,fontWeight:600}}>Apenas os registros desta competência (mês), empresa e tipo serão substituídos. O progresso já registrado para esse recorte será perdido; os demais meses permanecem intactos.</div>}
+        {mode==="merge"&&<div style={{marginTop:8,fontSize:12,color:T.inkSoft}}>As linhas são casadas por <b>empresa + PEP + profissional + competência</b>. Valores mudados são atualizados sem apagar o passo a passo; se a NF já foi emitida, a diferença vira <b>saldo a faturar</b> e um alerta vermelho aparece na Minha visão. Linhas que sumirem do relatório são sinalizadas, não apagadas.</div>}
       </div>
       <div style={{marginBottom:14}}><Field label="Nota da importação (opcional)"><input style={inp} placeholder="Ex: Ajuste de valores de maio" value={note} onChange={e=>setNote(e.target.value)}/></Field></div>
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xlsm,.xls" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
@@ -774,7 +775,7 @@ function ImportModal({ onImport, onClose }) {
       </div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary onClick={()=>{if(!preview)return;onImport({records:preview,competencia:comp,empresa,tipo,mode,note:note||(mode==="replace"?"Substituição":"Adição")});onClose();}} disabled={!preview}>{mode==="replace"?"Confirmar substituição":"✓ Confirmar importação"}</Btn>
+        <Btn primary onClick={()=>{if(!preview)return;onImport({records:preview,competencia:comp,empresa,tipo,mode,note:note||(mode==="replace"?"Substituição":mode==="merge"?"Atualização do mês":"Adição")});onClose();}} disabled={!preview}>{mode==="replace"?"Confirmar substituição":mode==="merge"?"✓ Atualizar mês":"✓ Confirmar importação"}</Btn>
       </div>
     </Modal>
   );
@@ -1179,7 +1180,7 @@ function RecordEditModal({ record, onSave, onClose }) {
 
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
-function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDeleteRecord, competenciaAtual, onCompetenciaChange }) {
+function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDeleteRecord, onClearAlert, competenciaAtual, onCompetenciaChange }) {
   const isMobile = useIsMobile();
   const [recordEdit, setRecEdit] = useState(null);
   const [recordDel, setRecDel]   = useState(null);
@@ -1315,6 +1316,9 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
         const agg = aggregateStates(g.records, gtipo);
         const temProf = g.records.some(r=>r.profissional);
         const faltam = g.records.filter(faltaDatas).length;
+        const alertRed = g.records.filter(r=>r.valorAnterior!=null && (fatByRec[r.id]||0)>0.001).length;
+        const alertYel = g.records.filter(r=>r.valorAnterior!=null && !((fatByRec[r.id]||0)>0.001)).length;
+        const foraRel  = g.records.filter(r=>r.ausenteRelatorio).length;
 
         return (
           <Card key={g.cliente+g.pep} interactive style={{marginBottom:10,overflow:"hidden"}}>
@@ -1325,6 +1329,9 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                   <span style={{fontSize:14,fontWeight:700,color:T.ink}}>{g.cliente}</span>
                   <Badge label={overallStatus} color={overallColor} small dot/>
                   {faltam>0 && <Badge label={`faltam datas (${faltam})`} color="yellow" small/>}
+                  {alertRed>0 && <Badge label={`⚠ valor mudou p/ faturado (${alertRed})`} color="red" small/>}
+                  {alertYel>0 && <Badge label={`valor alterado (${alertYel})`} color="yellow" small/>}
+                  {foraRel>0 && <Badge label={`fora do relatório (${foraRel})`} color="gray" small/>}
                 </div>
                 <div style={{fontSize:11,color:T.muted}}>{g.pep} · {gtipo} · {g.records.length} {temProf?"profissionais":"registro(s)"} · {fmtShort(total)}</div>
               </div>
@@ -1349,8 +1356,15 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                   )}
                 </tr></thead>
                 <tbody>
-                  {g.records.map(r=>(
-                    <tr key={r.id} className="fc-row" style={{borderBottom:`1px solid ${T.lineSoft}`}}>
+                  {g.records.map(r=>{
+                    const colCount = (isAdmin?1:0)+7+(isAdmin?1:0);
+                    const fatR = fatByRec[r.id]||0;
+                    const saldoR = Math.max(0,(r.valorTotal||0)-fatR);
+                    const temAlerta = r.valorAnterior!=null || r.ausenteRelatorio;
+                    const alertaFat = r.valorAnterior!=null && fatR>0.001;
+                    return (
+                    <Fragment key={r.id}>
+                    <tr className="fc-row" style={{borderBottom:temAlerta?"none":`1px solid ${T.lineSoft}`}}>
                       {isAdmin&&<td style={{padding:"7px 10px"}}><Badge label={r.responsavel} color="purple" small/></td>}
                       <td style={{padding:"7px 10px",fontWeight:500,color:T.ink}}>{r.profissional}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11,color:r.ordemVenda?T.inkSoft:T.faint}}>{r.ordemVenda||"—"}</td>
@@ -1364,7 +1378,21 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                         <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}><Icon name="trash" size={14}/></button>
                       </td>}
                     </tr>
-                  ))}
+                    {temAlerta&&<tr style={{borderBottom:`1px solid ${T.lineSoft}`}}><td colSpan={colCount} style={{padding:"0 10px 8px"}}>
+                      {r.valorAnterior!=null && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:alertaFat?"#fef2f2":"#fffbeb",border:`1px solid ${alertaFat?"#fecaca":"#fde68a"}`,color:alertaFat?"#991b1b":"#92400e",fontWeight:600}}>
+                        <Icon name={alertaFat?"alert":"info"} size={14}/>
+                        {alertaFat
+                          ? <span>Valor mudou <b>após faturamento</b>: {brl(r.valorAnterior)} → {brl(r.valorTotal)}. Já faturado {brl(fatR)}{saldoR>0.01?<> · <b>saldo a faturar {brl(saldoR)}</b></>:<> · <b>faturado a maior {brl(fatR-(r.valorTotal||0))} — NF a corrigir</b></>}. {r.nfNumero?`NF ${r.nfNumero} a revisar/cancelar.`:""}</span>
+                          : <span>Valor alterado no relatório: <b>{brl(r.valorAnterior)} → {brl(r.valorTotal)}</b>.</span>}
+                        <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${alertaFat?"#fca5a5":"#fcd34d"}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:alertaFat?"#991b1b":"#92400e"}}>Ciente</button>
+                      </div>}
+                      {r.ausenteRelatorio && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:T.canvas,border:`1px solid ${T.line}`,color:T.muted,fontWeight:600,marginTop:r.valorAnterior!=null?6:0}}>
+                        <Icon name="info" size={14}/> Fora do último relatório importado — verifique se saiu do projeto.
+                        <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.inkSoft}}>Ciente</button>
+                      </div>}
+                    </td></tr>}
+                    </Fragment>
+                  );})}
                 </tbody>
               </table>
               </div>
@@ -2762,7 +2790,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
                             ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
                             <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(r.valorTotal)}`:""}</div>
                           </div>
                           {on && hasSaldo(r)
@@ -3042,6 +3070,8 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
   const atrasadas = notasPendList.filter(n=>{ const d=String(n.emitidaEm||"").slice(0,10); return d && d < hojeStr; }).length;
   const faltamDatas = records.filter(faltaDatas).length;
   const minhasTarefas = tasks.filter(t=>t.status!=="done" && (t.assignee===user.name || !t.assignee)).length;
+  const valMudouFat = records.filter(r=>r.valorAnterior!=null && (fatByRec[r.id]||0)>0.001).length;
+  const valMudou    = records.filter(r=>r.valorAnterior!=null && !((fatByRec[r.id]||0)>0.001)).length;
 
   // Faturamento do mês (competência mais recente presente na base)
   const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
@@ -3087,6 +3117,30 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
           <div style={{flex:1}}>
             <div style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay}}>Conciliação atrasada</div>
             <div style={{fontSize:12,color:T.inkSoft}}><b>{atrasadas}</b> nota(s) da prefeitura de dias anteriores ainda sem conciliar. A conciliação deve ser feita diariamente.</div>
+          </div>
+          <Icon name="chevronRight" size={18}/>
+        </button>
+      )}
+
+      {/* Alerta vermelho: receita mudou DEPOIS da NF emitida (nota a cancelar/corrigir) */}
+      {valMudouFat>0 && (
+        <button onClick={()=>onNavigate("time")} className="fc-btn" style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,borderRadius:T.rLg,padding:"14px 16px",marginBottom:18,cursor:"pointer",color:T.danger}}>
+          <Icon name="alert" size={22}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay}}>Valor mudou após faturamento</div>
+            <div style={{fontSize:12,color:T.inkSoft}}><b>{valMudouFat}</b> receita(s) tiveram o valor alterado na base <b>depois</b> da NF emitida. A diferença virou saldo a faturar e a nota pode precisar de ajuste/cancelamento.</div>
+          </div>
+          <Icon name="chevronRight" size={18}/>
+        </button>
+      )}
+
+      {/* Aviso amarelo: valor alterado em receitas ainda não faturadas */}
+      {valMudou>0 && (
+        <button onClick={()=>onNavigate("time")} className="fc-btn" style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,background:"#fffbeb",border:"1px solid #fde68a",borderRadius:T.rLg,padding:"12px 16px",marginBottom:18,cursor:"pointer",color:"#92400e"}}>
+          <Icon name="info" size={20}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,fontFamily:T.fontDisplay}}>Valores atualizados no fechamento</div>
+            <div style={{fontSize:12,color:T.inkSoft}}><b>{valMudou}</b> receita(s) em andamento tiveram o valor alterado na última importação. Confira na Minha visão.</div>
           </div>
           <Icon name="chevronRight" size={18}/>
         </button>
@@ -3556,6 +3610,51 @@ function AppInner() {
 
   async function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
     try {
+      if (mode==="merge") {
+        // Re-importação: casa por empresa+PEP+profissional+competência.
+        const norm = s => (s||"").toString().trim().toLowerCase();
+        const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}`;
+        const combos = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
+        const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
+        const byKey = {}; escopo.forEach(r => { byKey[keyOf(r)] = r; });
+        const vistos = new Set();
+        const upserts = []; const inserts = [];
+        const importId = uuid();
+        let novos=0, mudados=0, mudadosFat=0;
+        newRecs.forEach(nr => {
+          const k = keyOf(nr); vistos.add(k);
+          const ex = byKey[k];
+          if (!ex) { inserts.push({ ...nr, importId }); novos++; return; }
+          const antigo = ex.valorTotal||0, novo = nr.valorTotal||0;
+          const mudouValor = Math.abs(novo-antigo) > 0.01
+            || Math.abs((nr.valorVenda||0)-(ex.valorVenda||0)) > 0.01
+            || Math.abs((nr.hrsAprovadas||0)-(ex.hrsAprovadas||0)) > 0.001;
+          const merged = { ...ex,
+            cliente: nr.cliente||ex.cliente, codCliente: nr.codCliente||ex.codCliente,
+            inicio: nr.inicio||ex.inicio, fim: nr.fim||ex.fim,
+            valorVenda: nr.valorVenda, hrsAprovadas: nr.hrsAprovadas,
+            valorTotal: nr.valorTotal, valorLiquido: nr.valorLiquido,
+            ausenteRelatorio: false, updatedAt: nowISO(),
+          };
+          if (mudouValor && Math.abs(novo-antigo) > 0.01) {
+            const iniciado = calcStatus(ex.progress) !== "Não iniciado";
+            const fat = fatByRec[ex.id]||0;
+            if (iniciado || fat>0) {           // cenário 1 = atualiza em silêncio
+              merged.valorAnterior = antigo;
+              merged.valorAlteradoEm = nowISO();
+              mudados++; if (fat>0) mudadosFat++;
+            }
+          }
+          upserts.push(merged);
+        });
+        const absentIds = escopo.filter(r => !vistos.has(keyOf(r)) && !r.ausenteRelatorio).map(r=>r.id);
+        await db.mergeImport({ upserts, inserts, absentIds });
+        try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId }); } catch {}
+        await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
+        setState(s=>({...s, competenciaAtual:competencia}));
+        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${mudadosFat?` (${mudadosFat} já faturado → saldo)`:""}, ${absentIds.length} fora do relatório`);
+        return;
+      }
       if (mode==="replace") {
         // Substitui apenas os recortes (competência+empresa+tipo) presentes na carga.
         const combos = [...new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`))];
@@ -3588,6 +3687,10 @@ function AppInner() {
   async function handleRecordDelete(id) {
     try { await db.deleteRecord(id); await reloadRecords(); toast("Registro excluído", "info"); }
     catch(e) { toast("Erro ao excluir registro: "+e.message, "error"); }
+  }
+  async function handleClearAlert(id) {
+    try { await db.clearRecordAlert(id); await reloadRecords(); toast("Alerta baixado", "info"); }
+    catch(e) { toast("Erro ao baixar alerta: "+e.message, "error"); }
   }
 
   async function handleTaskAdd(t)    { try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
@@ -3831,7 +3934,7 @@ function AppInner() {
           )}
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
               {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec}/>}
             </div>
           )}
