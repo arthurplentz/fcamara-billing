@@ -845,6 +845,8 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
   const [ovMap, setOvMap] = useState(() => Object.fromEntries(records.map(r=>[r.id, r.ordemVenda||""])));
   const setOV = (id,v) => setOvMap(m=>({...m,[id]:v}));
   const [error, setError] = useState("");
+  const [pickOpen, setPickOpen] = useState(false);   // seletor de profissionais recolhido
+  const [qProf, setQProf] = useState("");
 
   const toggleAll = () => setSelected(s => s.size === records.length ? new Set() : new Set(records.map(r=>r.id)));
   const toggle = (id) => setSelected(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
@@ -895,24 +897,36 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
         <PipelineStepper states={recordStates(sharedProg, tipo)} groups={grupos} showLabels/>
       </div>
 
-      {/* Seleção de profissionais */}
+      {/* Seleção de profissionais — recolhida por padrão, abre estilo filtro */}
       <div style={{marginBottom:20}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
-          <span style={{fontSize:13,fontWeight:700,color:T.ink}}>Aplicar a:</span>
-          <button onClick={toggleAll} style={{fontSize:11,color:T.brand,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>
-            {selected.size===records.length?"Desmarcar todos":"Selecionar todos"}
-          </button>
-        </div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-          {records.map(r=>(
-            <label key={r.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:T.rMd,border:`1.5px solid ${selected.has(r.id)?T.brand:T.line}`,background:selected.has(r.id)?T.brandBg:"#fafbfc",cursor:"pointer",fontSize:13}}>
-              <input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggle(r.id)} style={{width:14,height:14}}/>
-              <span style={{fontWeight:selected.has(r.id)?600:400,color:selected.has(r.id)?T.brand:T.inkSoft}}>{r.profissional}</span>
-              <Badge label={calcStatus(r.progress)} color={calcStatusColor(r.progress)} small dot/>
-            </label>
-          ))}
-        </div>
-        {selected.size>0&&<div style={{fontSize:11,color:T.muted,marginTop:6}}>{selected.size} profissional(is) selecionado(s) — os passos abaixo serão aplicados a todos eles.</div>}
+        <div style={{fontSize:13,fontWeight:700,color:T.ink,marginBottom:8}}>Aplicar a</div>
+        <button type="button" onClick={()=>setPickOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"#fff",border:`1px solid ${T.line}`,borderRadius:T.rMd,padding:"9px 12px",cursor:"pointer",fontSize:13,color:T.ink,textAlign:"left"}}>
+          <Icon name="task" size={15}/>
+          <span style={{flex:1}}><b>{selected.size}</b> de {records.length} profissional(is) selecionado(s)</span>
+          <Icon name={pickOpen?"chevronUp":"chevronDown"} size={16}/>
+        </button>
+        {pickOpen && (() => {
+          const list = records.filter(r=>!qProf.trim() || (r.profissional||"").toLowerCase().includes(qProf.trim().toLowerCase()));
+          return (
+            <div style={{border:`1px solid ${T.line}`,borderTop:"none",borderRadius:`0 0 ${T.rMd}px ${T.rMd}px`,padding:"10px 12px",background:T.canvas}}>
+              <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+                <input autoFocus style={{...inp,flex:1,fontSize:12,padding:"6px 9px"}} placeholder="Buscar profissional…" value={qProf} onChange={e=>setQProf(e.target.value)}/>
+                <Btn small onClick={toggleAll}>{selected.size===records.length?"Limpar":"Todos"}</Btn>
+              </div>
+              <div className="fc-scroll" style={{maxHeight:240,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+                {list.length===0 ? <div style={{fontSize:12,color:T.muted,padding:"8px 4px"}}>Nenhum profissional.</div>
+                  : list.map(r=>(
+                    <label key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 8px",borderRadius:T.rSm,cursor:"pointer",background:selected.has(r.id)?T.brandBg:"transparent",fontSize:13}}>
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggle(r.id)} style={{width:15,height:15}}/>
+                      <span style={{flex:1,fontWeight:selected.has(r.id)?600:400,color:selected.has(r.id)?T.brand:T.inkSoft}}>{r.profissional}</span>
+                      <Badge label={calcStatus(r.progress)} color={calcStatusColor(r.progress)} small dot/>
+                    </label>
+                  ))}
+              </div>
+            </div>
+          );
+        })()}
+        {selected.size>0&&<div style={{fontSize:11,color:T.muted,marginTop:6}}>Os passos abaixo serão aplicados aos <b>{selected.size}</b> selecionado(s).</div>}
       </div>
 
       {/* Passos */}
@@ -2509,7 +2523,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   const [selRecs, setSelRecs] = useState(() => new Set());
   const [expNote, setExpNote] = useState("");
   // filtros e ordenação — lado esquerdo (notas)
-  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc");
+  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState("");
   // filtros e ordenação — lado direito (receitas)
   const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
 
@@ -2531,6 +2545,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   let leftNotes = empNotes.slice();
   if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaConc(n));
   if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaConc(n));
+  if (noteDia) leftNotes = leftNotes.filter(n=>String(n.emitidaEm||"").slice(0,10)===noteDia);
   if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
   leftNotes = leftNotes.sort(sortNotes);
 
@@ -2659,6 +2674,8 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
+                  <input type="date" title="Dia de emissão" style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={noteDia} onChange={e=>setNoteDia(e.target.value)}/>
+                  {noteDia && <Btn small onClick={()=>setNoteDia("")}>limpar dia</Btn>}
                   <SortSel value={noteStat} onChange={setNoteStat} opts={[["pendentes","Pendentes"],["conciliadas","Conciliadas"],["todas","Todas"]]}/>
                   <SortSel value={noteSort} onChange={setNoteSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["data_desc","↓ Data"],["data_asc","↑ Data"],["tomador_az","A–Z"]]}/>
                 </div>
@@ -2994,7 +3011,11 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
   const hoje = agora.toLocaleDateString("pt-BR", { weekday:"long", day:"2-digit", month:"long" });
 
   const semNota   = records.filter(r=>!(r.conciliacaoId||r.municipalNoteId)).length;
-  const notasPend = notes.filter(n=>!n.cancelada && !n.conciliacaoId && !records.some(r=>r.municipalNoteId===n.id)).length;
+  const notasPendList = notes.filter(n=>!n.cancelada && !n.conciliacaoId && !records.some(r=>r.municipalNoteId===n.id));
+  const notasPend = notasPendList.length;
+  // Conciliação atrasada: nota emitida em dia(s) ANTERIORES ainda sem conciliar.
+  const hojeStr = `${agora.getFullYear()}-${String(agora.getMonth()+1).padStart(2,"0")}-${String(agora.getDate()).padStart(2,"0")}`;
+  const atrasadas = notasPendList.filter(n=>{ const d=String(n.emitidaEm||"").slice(0,10); return d && d < hojeStr; }).length;
   const faltamDatas = records.filter(faltaDatas).length;
   const minhasTarefas = tasks.filter(t=>t.status!=="done" && (t.assignee===user.name || !t.assignee)).length;
 
@@ -3034,6 +3055,18 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
         </div>
         <div style={{fontSize:13,color:"rgba(255,255,255,.8)",marginTop:4}}>Bem-vindo(a) ao <b style={{color:"#fff"}}>Order to Cash</b> — o painel do time O2C.</div>
       </div>
+
+      {/* Alerta de conciliação atrasada (notas de dias anteriores sem conciliar) */}
+      {atrasadas>0 && (
+        <button onClick={()=>onNavigate("concil")} className="fc-btn" style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,borderRadius:T.rLg,padding:"14px 16px",marginBottom:18,cursor:"pointer",color:T.danger}}>
+          <Icon name="alert" size={22}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay}}>Conciliação atrasada</div>
+            <div style={{fontSize:12,color:T.inkSoft}}><b>{atrasadas}</b> nota(s) da prefeitura de dias anteriores ainda sem conciliar. A conciliação deve ser feita diariamente.</div>
+          </div>
+          <Icon name="chevronRight" size={18}/>
+        </button>
+      )}
 
       {/* Faturamento do mês + Aniversariantes */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14,marginBottom:18}}>
