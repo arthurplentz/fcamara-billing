@@ -2638,7 +2638,9 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const rightPend = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   const leftPendFiltered = leftNotes.filter(n=>!notaConc(n));
   const allRightSel = rightPend.length>0 && rightPend.every(r=>selRecs.has(r.id));
+  const allLeftSel = leftPendFiltered.length>0 && leftPendFiltered.every(n=>selNotes.has(n.id));
   const toggleAllRecs = () => setSelRecs(s => { const n=new Set(s); if(allRightSel) rightPend.forEach(r=>n.delete(r.id)); else rightPend.forEach(r=>n.add(r.id)); return n; });
+  const toggleAllNotes = () => setSelNotes(s => { const n=new Set(s); if(allLeftSel) leftPendFiltered.forEach(x=>n.delete(x.id)); else leftPendFiltered.forEach(x=>n.add(x.id)); return n; });
 
   // Pendências (sempre sobre o total da empresa, não o filtrado)
   const notasPend = empNotes.filter(n=>!notaConc(n)); const notasPendVal = notasPend.reduce((s,n)=>s+(n.valorServicos||0),0);
@@ -2653,9 +2655,9 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const bate = selectedNotes.length>0 && selRecs.size>0 && diff <= 1.005;
 
   const toggleRec = (id) => setSelRecs(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
-  // Conciliação é NOTA A NOTA: só uma nota por vez (evita amarrar várias notas
-  // à mesma receita pelo lote e bagunçar a visão por profissional).
-  const toggleNote = (id) => setSelNotes(s => s.has(id) ? new Set() : new Set([id]));
+  // N:N — pode selecionar várias notas e várias receitas; a trava de R$ 1,00
+  // garante que o total bata antes de conciliar.
+  const toggleNote = (id) => setSelNotes(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
   const resetSel = () => { setSelRecs(new Set()); setSelNotes(new Set()); setValores({}); };
   const setValor = (id,v) => setValores(m=>({...m,[id]:v}));
   const pickEmpresa = (cod) => { setEmpresa(cod); resetSel(); };
@@ -2803,7 +2805,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
                   <span style={{fontWeight:700,fontSize:13}}>Notas da prefeitura</span>
                   <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{leftNotes.length}</b> · {brl(leftTotVal)}</span>
                   <div style={{flex:1}}/>
-                  <span style={{fontSize:11,color:T.muted}}>uma nota por vez</span>
+                  {leftPendFiltered.length>0 && <Btn small onClick={toggleAllNotes}>{allLeftSel?"Limpar":"Tudo filtrado"}</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
