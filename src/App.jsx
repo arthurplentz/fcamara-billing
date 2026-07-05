@@ -1146,13 +1146,17 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
 }
 
 // Edição de um registro importado (somente admin).
-function RecordEditModal({ record, onSave, onClose }) {
+function RecordEditModal({ record, conciliado, onSave, onClose }) {
   const [f, setF] = useState(record);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const num = (k,v) => setF(p=>({...p,[k]: v===""?0:parseFloat(String(v).replace(",","."))||0}));
+  const lockVal = { ...inp, background:"#f1f5f9", color:T.muted, cursor:"not-allowed" };
   function save() { onSave({ ...record, ...f, updatedAt: nowISO() }); onClose(); }
   return (
     <Modal title="Editar registro" subtitle={`${record.cliente} · ${record.profissional}`} onClose={onClose} wide>
+      {conciliado && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"9px 12px",borderRadius:T.rMd,background:"#fef2f2",border:"1px solid #fecaca",color:"#991b1b",fontWeight:600,marginBottom:14}}>
+        <Icon name="lock" size={14}/> Registro <b>conciliado</b> — a NF é a verdade final. Os valores estão bloqueados. Reabra a conciliação para alterar.
+      </div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
         <Field label="Responsável"><input style={inp} value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)}/></Field>
         <Field label="Empresa"><select style={inp} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
@@ -1164,10 +1168,10 @@ function RecordEditModal({ record, onSave, onClose }) {
         <Field label="Profissional"><input style={inp} value={f.profissional||""} onChange={e=>set("profissional",e.target.value)}/></Field>
         <Field label="Início"><input style={inp} value={f.inicio||""} onChange={e=>set("inicio",e.target.value)}/></Field>
         <Field label="Fim"><input style={inp} value={f.fim||""} onChange={e=>set("fim",e.target.value)}/></Field>
-        <Field label="Valor de venda"><input style={inp} value={f.valorVenda} onChange={e=>num("valorVenda",e.target.value)}/></Field>
-        <Field label="Hrs aprovadas"><input style={inp} value={f.hrsAprovadas} onChange={e=>num("hrsAprovadas",e.target.value)}/></Field>
-        <Field label="Valor total"><input style={inp} value={f.valorTotal} onChange={e=>num("valorTotal",e.target.value)}/></Field>
-        <Field label="Valor líquido"><input style={inp} value={f.valorLiquido} onChange={e=>num("valorLiquido",e.target.value)}/></Field>
+        <Field label="Valor de venda"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorVenda} onChange={e=>num("valorVenda",e.target.value)}/></Field>
+        <Field label="Hrs aprovadas"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.hrsAprovadas} onChange={e=>num("hrsAprovadas",e.target.value)}/></Field>
+        <Field label="Valor total"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorTotal} onChange={e=>num("valorTotal",e.target.value)}/></Field>
+        <Field label="Valor líquido"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorLiquido} onChange={e=>num("valorLiquido",e.target.value)}/></Field>
       </div>
       <div style={{marginBottom:16}}><Field label="Observações"><textarea style={{...inp,minHeight:54,resize:"vertical"}} value={f.obs||""} onChange={e=>set("obs",e.target.value)}/></Field></div>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
@@ -1230,9 +1234,9 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
   return (
     <div>
       {bulkTarget&&<BulkTimelineModal {...bulkTarget} onClose={()=>setBulk(null)} onSave={updated=>{onUpdateBulk(updated);setBulk(null);}}/>}
-      {recordEdit&&<RecordEditModal record={recordEdit} onClose={()=>setRecEdit(null)} onSave={r=>{onUpdateBulk([r]);setRecEdit(null);}}/>}
+      {recordEdit&&<RecordEditModal record={recordEdit} conciliado={(fatByRec[recordEdit.id]||0)>0.001} onClose={()=>setRecEdit(null)} onSave={r=>{onUpdateBulk([r]);setRecEdit(null);}}/>}
       {recordDel&&<ConfirmDialog title="Excluir registro" danger confirmLabel="Excluir"
-        message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.`}
+        message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.${(fatByRec[recordDel.id]||0)>0.001?" ⚠️ Este registro está CONCILIADO — a(s) nota(s) do lote serão reabertas na conciliação." : ""}`}
         onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
 
       <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
@@ -1319,6 +1323,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
         const alertRed = g.records.filter(r=>r.valorAnterior!=null && (fatByRec[r.id]||0)>0.001).length;
         const alertYel = g.records.filter(r=>r.valorAnterior!=null && !((fatByRec[r.id]||0)>0.001)).length;
         const foraRel  = g.records.filter(r=>r.ausenteRelatorio).length;
+        const divConc  = g.records.filter(r=>r.valorBaseDivergente!=null).length;
 
         return (
           <Card key={g.cliente+g.pep} interactive style={{marginBottom:10,overflow:"hidden"}}>
@@ -1329,6 +1334,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                   <span style={{fontSize:14,fontWeight:700,color:T.ink}}>{g.cliente}</span>
                   <Badge label={overallStatus} color={overallColor} small dot/>
                   {faltam>0 && <Badge label={`faltam datas (${faltam})`} color="yellow" small/>}
+                  {divConc>0 && <Badge label={`⚠ base diverge do conciliado (${divConc}) — reabrir`} color="red" small/>}
                   {alertRed>0 && <Badge label={`⚠ valor mudou p/ faturado (${alertRed})`} color="red" small/>}
                   {alertYel>0 && <Badge label={`valor alterado (${alertYel})`} color="yellow" small/>}
                   {foraRel>0 && <Badge label={`fora do relatório (${foraRel})`} color="gray" small/>}
@@ -1360,7 +1366,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                     const colCount = (isAdmin?1:0)+7+(isAdmin?1:0);
                     const fatR = fatByRec[r.id]||0;
                     const saldoR = Math.max(0,(r.valorTotal||0)-fatR);
-                    const temAlerta = r.valorAnterior!=null || r.ausenteRelatorio;
+                    const temAlerta = r.valorAnterior!=null || r.ausenteRelatorio || r.valorBaseDivergente!=null;
                     const alertaFat = r.valorAnterior!=null && fatR>0.001;
                     return (
                     <Fragment key={r.id}>
@@ -1386,7 +1392,11 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                           : <span>Valor alterado no relatório: <b>{brl(r.valorAnterior)} → {brl(r.valorTotal)}</b>.</span>}
                         <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${alertaFat?"#fca5a5":"#fcd34d"}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:alertaFat?"#991b1b":"#92400e"}}>Ciente</button>
                       </div>}
-                      {r.ausenteRelatorio && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:T.canvas,border:`1px solid ${T.line}`,color:T.muted,fontWeight:600,marginTop:r.valorAnterior!=null?6:0}}>
+                      {r.valorBaseDivergente!=null && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:"#fef2f2",border:`1px solid #fecaca`,color:"#991b1b",fontWeight:600,marginTop:r.valorAnterior!=null?6:0}}>
+                        <Icon name="alert" size={14}/>
+                        <span>A base mudou para <b>{brl(r.valorBaseDivergente)}</b>, mas está <b>conciliado</b> em <b>{brl(r.valorTotal)}</b>. A NF é a verdade final — <b>reabra a conciliação</b> para atualizar o valor.</span>
+                      </div>}
+                      {r.ausenteRelatorio && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:T.canvas,border:`1px solid ${T.line}`,color:T.muted,fontWeight:600,marginTop:(r.valorAnterior!=null||r.valorBaseDivergente!=null)?6:0}}>
                         <Icon name="info" size={14}/> Fora do último relatório importado — verifique se saiu do projeto.
                         <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.inkSoft}}>Ciente</button>
                       </div>}
@@ -3687,11 +3697,23 @@ function AppInner() {
         const consumidos = new Set();
         const upserts = []; const inserts = []; const snapshot = [];
         const importId = uuid();
-        let novos=0, mudados=0, mudadosFat=0;
+        let novos=0, mudados=0, congelados=0;
         const casar = (nr, ex) => {
           consumidos.add(ex.id);
           snapshot.push(ex);   // guarda o estado ANTERIOR para permitir desfazer
           const antigo = ex.valorTotal||0, novo = nr.valorTotal||0;
+          const mudou = Math.abs(novo-antigo) > 0.01;
+          const fat = fatByRec[ex.id]||0;
+          // CONCILIADO = verdade final: não altera o valor. Só sinaliza a
+          // divergência para o usuário reabrir a conciliação e atualizar.
+          if (fat > 0.001) {
+            const merged = { ...ex, ausenteRelatorio:false, updatedAt: nowISO(),
+              valorBaseDivergente: mudou ? novo : null };
+            if (mudou) congelados++;
+            upserts.push(merged);
+            return;
+          }
+          // Não conciliado: atualiza normalmente.
           const merged = { ...ex,
             cliente: nr.cliente||ex.cliente, codCliente: nr.codCliente||ex.codCliente,
             inicio: nr.inicio||ex.inicio, fim: nr.fim||ex.fim,
@@ -3699,14 +3721,10 @@ function AppInner() {
             valorTotal: nr.valorTotal, valorLiquido: nr.valorLiquido,
             ausenteRelatorio: false, updatedAt: nowISO(),
           };
-          if (Math.abs(novo-antigo) > 0.01) {
-            const iniciado = calcStatus(ex.progress) !== "Não iniciado";
-            const fat = fatByRec[ex.id]||0;
-            if (iniciado || fat>0) {           // cenário 1 = atualiza em silêncio
-              merged.valorAnterior = antigo;
-              merged.valorAlteradoEm = nowISO();
-              mudados++; if (fat>0) mudadosFat++;
-            }
+          if (mudou && calcStatus(ex.progress) !== "Não iniciado") {  // cenário 1 = silêncio
+            merged.valorAnterior = antigo;
+            merged.valorAlteradoEm = nowISO();
+            mudados++;
           }
           upserts.push(merged);
         };
@@ -3732,10 +3750,14 @@ function AppInner() {
         try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId, snapshot }); } catch {}
         await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
         setState(s=>({...s, competenciaAtual:competencia}));
-        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${mudadosFat?` (${mudadosFat} já faturado → saldo)`:""}, ${absentIds.length} fora do relatório`);
+        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${congelados?` · ${congelados} conciliado(s) divergindo (reabra p/ atualizar)`:""}, ${absentIds.length} fora do relatório`);
         return;
       }
       if (mode==="replace") {
+        // Verdade final: não apaga o que já está conciliado. Bloqueia se houver.
+        const combosR = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
+        const conc = records.filter(r => combosR.has(`${r.competencia}|${r.empresa}|${r.tipo}`) && (fatByRec[r.id]||0)>0.001);
+        if (conc.length) { toast(`Há ${conc.length} registro(s) conciliado(s) neste recorte. Reabra a conciliação antes de substituir.`, "error"); return; }
         // Substitui apenas os recortes (competência+empresa+tipo) presentes na carga.
         const combos = [...new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`))];
         for (const c of combos) { const [cmp,emp,tp]=c.split("|"); await db.deleteRecordsBy({ competencia:cmp, empresa:emp, tipo:tp }); }
@@ -3939,7 +3961,11 @@ function AppInner() {
       const restante = (fatByRec[id]||0) - removido;
       const full = restante >= (r.valorTotal||0) - 0.01 && (r.valorTotal||0) > 0;
       const progress = { ...(r.progress||{}), p5_liberado: r.progress?.p5_liberado ?? true, p5_nf: full, p5_no_corte: full, p5_data_nf: full ? (r.progress?.p5_data_nf||"") : "" };
-      return { id, progress, nfNumero: restante>0.001 ? (r.nfNumero||"") : "", conciliadoEm: restante>0.001 ? r.conciliadoEm : null, conciliadoPor: restante>0.001 ? r.conciliadoPor : null };
+      const item = { id, progress, nfNumero: restante>0.001 ? (r.nfNumero||"") : "", conciliadoEm: restante>0.001 ? r.conciliadoEm : null, conciliadoPor: restante>0.001 ? r.conciliadoPor : null };
+      // Se a base divergiu enquanto estava conciliado, ao reabrir aplicamos o
+      // valor novo e limpamos o marcador — a receita volta com o valor correto.
+      if (r.valorBaseDivergente != null) { item.valorTotal = r.valorBaseDivergente; item.valorBaseDivergente = null; }
+      return item;
     });
     await db.reopenConciliacao(cid, recordItems);
   }
