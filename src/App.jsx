@@ -2573,7 +2573,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const [showConf, setShowConf] = useState(false);   // painel de conferência de lotes
   const [confSoDif, setConfSoDif] = useState(true);  // só lotes que não batem
   // filtros e ordenação — lado esquerdo (notas)
-  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState(""); const [noteCli, setNoteCli] = useState("");
+  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState(""); const [noteCli, setNoteCli] = useState("todos");
   // filtros e ordenação — lado direito (receitas)
   const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
   // Incluir receitas ainda não "Liberadas para faturamento" (ex.: conciliação
@@ -2614,7 +2614,10 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaConc(n));
   if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaConc(n));
   if (noteDia) leftNotes = leftNotes.filter(n=>String(n.emitidaEm||"").slice(0,10)===noteDia);
-  if (noteCli.trim()) { const s=noteCli.trim().toLowerCase(); leftNotes = leftNotes.filter(n=>(n.tomadorNome||"").toLowerCase().includes(s)); }
+  // Opções do seletor de cliente = tomadores das notas já filtradas por status/dia
+  // (pendentes mostra só clientes com nota pendente; conciliadas idem).
+  const tomadoresUsados = [...new Set(leftNotes.map(n=>n.tomadorNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  if (noteCli!=="todos") leftNotes = leftNotes.filter(n=>(n.tomadorNome||"")===noteCli);
   if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
   leftNotes = leftNotes.sort(sortNotes);
 
@@ -2801,7 +2804,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
-                  <input style={{...inp,flex:1,minWidth:110,fontSize:12,padding:"6px 9px"}} placeholder="cliente (tomador)" value={noteCli} onChange={e=>setNoteCli(e.target.value)}/>
+                  <SortSel value={noteCli} onChange={setNoteCli} opts={[["todos","Todos os clientes"],...(tomadoresUsados.includes(noteCli)||noteCli==="todos"?[]:[[noteCli,noteCli]]),...tomadoresUsados.map(c=>[c,c])]}/>
                   <input type="date" title="Dia de emissão" style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={noteDia} onChange={e=>setNoteDia(e.target.value)}/>
                   {noteDia && <Btn small onClick={()=>setNoteDia("")}>limpar dia</Btn>}
                   <SortSel value={noteStat} onChange={setNoteStat} opts={[["pendentes","Pendentes"],["conciliadas","Conciliadas"],["todas","Todas"]]}/>
