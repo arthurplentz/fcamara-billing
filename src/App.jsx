@@ -2575,7 +2575,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   // filtros e ordenação — lado esquerdo (notas)
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState("");
   // filtros e ordenação — lado direito (receitas)
-  const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
+  const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas"); const [recCli, setRecCli] = useState("todos");
   // Incluir receitas ainda não "Liberadas para faturamento" (ex.: conciliação
   // adiantada antes do time preencher o passo a passo). Conciliar já libera o funil.
   const [incluirNaoLib, setIncluirNaoLib] = useState(true);
@@ -2610,12 +2610,14 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   leftNotes = leftNotes.sort(sortNotes);
 
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
+  const clientesUsados = [...new Set(empRecs.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   let rightRecs = empRecs.slice();
   // Só entra na conciliação quem está "Liberado para faturamento" e tem saldo (gate).
   if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
-  if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
+  if (recCli!=="todos") rightRecs = rightRecs.filter(r=>(r.cliente||"")===recCli);
+  if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
 
@@ -2841,7 +2843,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
                   {selectedNotes.length>0 && <Btn small onClick={selSugeridos}>Sugeridos</Btn>}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
+                  <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
+                  <SortSel value={recCli} onChange={setRecCli} opts={[["todos","Todos os clientes"],...clientesUsados.map(c=>[c,c])]}/>
                   <SortSel value={recComp} onChange={setRecComp} opts={[["todas","Todas comp."],...compsUsadas.map(c=>[c,c])]}/>
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
