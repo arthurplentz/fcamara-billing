@@ -182,7 +182,20 @@ function calcStatusColor(prog) {
   return "gray";
 }
 
-const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Aguard. retorno comercial","Retorno comercial recebido","Aguard. aprovação cliente","Cliente aprovou","Liberado para faturamento","Faturado"];
+const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Aguard. retorno comercial","Retorno comercial recebido","Aguard. aprovação cliente","Cliente aprovou","Liberado para faturamento","Faturado parcial","Faturado"];
+// Status considerando o faturamento parcial (allocated = quanto já foi faturado).
+function recStatus(r, allocated) {
+  const total = r.valorTotal||0, a = allocated||0;
+  if (total>0 && a >= total-0.01) return "Faturado";
+  if (a > 0.001)                  return "Faturado parcial";
+  return calcStatus(r.progress);
+}
+function recStatusColor(r, allocated) {
+  const total = r.valorTotal||0, a = allocated||0;
+  if (total>0 && a >= total-0.01) return "green";
+  if (a > 0.001)                  return "orange";
+  return calcStatusColor(r.progress);
+}
 
 // Datas obrigatórias do funil (só as etapas que existem no funil do tipo).
 function reqDateSteps(tipo) {
@@ -1165,7 +1178,7 @@ function RecordEditModal({ record, onSave, onClose }) {
 
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
-function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, competenciaAtual, onCompetenciaChange }) {
+function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDeleteRecord, competenciaAtual, onCompetenciaChange }) {
   const isMobile = useIsMobile();
   const [recordEdit, setRecEdit] = useState(null);
   const [recordDel, setRecDel]   = useState(null);
@@ -1194,13 +1207,13 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
   if (filterComp!=="todas") filtered = filtered.filter(r=>r.competencia===filterComp);
   if (isAdmin && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa==="_faltam_datas") filtered = filtered.filter(faltaDatas);
-  else if (filterEtapa!=="todas") filtered = filtered.filter(r=>calcStatus(r.progress)===filterEtapa);
+  else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id])===filterEtapa);
   if (searchCliente) filtered = filtered.filter(r=>r.cliente.toLowerCase().includes(searchCliente.toLowerCase()));
   if (searchProf)    filtered = filtered.filter(r=>r.profissional.toLowerCase().includes(searchProf.toLowerCase()));
 
   // Resumo por tipo de contrato
   const porTipo = {};
-  filtered.forEach(r=>{ const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=(r.valorTotal||0); if(r.progress?.p5_nf) porTipo[t].fat+=(r.valorTotal||0); });
+  filtered.forEach(r=>{ const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=(r.valorTotal||0); porTipo[t].fat+=(fatByRec[r.id]||0); });
   const tipoColors = { "Time & Expenses":"blue", "Fee":"purple", "WIP":"teal", "Usage Based":"orange" };
 
   const grouped = {};
@@ -1288,11 +1301,14 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
       {/* Cards de clientes */}
       {groups.map(g=>{
         const total   = g.records.reduce((a,r)=>a+(r.valorTotal||0),0);
-        const faturados = g.records.filter(r=>r.progress?.p5_nf).length;
-        const pct     = Math.round((faturados/g.records.length)*100)||0;
+        const totalG  = g.records.reduce((a,r)=>a+(r.valorTotal||0),0);
+        const fatG    = g.records.reduce((a,r)=>a+(fatByRec[r.id]||0),0);
+        const pct     = totalG>0 ? Math.round(fatG/totalG*100) : 0;
         const isOpen  = expandedCliente===(g.cliente+g.pep);
-        const overallStatus = g.records.every(r=>isFaturado(r.progress))?"Faturado":g.records.some(r=>isFaturado(r.progress))?"Faturado parcial":g.records.every(r=>r.progress?.p5_liberado)?"Liberado p/ faturamento":"Em andamento";
-        const overallColor  = g.records.every(r=>isFaturado(r.progress))?"green":g.records.some(r=>isFaturado(r.progress))?"orange":g.records.every(r=>r.progress?.p5_liberado)?"teal":"yellow";
+        const fullG = g.records.filter(r=>{const t=r.valorTotal||0;return t>0 && (fatByRec[r.id]||0)>=t-0.01;}).length;
+        const anyG  = g.records.filter(r=>(fatByRec[r.id]||0)>0.001).length;
+        const overallStatus = fullG===g.records.length?"Faturado":anyG>0?"Faturado parcial":g.records.every(r=>r.progress?.p5_liberado)?"Liberado p/ faturamento":"Em andamento";
+        const overallColor  = fullG===g.records.length?"green":anyG>0?"orange":g.records.every(r=>r.progress?.p5_liberado)?"teal":"yellow";
         const gtipo = g.records[0]?.tipo;
         const ggrupos = funnelGroups(gtipo);
         const agg = aggregateStates(g.records, gtipo);
@@ -1341,7 +1357,7 @@ function MyView({ records, analista, isAdmin, onUpdateBulk, onDeleteRecord, comp
                       <td style={{padding:"7px 10px",color:T.muted,whiteSpace:"nowrap"}}>{r.inicio} → {r.fim}</td>
                       <td style={{padding:"7px 10px",fontWeight:500}}>{fmtShort(r.valorTotal)}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
-                      <td style={{padding:"7px 10px"}}><Badge label={calcStatus(r.progress)} color={calcStatusColor(r.progress)} small dot/></td>
+                      <td style={{padding:"7px 10px"}}><Badge label={recStatus(r, fatByRec[r.id])} color={recStatusColor(r, fatByRec[r.id])} small dot/></td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
                         <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}><Icon name="pencil" size={14}/></button>
                         <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}><Icon name="trash" size={14}/></button>
@@ -1381,7 +1397,7 @@ function Donut({ pct, size=120, label, sub }) {
   );
 }
 
-function Dashboard({ records, analista, isAdmin }) {
+function Dashboard({ records, analista, isAdmin, fatByRec={} }) {
   const [filterEmpresa, setFE] = useState("todas");
   const [filterComp,    setFC] = useState("todas");
   const [filterAnalista,setFA] = useState(isAdmin?"todos":analista);
@@ -1399,38 +1415,40 @@ function Dashboard({ records, analista, isAdmin }) {
   if (filterTipo!=="todas")    f=f.filter(r=>r.tipo===filterTipo);
   if (filterComp!=="todas")    f=f.filter(r=>r.competencia===filterComp);
   if (isAdmin&&filterAnalista!=="todos") f=f.filter(r=>r.responsavel===filterAnalista);
-  if (filterEtapa!=="todas")   f=f.filter(r=>calcStatus(r.progress)===filterEtapa);
+  if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id])===filterEtapa);
 
+  const fat = (r) => fatByRec[r.id]||0;                     // já faturado (alocado)
+  const saldo = (r) => Math.max(0, (r.valorTotal||0) - fat(r)); // a faturar
   const totalValor = f.reduce((a,r)=>a+(r.valorTotal||0),0);
-  const faturados  = f.filter(r=>r.progress?.p5_nf);
-  const naoFat     = f.filter(r=>!r.progress?.p5_nf);
-  const valorFat   = faturados.reduce((a,r)=>a+(r.valorTotal||0),0);
-  const valorRep   = naoFat.reduce((a,r)=>a+(r.valorTotal||0),0);
+  const naoFat     = f.filter(r=>saldo(r) > 0.01);          // tem saldo a faturar
+  const valorFat   = f.reduce((a,r)=>a+fat(r),0);           // faturado = só o emitido
+  const valorRep   = f.reduce((a,r)=>a+saldo(r),0);         // represado = saldo
   const pctFat     = totalValor>0 ? Math.round((valorFat/totalValor)*100) : 0;
+  const faturados  = f.filter(r=>fat(r) >= (r.valorTotal||0)-0.01 && (r.valorTotal||0)>0);
 
   const byEtapa = {};
   STATUS_ORDER.forEach(s=>{ byEtapa[s]={ count:0, valor:0 }; });
-  f.forEach(r=>{ const s=calcStatus(r.progress); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=(r.valorTotal||0);} });
+  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id]); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=(r.valorTotal||0);} });
 
   const byAnalista = {};
   f.forEach(r=>{
     if(!byAnalista[r.responsavel]) byAnalista[r.responsavel]={ total:0, fat:0, rep:0, cnt:0, fatCnt:0 };
     byAnalista[r.responsavel].total+=(r.valorTotal||0); byAnalista[r.responsavel].cnt++;
-    if(r.progress?.p5_nf){byAnalista[r.responsavel].fat+=(r.valorTotal||0);byAnalista[r.responsavel].fatCnt++;}
-    else byAnalista[r.responsavel].rep+=(r.valorTotal||0);
+    byAnalista[r.responsavel].fat+=fat(r); byAnalista[r.responsavel].rep+=saldo(r);
+    if(fat(r) >= (r.valorTotal||0)-0.01 && (r.valorTotal||0)>0) byAnalista[r.responsavel].fatCnt++;
   });
 
   const byEmpresa = {};
-  f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=(r.valorTotal||0); if(r.progress?.p5_nf)byEmpresa[r.empresa].fat+=(r.valorTotal||0); });
+  f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=(r.valorTotal||0); byEmpresa[r.empresa].fat+=fat(r); });
 
   const byTipo = {};
-  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=(r.valorTotal||0); byTipo[t].cnt++; if(r.progress?.p5_nf)byTipo[t].fat+=(r.valorTotal||0); });
+  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=(r.valorTotal||0); byTipo[t].cnt++; byTipo[t].fat+=fat(r); });
 
   const naoFatByCliente = {};
   naoFat.forEach(r=>{
     const key=r.cliente+"|"+r.pep;
-    if(!naoFatByCliente[key]) naoFatByCliente[key]={ cliente:r.cliente, pep:r.pep, responsavel:r.responsavel, count:0, valor:0, status:calcStatus(r.progress), color:calcStatusColor(r.progress) };
-    naoFatByCliente[key].count++; naoFatByCliente[key].valor+=(r.valorTotal||0);
+    if(!naoFatByCliente[key]) naoFatByCliente[key]={ cliente:r.cliente, pep:r.pep, responsavel:r.responsavel, count:0, valor:0, status:recStatus(r, fatByRec[r.id]), color:recStatusColor(r, fatByRec[r.id]) };
+    naoFatByCliente[key].count++; naoFatByCliente[key].valor+=saldo(r);
   });
 
   const etapaColors = { "Faturado":"green","Liberado para faturamento":"teal","Cliente aprovou":"blue","Aguard. aprovação cliente":"yellow","Retorno comercial recebido":"yellow","Aguard. retorno comercial":"orange","Racional montado":"orange","Dados extraídos":"orange","Não iniciado":"gray" };
@@ -2504,13 +2522,14 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
+function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
   const [empresa, setEmpresa] = useState("");
   const [selNotes, setSelNotes] = useState(() => new Set());
   const [selRecs, setSelRecs] = useState(() => new Set());
+  const [valores, setValores] = useState({});   // valor a faturar por registro (parcial)
   const [expNote, setExpNote] = useState("");
   // filtros e ordenação — lado esquerdo (notas)
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState("");
@@ -2523,7 +2542,13 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
   // Nota já conciliada? (novo modelo: conciliacao_id; compat: municipal_note_id antigo)
   const notaConc = (n) => !!n.conciliacaoId || records.some(r => r.municipalNoteId === n.id);
-  const recConc = (r) => !!(r.conciliacaoId || r.municipalNoteId);
+  // Faturamento parcial: quanto já foi faturado e quanto falta (saldo).
+  const fat    = (r) => fatByRec[r.id] || 0;
+  const saldoR = (r) => Math.max(0, (r.valorTotal||0) - fat(r));
+  const hasSaldo = (r) => saldoR(r) > 0.01;
+  const hasFat   = (r) => fat(r) > 0.001;
+  // valor a faturar do registro (padrão = saldo; digitável; nunca passa do saldo)
+  const valorDe = (r) => { const v = valores[r.id]; return (v===undefined || v==="") ? saldoR(r) : Math.min(parseBR(v), saldoR(r)); };
 
   const compKey = (c) => { const [m,y]=String(c||"").split("/"); return (y||"0000")+(m||"00"); };
   const sortNotes = (a,b) => ({ valor_desc:b.valorServicos-a.valorServicos, valor_asc:a.valorServicos-b.valorServicos,
@@ -2541,9 +2566,9 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
   let rightRecs = empRecs.slice();
-  // Só entra na conciliação quem está "Liberado para faturamento" (gate).
-  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>!recConc(r) && r.progress?.p5_liberado);
-  if (recStat==="faturados") rightRecs = rightRecs.filter(r=>recConc(r));
+  // Só entra na conciliação quem está "Liberado para faturamento" e tem saldo (gate).
+  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && r.progress?.p5_liberado);
+  if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
   rightRecs = rightRecs.sort(sortRecs);
@@ -2552,7 +2577,7 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
   // Totais do que está filtrado (mostrados no topo de cada quadro)
   const leftTotVal = leftNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
   const rightTotVal = rightRecs.reduce((s,r)=>s+(r.valorTotal||0),0);
-  const rightPend = rightRecs.filter(r=>!recConc(r));
+  const rightPend = rightRecs.filter(r=>hasSaldo(r) && r.progress?.p5_liberado);
   const leftPendFiltered = leftNotes.filter(n=>!notaConc(n));
   const allRightSel = rightPend.length>0 && rightPend.every(r=>selRecs.has(r.id));
   const allLeftSel = leftPendFiltered.length>0 && leftPendFiltered.every(n=>selNotes.has(n.id));
@@ -2561,26 +2586,32 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
 
   // Pendências (sempre sobre o total da empresa, não o filtrado)
   const notasPend = empNotes.filter(n=>!notaConc(n)); const notasPendVal = notasPend.reduce((s,n)=>s+(n.valorServicos||0),0);
-  const recsPend = empRecs.filter(r=>!recConc(r) && r.progress?.p5_liberado); const recsPendVal = recsPend.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const recsPend = empRecs.filter(r=>hasSaldo(r) && r.progress?.p5_liberado); const recsPendVal = recsPend.reduce((s,r)=>s+saldoR(r),0);
 
   const selectedNotes = empNotes.filter(n=>selNotes.has(n.id));
   const somaNotes = selectedNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
-  const somaSel = empRecs.filter(r=>selRecs.has(r.id)).reduce((s,r)=>s+(r.valorTotal||0),0);
+  const selRecList = empRecs.filter(r=>selRecs.has(r.id));
+  const somaSel = selRecList.reduce((s,r)=>s+valorDe(r),0);   // soma dos valores a faturar
   const diff = Math.abs(somaSel-somaNotes);
   const bate = selectedNotes.length>0 && selRecs.size>0 && diff <= Math.max(1, somaNotes*0.005);
 
   const toggleRec = (id) => setSelRecs(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
   const toggleNote = (id) => setSelNotes(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
-  const resetSel = () => { setSelRecs(new Set()); setSelNotes(new Set()); };
+  const resetSel = () => { setSelRecs(new Set()); setSelNotes(new Set()); setValores({}); };
+  const setValor = (id,v) => setValores(m=>({...m,[id]:v}));
   const pickEmpresa = (cod) => { setEmpresa(cod); resetSel(); };
 
   // Sugestão (não automática): profissional/competência citados em ALGUMA nota selecionada.
   const selNomes = stripAcc(selectedNotes.map(n=>n.profissionais).join(" "));
   const selComps = selectedNotes.map(n=>n.competencias).join(" ");
   const isSug = (r) => { if(!selectedNotes.length) return false; const nm=stripAcc(r.profissional); const byN = nm && nm.length>3 && selNomes.includes((nm.split(" ")[0]||"")) && selNomes.includes((nm.split(" ").slice(-1)[0]||"")); const byC = r.competencia && selComps.includes(r.competencia); return !!(byN||byC); };
-  const selSugeridos = () => { if(!selectedNotes.length) return; setSelRecs(new Set(rightRecs.filter(r=>!recConc(r) && isSug(r)).map(r=>r.id))); };
+  const selSugeridos = () => { if(!selectedNotes.length) return; setSelRecs(new Set(rightRecs.filter(r=>hasSaldo(r) && isSug(r)).map(r=>r.id))); };
 
-  function confirmar() { if(!selectedNotes.length||!selRecs.size) return; onConciliate([...selRecs], selectedNotes); resetSel(); }
+  function confirmar() {
+    if(!selectedNotes.length||!selRecs.size) return;
+    const valoresMap = {}; selRecList.forEach(r=>{ valoresMap[r.id] = valorDe(r); });
+    onConciliate([...selRecs], selectedNotes, valoresMap); resetSel();
+  }
 
   const importBatches = [...new Set(notes.map(n=>n.importId).filter(Boolean))];
   const SortSel = ({value,onChange,opts}) => <select style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={value} onChange={e=>onChange(e.target.value)}>{opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>;
@@ -2723,18 +2754,19 @@ function ConciliationView({ records, clients, notes, isAdmin, onImport, onUndoIm
               <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
-                      const conc=recConc(r), on=selRecs.has(r.id), sug=!conc&&isSug(r), falta=faltaDatas(r);
+                      const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r);
                       return (
                         <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"#fff")}}>
-                          {conc
-                            ? <span title="Conciliada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
+                          {full
+                            ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
-                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{conc?` · NF ${r.nfNumero}`:""}</div>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
+                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(r.valorTotal)}`:""}</div>
                           </div>
-                          <div style={{fontSize:12.5,fontWeight:700,color:T.ink,whiteSpace:"nowrap"}}>{brl(r.valorTotal)}</div>
-                          {conc && <Btn small onClick={()=>onReopen({ conciliacaoId:r.conciliacaoId, noteId:r.municipalNoteId })}>↩</Btn>}
+                          {on && hasSaldo(r)
+                            ? <input style={{...inp,width:110,fontSize:12,padding:"4px 7px",textAlign:"right"}} title="Valor a faturar (parcial)" value={valores[r.id] ?? String(saldoR(r))} onChange={e=>setValor(r.id,e.target.value)} onClick={e=>e.stopPropagation()}/>
+                            : <div style={{fontSize:12.5,fontWeight:700,color:full?T.muted:T.ink,whiteSpace:"nowrap"}}>{brl(full ? fat(r) : saldoR(r))}</div>}
                         </div>
                       );
                     })}
@@ -2983,7 +3015,7 @@ function ApelidoModal({ atual, onSave, onClose }) {
   );
 }
 
-function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSaveMural, onSaveApelido, onNavigate }) {
+function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={}, mural, onSaveMural, onSaveApelido, onNavigate }) {
   const [editing, setEditing] = useState(false);
   const [editApelido, setEditApelido] = useState(false);
   // Relógio leve: mantém data/saudação sempre corretas (vira o dia / muda o turno)
@@ -3015,7 +3047,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
   const compAtual = comps[comps.length-1] || "";
   const doMes = records.filter(r=>r.competencia===compAtual);
   const totalMes = doMes.reduce((s,r)=>s+(r.valorTotal||0),0);
-  const fatMes = doMes.filter(r=>r.progress?.p5_nf).reduce((s,r)=>s+(r.valorTotal||0),0);
+  const fatMes = doMes.reduce((s,r)=>s+(fatByRec[r.id]||0),0);
   const pctMes = totalMes ? Math.round(fatMes/totalMes*100) : 0;
 
   // Aniversariantes do mês
@@ -3131,14 +3163,18 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, mural, onSav
 
 // ─── RELATÓRIOS ──────────────────────────────────────────────────────────────
 const compRank = (c) => { const [m,y]=String(c||"").split("/"); return (y||"0000")+String(m||"").padStart(2,"0"); };
-// Notas ligadas a um registro (conjunto de conciliação ou vínculo antigo).
-function notesForRecord(r, notes) {
+// Notas ligadas a um registro. cidsByRec: record_id → Set de conciliacao_id (livro
+// de faturamento). Fallback: vínculo antigo por conciliacao_id/municipal_note_id.
+function notesForRecord(r, notes, cidsByRec) {
+  const cids = cidsByRec && cidsByRec[r.id];
+  if (cids && cids.size) return notes.filter(n => n.conciliacaoId && cids.has(n.conciliacaoId));
   if (r.conciliacaoId) return notes.filter(n=>n.conciliacaoId===r.conciliacaoId);
   if (r.municipalNoteId) return notes.filter(n=>n.id===r.municipalNoteId);
   return [];
 }
 
-function ReportsView({ records, clients, notes, isAdmin, analistas }) {
+function ReportsView({ records, clients, notes, faturamentos=[], isAdmin, analistas }) {
+  const cidsByRec = {}; faturamentos.forEach(a=>{ if(a.conciliacaoId){ (cidsByRec[a.recordId]=cidsByRec[a.recordId]||new Set()).add(a.conciliacaoId); } });
   const [tab, setTab] = useState("receitas");
 
   // ── Filtros de receitas ──
@@ -3163,8 +3199,9 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
   if (compAte!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)<=compRank(compAte));
   if (status==="_faltam_datas") recFiltered = recFiltered.filter(faltaDatas);
   else if (status!=="todos") recFiltered = recFiltered.filter(r=>calcStatus(r.progress)===status);
-  if (concil==="conciliado") recFiltered = recFiltered.filter(r=>r.conciliacaoId||r.municipalNoteId);
-  if (concil==="sem_nota") recFiltered = recFiltered.filter(r=>!(r.conciliacaoId||r.municipalNoteId));
+  const temNota = r => (cidsByRec[r.id] && cidsByRec[r.id].size) || r.conciliacaoId || r.municipalNoteId;
+  if (concil==="conciliado") recFiltered = recFiltered.filter(temNota);
+  if (concil==="sem_nota") recFiltered = recFiltered.filter(r=>!temNota(r));
   if (qCli.trim()) { const s=qCli.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.cliente||"").toLowerCase().includes(s)); }
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
 
@@ -3174,7 +3211,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
     const rows = [];
     recFiltered.forEach(r=>{
       const p=r.progress||{};
-      const ns=notesForRecord(r, notes);
+      const ns=notesForRecord(r, notes, cidsByRec);
       const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
       const baseB=[r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,calcStatus(p)];
       const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov),p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];
@@ -3183,7 +3220,7 @@ function ReportsView({ records, clients, notes, isAdmin, analistas }) {
     });
     return rows;
   }
-  const previewLines = recFiltered.reduce((s,r)=>{ const n=notesForRecord(r,notes).length; return s+(n||1); },0);
+  const previewLines = recFiltered.reduce((s,r)=>{ const n=notesForRecord(r,notes,cidsByRec).length; return s+(n||1); },0);
 
   function exportReceitas() {
     const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
@@ -3448,6 +3485,7 @@ function AppInner() {
   const [templates, setTemplates] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
   const [notes, setNotes] = useState([]);   // notas da prefeitura (NFS-e)
+  const [faturamentos, setFaturamentos] = useState([]);  // livro de faturamento (alocações parciais)
   const [mural, setMural] = useState({ id:null, frase:"", autor:"", lembretes:[] });
   const [dataReady, setDataRdy] = useState(false);
 
@@ -3462,15 +3500,16 @@ function AppInner() {
   const reloadTemplates = useCallback(async () => { try { setTemplates(await db.fetchTemplates()); } catch(e){ /* entregas: só admin */ } }, []);
   const reloadDeliveries = useCallback(async () => { try { setDeliveries(await db.fetchDeliveries()); } catch(e){ /* idem */ } }, []);
   const reloadNotes = useCallback(async () => { try { setNotes(await db.fetchMunicipalNotes()); } catch(e){ /* notas: tabela pode não existir ainda */ } }, []);
+  const reloadFaturamentos = useCallback(async () => { try { setFaturamentos(await db.fetchFaturamentos()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
   const reloadMural = useCallback(async () => { try { setMural(await db.fetchMural()); } catch(e){ /* mural: tabela pode não existir ainda */ } }, []);
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] }))])
-      .then(([r, t, h, p, c, tm, dv, nt, mu]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[])])
+      .then(([r, t, h, p, c, tm, dv, nt, mu, fa]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -3649,15 +3688,13 @@ function AppInner() {
         if (novo.cancelada && !ex.cancelada) {
           canceladas++;
           await db.updateMunicipalNote(ex.id, { ...ex, cancelada: true, situacao: novo.situacao || ex.situacao });
-          // Reabre o conjunto inteiro (todas as receitas e libera as outras notas).
-          const recs = ex.conciliacaoId ? records.filter(r => r.conciliacaoId === ex.conciliacaoId)
-                                        : records.filter(r => r.municipalNoteId === ex.id);
-          if (ex.conciliacaoId) await db.reopenConciliacao(ex.conciliacaoId, reopenItemsFor(recs));
-          else recs.forEach(r => reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
+          // Reabre o lote inteiro (reabre o saldo das receitas e libera as notas).
+          if (ex.conciliacaoId) { await reopenCid(ex.conciliacaoId); canceladas += 0; }
+          else records.filter(r => r.municipalNoteId === ex.id).forEach(r => reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
         }
       }
       if (reabrir.length) await db.reopenRecords(reabrir);
-      await Promise.all([reloadNotes(), reabrir.length ? reloadRecords() : Promise.resolve()]);
+      await Promise.all([reloadNotes(), reloadRecords(), reloadFaturamentos()]);
       const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${canceladas?` · ${canceladas} cancelada(s)`:""}`;
       if (reabrir.length) toast(`${base} · ${reabrir.length} registro(s) reabertos: NF cancelada`, "error");
       else toast(`Importação: ${base}`);
@@ -3667,46 +3704,65 @@ function AppInner() {
     try { const n = await db.deleteMunicipalNotesByImport(importId); await reloadNotes(); toast(`${n} nota(s) removida(s)`, "info"); }
     catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
   }
-  // Conciliação N:N — conjunto de notas ↔ conjunto de receitas.
-  async function handleConciliate(recordIds, notesArr) {
+  // Conciliação N:N com faturamento PARCIAL. valoresMap: {recordId: valor a faturar}.
+  async function handleConciliate(recordIds, notesArr, valoresMap) {
     try {
       const cid = uuid();
       const numero = notesArr.map(n => n.numero).join(", ");
       const dataNf = notesArr.map(n => n.emitidaEm).filter(Boolean).sort()[0] || "";
-      const idset = new Set(recordIds);
-      const items = records.filter(r => idset.has(r.id)).map(r => ({ id: r.id, progress: faturarProgress(r, { emitidaEm: dataNf }) }));
-      await db.conciliateSet({ cid, recordItems: items, noteIds: notesArr.map(n => n.id), numero, userName: user.name });
-      await Promise.all([reloadRecords(), reloadNotes()]);
-      const semData = items.filter(it => { const r = records.find(x => x.id === it.id); return r && reqDateSteps(r.tipo).some(k => !String(it.progress[k]||"").trim()); }).length;
-      toast(`${recordIds.length} receita(s) × ${notesArr.length} nota(s) conciliadas${semData?` · ${semData} com datas pendentes`:""}`);
+      const allocations = []; const recordItems = [];
+      recordIds.forEach(id => {
+        const r = records.find(x => x.id === id); if (!r) return;
+        const jaFat = fatByRec[r.id] || 0;
+        const saldo = (r.valorTotal||0) - jaFat;
+        const valor = Math.min(valoresMap?.[id] ?? saldo, saldo);
+        if (valor <= 0.001) return;
+        allocations.push({ recordId: id, valor });
+        const full = (jaFat + valor) >= (r.valorTotal||0) - 0.01;
+        const progress = full ? faturarProgress(r, { emitidaEm: dataNf }) : { ...(r.progress||{}), p5_liberado: true };
+        const nfNumero = [...new Set([r.nfNumero, numero].join(", ").split(", ").map(s=>s.trim()).filter(Boolean))].join(", ");
+        recordItems.push({ id, progress, nfNumero });
+      });
+      if (!allocations.length) { toast("Informe um valor para faturar.", "error"); return; }
+      await db.conciliateSet({ cid, allocations, recordItems, noteIds: notesArr.map(n => n.id), userName: user.name });
+      await Promise.all([reloadRecords(), reloadNotes(), reloadFaturamentos()]);
+      const parciais = allocations.filter(a => { const r = records.find(x=>x.id===a.recordId); return r && (fatByRec[r.id]||0)+a.valor < (r.valorTotal||0)-0.01; }).length;
+      toast(`${allocations.length} receita(s) × ${notesArr.length} nota(s) conciliadas${parciais?` · ${parciais} parcial(is)`:""}`);
     } catch(e) { toast("Erro ao conciliar: "+e.message, "error"); }
   }
-  // Reabre todo o conjunto a partir de um registro ou de uma nota.
-  function reopenItemsFor(recs) { return recs.map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } })); }
+  // Reabre um LOTE de conciliação: remove suas alocações, recalcula o saldo dos
+  // registros afetados e libera as notas do lote.
+  async function reopenCid(cid) {
+    const allocs = faturamentos.filter(a => a.conciliacaoId === cid);
+    const recIds = [...new Set(allocs.map(a => a.recordId))];
+    const recordItems = recIds.map(id => {
+      const r = records.find(x => x.id === id) || {};
+      const removido = allocs.filter(a => a.recordId === id).reduce((s,a)=>s+(a.valor||0),0);
+      const restante = (fatByRec[id]||0) - removido;
+      const full = restante >= (r.valorTotal||0) - 0.01 && (r.valorTotal||0) > 0;
+      const progress = { ...(r.progress||{}), p5_liberado: r.progress?.p5_liberado ?? true, p5_nf: full, p5_no_corte: full, p5_data_nf: full ? (r.progress?.p5_data_nf||"") : "" };
+      return { id, progress, nfNumero: restante>0.001 ? (r.nfNumero||"") : "", conciliadoEm: restante>0.001 ? r.conciliadoEm : null, conciliadoPor: restante>0.001 ? r.conciliadoPor : null };
+    });
+    await db.reopenConciliacao(cid, recordItems);
+  }
   async function handleReopenGroup({ conciliacaoId, noteId }) {
     try {
-      if (conciliacaoId) {
-        const recs = records.filter(r => r.conciliacaoId === conciliacaoId);
-        await db.reopenConciliacao(conciliacaoId, reopenItemsFor(recs));
-      } else {
-        // compatibilidade com conciliações antigas (1 nota por registro)
+      if (conciliacaoId) await reopenCid(conciliacaoId);
+      else { // conciliações antigas (1 nota por registro, sem alocação)
         const recs = records.filter(r => r.municipalNoteId === noteId);
-        if (recs.length) await db.reopenRecords(reopenItemsFor(recs));
+        if (recs.length) await db.reopenRecords(recs.map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } })));
       }
-      await Promise.all([reloadRecords(), reloadNotes()]);
-      toast("Conciliação desfeita — registros reabertos", "info");
+      await Promise.all([reloadRecords(), reloadNotes(), reloadFaturamentos()]);
+      toast("Conciliação desfeita — saldo reaberto", "info");
     } catch(e) { toast("Erro ao desfazer conciliação: "+e.message, "error"); }
   }
   async function handleNoteDelete(note) {
     try {
-      // Se a nota estava conciliada, reabre o conjunto antes de excluir.
-      const recs = note.conciliacaoId ? records.filter(r => r.conciliacaoId === note.conciliacaoId)
-                                      : records.filter(r => r.municipalNoteId === note.id);
-      if (note.conciliacaoId) await db.reopenConciliacao(note.conciliacaoId, reopenItemsFor(recs));
-      else if (recs.length) await db.reopenRecords(reopenItemsFor(recs));
+      if (note.conciliacaoId) await reopenCid(note.conciliacaoId);
+      else { const recs = records.filter(r => r.municipalNoteId === note.id); if (recs.length) await db.reopenRecords(recs.map(r => ({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }))); }
       await db.deleteMunicipalNote(note.id);
-      await Promise.all([reloadNotes(), recs.length ? reloadRecords() : Promise.resolve()]);
-      toast(`Nota ${note.numero} removida${recs.length?` · ${recs.length} registro(s) reabertos`:""}`, "info");
+      await Promise.all([reloadNotes(), reloadRecords(), reloadFaturamentos()]);
+      toast(`Nota ${note.numero} removida`, "info");
     } catch(e) { toast("Erro ao remover nota: "+e.message, "error"); }
   }
 
@@ -3718,6 +3774,12 @@ function AppInner() {
     try { await db.setMyApelido(apelido); setUser(u=>({...u, apelido})); await reloadProfiles(); toast("Apelido atualizado"); }
     catch(e) { toast("Erro ao salvar apelido: "+e.message, "error"); }
   }
+
+  // Quanto de cada registro já foi faturado (soma das alocações). Legado: registros
+  // marcados como faturados (p5_nf) sem alocação contam pelo valor total.
+  const fatByRec = {};
+  faturamentos.forEach(a => { fatByRec[a.recordId] = (fatByRec[a.recordId]||0) + (a.valor||0); });
+  records.forEach(r => { if (!(r.id in fatByRec) && isFaturado(r.progress)) fatByRec[r.id] = r.valorTotal||0; });
 
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
@@ -3763,13 +3825,13 @@ function AppInner() {
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
           {page==="home"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} profiles={profiles} mural={mural} onSaveMural={handleMuralSave} onSaveApelido={handleSaveApelido} onNavigate={setPage}/>
+              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} profiles={profiles} fatByRec={fatByRec} mural={mural} onSaveMural={handleMuralSave} onSaveApelido={handleSaveApelido} onNavigate={setPage}/>
             </div>
           )}
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
-              {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin}/>}
+              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec}/>}
             </div>
           )}
           {page==="dados"&&isAdmin&&(
@@ -3781,14 +3843,14 @@ function AppInner() {
           )}
           {page==="concil"&&(
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin}
+              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
             </div>
           )}
           {page==="reports"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ReportsView records={records} clients={clients} notes={notes} isAdmin={isAdmin} analistas={responsaveis}/>
+              <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} isAdmin={isAdmin} analistas={responsaveis}/>
             </div>
           )}
           {page==="clients"&&(

@@ -90,32 +90,47 @@ export async function reopenRecords(items) {
   }
 }
 // Conciliação N:N — liga um conjunto de notas a um conjunto de registros pelo
-// mesmo conciliacao_id. Completa o funil de cada registro (progress por registro).
-export async function conciliateSet({ cid, recordItems, noteIds, numero, userName }) {
-  for (const it of recordItems) {
+// mesmo conciliacao_id. allocations = [{recordId, valor}] (faturamento parcial);
+// recordItems = [{id, progress, nfNumero}] (atualiza o funil/NF de cada registro).
+export async function conciliateSet({ cid, allocations, recordItems, noteIds, userName }) {
+  // 1) livro de faturamento (valor por registro)
+  if (allocations && allocations.length) {
+    const rows = allocations.map(a => ({ record_id: a.recordId, conciliacao_id: cid, valor: a.valor || 0, criado_por: userName || null }));
+    const { error } = await supabase.from("record_faturamentos").insert(rows);
+    if (error) throw error;
+  }
+  // 2) atualiza cada registro (progress + NF acumulada)
+  for (const it of (recordItems || [])) {
     const { error } = await supabase.from("records").update({
-      conciliacao_id: cid, municipal_note_id: null, nf_numero: numero || "", progress: it.progress,
+      nf_numero: it.nfNumero ?? "", progress: it.progress,
       conciliado_em: nowISO(), conciliado_por: userName || null, updated_at: nowISO(),
     }).eq("id", it.id);
     if (error) throw error;
   }
+  // 3) amarra as notas ao lote
   if (noteIds && noteIds.length) {
     const { error } = await supabase.from("municipal_notes").update({ conciliacao_id: cid }).in("id", noteIds);
     if (error) throw error;
   }
 }
-// Reabre um conjunto de conciliação: limpa o vínculo das notas e reabre os
-// registros (progress já pronto, por registro).
+// Reabre um lote: remove as alocações do lote, libera as notas e reescreve o
+// progress/NF de cada registro afetado (o app recalcula o que sobra).
 export async function reopenConciliacao(cid, recordItems) {
-  for (const it of recordItems) {
+  { const { error } = await supabase.from("record_faturamentos").delete().eq("conciliacao_id", cid); if (error) throw error; }
+  for (const it of (recordItems || [])) {
     const { error } = await supabase.from("records").update({
-      conciliacao_id: null, municipal_note_id: null, nf_numero: "", progress: it.progress,
-      conciliado_em: null, conciliado_por: null, updated_at: nowISO(),
+      conciliacao_id: null, municipal_note_id: null, nf_numero: it.nfNumero ?? "", progress: it.progress,
+      conciliado_em: it.conciliadoEm ?? null, conciliado_por: it.conciliadoPor ?? null, updated_at: nowISO(),
     }).eq("id", it.id);
     if (error) throw error;
   }
   const { error } = await supabase.from("municipal_notes").update({ conciliacao_id: null }).eq("conciliacao_id", cid);
   if (error) throw error;
+}
+// ─── LIVRO DE FATURAMENTO (alocações parciais) ───────────────────────────────
+export async function fetchFaturamentos() {
+  const rows = await fetchAllPaged("record_faturamentos", "*", "created_at");
+  return rows.map(r => ({ id: r.id, recordId: r.record_id, conciliacaoId: r.conciliacao_id || null, valor: Number(r.valor) || 0, criadoPor: r.criado_por || "", createdAt: r.created_at }));
 }
 // Conciliação que também completa o funil de cada registro (progress já pronto
 // no app, por registro). Atualiza um a um — o lote por conciliação é pequeno.
