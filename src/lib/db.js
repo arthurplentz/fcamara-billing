@@ -257,6 +257,7 @@ function dbToHist(row) {
     id: row.id, date: row.date, competencia: row.competencia, empresa: row.empresa,
     tipo: row.tipo, mode: row.mode, count: row.count, user: row.user_name, note: row.note,
     importId: row.import_id || null,
+    snapshot: row.snapshot || null,
   };
 }
 export async function fetchHistory() {
@@ -317,7 +318,16 @@ export async function insertHistory(h) {
   const { error } = await supabase.from("import_history").insert({
     competencia: h.competencia, empresa: h.empresa, tipo: h.tipo,
     mode: h.mode, count: h.count, user_name: h.user, note: h.note, import_id: h.importId || null,
+    snapshot: h.snapshot && h.snapshot.length ? h.snapshot : null,
   });
+  if (error) throw error;
+}
+
+// Desfaz um merge: restaura os registros ao estado anterior (snapshot) e apaga
+// os que foram incluídos naquela importação.
+export async function restoreRecords(list) {
+  if (!list || !list.length) return;
+  const { error } = await supabase.from("records").upsert(list.map(r => recToDb(r, true)));
   if (error) throw error;
 }
 
