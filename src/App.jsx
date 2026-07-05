@@ -2551,7 +2551,7 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
+function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
@@ -2671,6 +2671,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
           <h1 style={Ty.h1}>Conciliação de notas</h1>
           <div style={{...Ty.small,marginTop:3}}>{notes.length} nota(s) importada(s) · conciliação por empresa do grupo</div>
         </div>
+        {isAdmin && orfas>0 && <Btn icon="undo" onClick={onReopenOrphans}>Reabrir notas órfãs ({orfas})</Btn>}
         {isAdmin && <Btn icon="folder" onClick={()=>setManage(true)}>Importações</Btn>}
         {isAdmin && <Btn primary icon="upload" onClick={()=>setImporting(true)}>Importar notas</Btn>}
       </div>
@@ -3901,6 +3902,19 @@ function AppInner() {
       toast("Conciliação desfeita — saldo reaberto", "info");
     } catch(e) { toast("Erro ao desfazer conciliação: "+e.message, "error"); }
   }
+  // Notas órfãs: têm conciliacao_id mas nenhuma receita continua alocada ao lote
+  // (ex.: receita excluída antes do fix de reabertura). Podem ser reabertas.
+  const cidsAtivos = new Set(faturamentos.filter(a => a.conciliacaoId).map(a => a.conciliacaoId));
+  const notasOrfas = notes.filter(n => n.conciliacaoId && !cidsAtivos.has(n.conciliacaoId) && !records.some(r => r.municipalNoteId === n.id));
+  async function handleReopenOrphans() {
+    try {
+      const cids = [...new Set(notasOrfas.map(n => n.conciliacaoId))];
+      if (!cids.length) { toast("Nenhuma nota órfã encontrada.", "info"); return; }
+      await db.freeNotes(cids);
+      await Promise.all([reloadNotes(), reloadRecords()]);
+      toast(`${notasOrfas.length} nota(s) reaberta(s) — voltaram para pendentes`, "info");
+    } catch(e) { toast("Erro ao reabrir notas órfãs: "+e.message, "error"); }
+  }
   async function handleNoteDelete(note) {
     try {
       if (note.conciliacaoId) await reopenCid(note.conciliacaoId);
@@ -3989,6 +4003,7 @@ function AppInner() {
           {page==="concil"&&(
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec}
+                orfas={notasOrfas.length} onReopenOrphans={handleReopenOrphans}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
             </div>
