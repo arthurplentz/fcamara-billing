@@ -3624,15 +3624,19 @@ function AppInner() {
         const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}`;
         const combos = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
         const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
-        const byKey = {}; escopo.forEach(r => { byKey[keyOf(r)] = r; });
-        const vistos = new Set();
+        // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
+        // uma FILA por chave e casamos por posição: 1ª linha ↔ 1º registro, etc.
+        const byKey = {}; escopo.forEach(r => { const k=keyOf(r); (byKey[k]=byKey[k]||[]).push(r); });
+        const consumidos = new Set();
         const upserts = []; const inserts = [];
         const importId = uuid();
         let novos=0, mudados=0, mudadosFat=0;
         newRecs.forEach(nr => {
-          const k = keyOf(nr); vistos.add(k);
-          const ex = byKey[k];
+          const k = keyOf(nr);
+          const fila = byKey[k];
+          const ex = (fila && fila.length) ? fila.shift() : null;
           if (!ex) { inserts.push({ ...nr, importId }); novos++; return; }
+          consumidos.add(ex.id);
           const antigo = ex.valorTotal||0, novo = nr.valorTotal||0;
           const mudouValor = Math.abs(novo-antigo) > 0.01
             || Math.abs((nr.valorVenda||0)-(ex.valorVenda||0)) > 0.01
@@ -3655,7 +3659,7 @@ function AppInner() {
           }
           upserts.push(merged);
         });
-        const absentIds = escopo.filter(r => !vistos.has(keyOf(r)) && !r.ausenteRelatorio).map(r=>r.id);
+        const absentIds = escopo.filter(r => !consumidos.has(r.id) && !r.ausenteRelatorio).map(r=>r.id);
         await db.mergeImport({ upserts, inserts, absentIds });
         try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId }); } catch {}
         await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
