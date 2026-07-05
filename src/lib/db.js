@@ -19,6 +19,9 @@ function dbToRec(row) {
     importId: row.import_id || null,
     municipalNoteId: row.municipal_note_id || null, conciliacaoId: row.conciliacao_id || null,
     conciliadoEm: row.conciliado_em || null, conciliadoPor: row.conciliado_por || "",
+    valorAnterior: row.valor_anterior == null ? null : Number(row.valor_anterior),
+    valorAlteradoEm: row.valor_alterado_em || null,
+    ausenteRelatorio: !!row.ausente_relatorio,
   };
 }
 function recToDb(r, withId) {
@@ -32,9 +35,37 @@ function recToDb(r, withId) {
     nf_numero: r.nfNumero || "", obs: r.obs || "", updated_at: r.updatedAt || nowISO(),
     ordem_venda: r.ordemVenda || null,
     import_id: r.importId || null,
+    valor_anterior: r.valorAnterior == null ? null : r.valorAnterior,
+    valor_alterado_em: r.valorAlteradoEm || null,
+    ausente_relatorio: !!r.ausenteRelatorio,
   };
   if (withId && r.id) o.id = r.id;
   return o;
+}
+
+// Merge de re-importação: atualiza os que mudaram (preservando id/progress/
+// conciliação), insere os novos e sinaliza os que sumiram do relatório.
+export async function mergeImport({ upserts, inserts, absentIds }) {
+  if (inserts && inserts.length) {
+    const { error } = await supabase.from("records").insert(inserts.map(r => recToDb(r, false)));
+    if (error) throw error;
+  }
+  if (upserts && upserts.length) {
+    const { error } = await supabase.from("records").upsert(upserts.map(r => recToDb(r, true)));
+    if (error) throw error;
+  }
+  if (absentIds && absentIds.length) {
+    const { error } = await supabase.from("records").update({ ausente_relatorio: true, updated_at: nowISO() }).in("id", absentIds);
+    if (error) throw error;
+  }
+}
+
+// Baixa o alerta de mudança de valor (ou "fora do relatório") de um registro.
+export async function clearRecordAlert(id) {
+  const { error } = await supabase.from("records")
+    .update({ valor_anterior: null, valor_alterado_em: null, ausente_relatorio: false, updated_at: nowISO() })
+    .eq("id", id);
+  if (error) throw error;
 }
 
 export async function fetchRecords() {
