@@ -2564,6 +2564,10 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState("");
   // filtros e ordenação — lado direito (receitas)
   const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
+  // Incluir receitas ainda não "Liberadas para faturamento" (ex.: conciliação
+  // adiantada antes do time preencher o passo a passo). Conciliar já libera o funil.
+  const [incluirNaoLib, setIncluirNaoLib] = useState(true);
+  const podeFaturar = (r) => incluirNaoLib || r.progress?.p5_liberado;
 
   const empresasComDados = EMPRESAS.filter(e => notes.some(n=>n.empresa===e.cod) || records.some(r=>r.empresa===e.cod));
   const empNotes = notes.filter(n => n.empresa===empresa && !n.cancelada);
@@ -2596,7 +2600,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
   const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
   let rightRecs = empRecs.slice();
   // Só entra na conciliação quem está "Liberado para faturamento" e tem saldo (gate).
-  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && r.progress?.p5_liberado);
+  if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
@@ -2606,7 +2610,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
   // Totais do que está filtrado (mostrados no topo de cada quadro)
   const leftTotVal = leftNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
   const rightTotVal = rightRecs.reduce((s,r)=>s+(r.valorTotal||0),0);
-  const rightPend = rightRecs.filter(r=>hasSaldo(r) && r.progress?.p5_liberado);
+  const rightPend = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   const leftPendFiltered = leftNotes.filter(n=>!notaConc(n));
   const allRightSel = rightPend.length>0 && rightPend.every(r=>selRecs.has(r.id));
   const allLeftSel = leftPendFiltered.length>0 && leftPendFiltered.every(n=>selNotes.has(n.id));
@@ -2615,7 +2619,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
 
   // Pendências (sempre sobre o total da empresa, não o filtrado)
   const notasPend = empNotes.filter(n=>!notaConc(n)); const notasPendVal = notasPend.reduce((s,n)=>s+(n.valorServicos||0),0);
-  const recsPend = empRecs.filter(r=>hasSaldo(r) && r.progress?.p5_liberado); const recsPendVal = recsPend.reduce((s,r)=>s+saldoR(r),0);
+  const recsPend = empRecs.filter(r=>hasSaldo(r) && podeFaturar(r)); const recsPendVal = recsPend.reduce((s,r)=>s+saldoR(r),0);
 
   const selectedNotes = empNotes.filter(n=>selNotes.has(n.id));
   const somaNotes = selectedNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
@@ -2779,6 +2783,10 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, onImp
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
                 </div>
+                <label style={{display:"flex",alignItems:"center",gap:6,marginTop:8,fontSize:12,color:T.inkSoft,cursor:"pointer"}}>
+                  <input type="checkbox" checked={incluirNaoLib} onChange={e=>setIncluirNaoLib(e.target.checked)} style={{width:14,height:14}}/>
+                  Incluir receitas ainda não liberadas no passo a passo <span style={{color:T.muted,fontSize:11}}>(conciliar já libera o funil)</span>
+                </label>
               </div>
               <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
