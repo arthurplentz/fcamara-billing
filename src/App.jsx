@@ -916,7 +916,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
         <div style={{fontSize:13,fontWeight:700,color:T.ink,marginBottom:8}}>Aplicar a</div>
         <button type="button" onClick={()=>setPickOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"#fff",border:`1px solid ${T.line}`,borderRadius:T.rMd,padding:"9px 12px",cursor:"pointer",fontSize:13,color:T.ink,textAlign:"left"}}>
           <Icon name="task" size={15}/>
-          <span style={{flex:1}}><b>{selected.size}</b> de {records.length} profissional(is) selecionado(s)</span>
+          <span style={{flex:1}}><b>{selected.size}</b> de {records.length} profissional(is) selecionado(s){selected.size>0?` · ${brl(records.filter(r=>selected.has(r.id)).reduce((s,r)=>s+(r.valorTotal||0),0))}`:""}</span>
           <Icon name={pickOpen?"chevronUp":"chevronDown"} size={16}/>
         </button>
         {pickOpen && (() => {
@@ -933,6 +933,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
                     <label key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 8px",borderRadius:T.rSm,cursor:"pointer",background:selected.has(r.id)?T.brandBg:"transparent",fontSize:13}}>
                       <input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggle(r.id)} style={{width:15,height:15}}/>
                       <span style={{flex:1,fontWeight:selected.has(r.id)?600:400,color:selected.has(r.id)?T.brand:T.inkSoft}}>{r.profissional}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:T.ink,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{brl(r.valorTotal||0)}</span>
                       <Badge label={calcStatus(r.progress)} color={calcStatusColor(r.progress)} small dot/>
                     </label>
                   ))}
