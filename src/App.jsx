@@ -1518,7 +1518,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
   const isFat = (r) => Math.abs(billOf(r))>0.01 && Math.abs(billOf(r)-fat(r))<0.01;  // faturado por completo (faturável)
   if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id], billOf(r))===filterEtapa);
 
-  const totalValor = f.reduce((a,r)=>a+(r.valorTotal||0),0);
+  const totalValor = f.reduce((a,r)=>a+billOf(r),0);   // faturável (receita + variação)
   const naoFat     = f.filter(r=>Math.abs(saldo(r)) > 0.01); // tem saldo a faturar (inclui descontos)
   const valorFat   = f.reduce((a,r)=>a+fat(r),0);           // faturado = só o emitido
   const valorRep   = f.reduce((a,r)=>a+saldo(r),0);         // represado = saldo
@@ -1527,21 +1527,21 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
   const byEtapa = {};
   STATUS_ORDER.forEach(s=>{ byEtapa[s]={ count:0, valor:0 }; });
-  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id], billOf(r)); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=(r.valorTotal||0);} });
+  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id], billOf(r)); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=billOf(r);} });
 
   const byAnalista = {};
   f.forEach(r=>{
     if(!byAnalista[r.responsavel]) byAnalista[r.responsavel]={ total:0, fat:0, rep:0, cnt:0, fatCnt:0 };
-    byAnalista[r.responsavel].total+=(r.valorTotal||0); byAnalista[r.responsavel].cnt++;
+    byAnalista[r.responsavel].total+=billOf(r); byAnalista[r.responsavel].cnt++;
     byAnalista[r.responsavel].fat+=fat(r); byAnalista[r.responsavel].rep+=saldo(r);
     if(isFat(r)) byAnalista[r.responsavel].fatCnt++;
   });
 
   const byEmpresa = {};
-  f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=(r.valorTotal||0); byEmpresa[r.empresa].fat+=fat(r); });
+  f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=billOf(r); byEmpresa[r.empresa].fat+=fat(r); });
 
   const byTipo = {};
-  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=(r.valorTotal||0); byTipo[t].cnt++; byTipo[t].fat+=fat(r); });
+  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=billOf(r); byTipo[t].cnt++; byTipo[t].fat+=fat(r); });
 
   const naoFatByCliente = {};
   naoFat.forEach(r=>{
