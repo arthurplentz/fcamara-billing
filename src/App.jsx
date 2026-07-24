@@ -3436,22 +3436,22 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
     const funilBase=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov)];
     const funilFat=[...funilBase,"S","S",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];       // P5 NF=S
     const funilSaldo=[...funilBase,"N","N",r.obs||"","",""];                                            // saldo: NF pendente
-    // linha: [...baseA, vVenda, hrs, valTotal, vLiq, variação, status, NF..., funil]
-    const linha = (vVenda,hrs,valTot,vLiq,varc,status,nf,funil) => [...baseA,vVenda,hrs,valTot,vLiq,varc,status,nf.num,nf.em,nf.val,nf.mun,...funil];
+    // linha: [...baseA, vVenda, hrs, valTotal, variação, status, NF..., funil]
+    const linha = (vVenda,hrs,valTot,varc,status,nf,funil) => [...baseA,vVenda,hrs,valTot,varc,status,nf.num,nf.em,nf.val,nf.mun,...funil];
     const nfCheia={num:nfNum,em:nfEm,val:nfVal,mun:nfMun}, nfVazia={num:"",em:"",val:"",mun:""};
     const out=[];
     const temFat = Math.abs(fat)>0.01, temSaldo = Math.abs(saldo)>0.01;
     const stSaldo = p.p5_liberado ? "Liberado para faturamento" : calcStatus(p);
-    if (temFat)   out.push(linha(r.valorVenda||0,r.hrsAprovadas||0,fat,r.valorLiquido||0,varByRec[r.id]||0,"Faturado",nfCheia,funilFat));
-    if (temSaldo) out.push(linha(temFat?"":(r.valorVenda||0),temFat?"":(r.hrsAprovadas||0),saldo,temFat?"":(r.valorLiquido||0),temFat?"":(varByRec[r.id]||0),stSaldo,nfVazia,funilSaldo));
-    if (!temFat && !temSaldo) out.push(linha(r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,varByRec[r.id]||0,calcStatus(p),nfVazia,funilSaldo));
+    if (temFat)   out.push(linha(r.valorVenda||0,r.hrsAprovadas||0,fat,varByRec[r.id]||0,"Faturado",nfCheia,funilFat));
+    if (temSaldo) out.push(linha(temFat?"":(r.valorVenda||0),temFat?"":(r.hrsAprovadas||0),saldo,temFat?"":(varByRec[r.id]||0),stSaldo,nfVazia,funilSaldo));
+    if (!temFat && !temSaldo) out.push(linha(r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,varByRec[r.id]||0,calcStatus(p),nfVazia,funilSaldo));
     return out;
   };
   function buildRecRows() { const rows=[]; recFiltered.forEach(r=>rows.push(...linhasDe(r))); return rows; }
   const previewLines = recFiltered.reduce((s,r)=>s+linhasDe(r).length,0);
 
   function exportReceitas() {
-    const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
+    const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
     downloadXLSX(`Relatorio_Receitas_${previewLines}linhas.xlsx`, headers, buildRecRows());
   }
 
