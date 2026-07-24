@@ -3411,7 +3411,9 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   if (qCli.trim()) { const s=qCli.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.cliente||"").toLowerCase().includes(s)); }
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
 
-  // Explode: uma linha por receita × nota (nota duplicada quando há 2+ notas).
+  // UMA linha por receita (o valor NÃO se repete por nota). Quando o registro
+  // está num lote com várias notas, os números vêm juntos e os campos de valor
+  // por nota ficam em branco (o valor da receita não se divide por nota).
   // Valores como número e datas como Date → xlsx já formatado.
   function buildRecRows() {
     const rows = [];
@@ -3421,12 +3423,14 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
       const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
       const baseB=[r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,varByRec[r.id]||0,calcStatus(p)];
       const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov),p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];
-      if (ns.length===0) rows.push([...baseA,...baseB,"","","","",...funil]);
-      else ns.forEach(n=>rows.push([...baseA,...baseB,n.numero,toDate(n.emitidaEm),n.valorServicos||0,n.municipio||"",...funil]));
+      let nfNum="", nfEm="", nfVal="", nfMun="";
+      if (ns.length===1) { nfNum=ns[0].numero; nfEm=toDate(ns[0].emitidaEm); nfVal=ns[0].valorServicos||0; nfMun=ns[0].municipio||""; }
+      else if (ns.length>1) { nfNum=ns.map(n=>n.numero).join(", "); }   // valores por nota ambíguos no lote
+      rows.push([...baseA,...baseB,nfNum,nfEm,nfVal,nfMun,...funil]);
     });
     return rows;
   }
-  const previewLines = recFiltered.reduce((s,r)=>{ const n=notesForRecord(r,notes,cidsByRec).length; return s+(n||1); },0);
+  const previewLines = recFiltered.length;
 
   function exportReceitas() {
     const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
