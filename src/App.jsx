@@ -1259,7 +1259,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
   if (filterComp!=="todas") filtered = filtered.filter(r=>r.competencia===filterComp);
   if (isAdmin && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa==="_faltam_datas") filtered = filtered.filter(faltaDatas);
-  else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id])===filterEtapa);
+  else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id], bill(r))===filterEtapa);
   if (searchCliente) filtered = filtered.filter(r=>r.cliente.toLowerCase().includes(searchCliente.toLowerCase()));
   if (searchProf)    filtered = filtered.filter(r=>r.profissional.toLowerCase().includes(searchProf.toLowerCase()));
 
@@ -1512,27 +1512,29 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
   if (filterTipo!=="todas")    f=f.filter(r=>r.tipo===filterTipo);
   if (filterComp!=="todas")    f=f.filter(r=>r.competencia===filterComp);
   if (isAdmin&&filterAnalista!=="todos") f=f.filter(r=>r.responsavel===filterAnalista);
-  if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id])===filterEtapa);
-
   const fat = (r) => fatByRec[r.id]||0;                     // já faturado (alocado)
-  const saldo = (r) => (r.valorTotal||0) + (varByRec[r.id]||0) - fat(r);   // a faturar (receita + variação − faturado)
+  const billOf = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);   // faturável (receita + variação)
+  const saldo = (r) => billOf(r) - fat(r);                  // a faturar (com sinal)
+  const isFat = (r) => Math.abs(billOf(r))>0.01 && Math.abs(billOf(r)-fat(r))<0.01;  // faturado por completo (faturável)
+  if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id], billOf(r))===filterEtapa);
+
   const totalValor = f.reduce((a,r)=>a+(r.valorTotal||0),0);
   const naoFat     = f.filter(r=>Math.abs(saldo(r)) > 0.01); // tem saldo a faturar (inclui descontos)
   const valorFat   = f.reduce((a,r)=>a+fat(r),0);           // faturado = só o emitido
   const valorRep   = f.reduce((a,r)=>a+saldo(r),0);         // represado = saldo
   const pctFat     = totalValor>0 ? Math.round((valorFat/totalValor)*100) : 0;
-  const faturados  = f.filter(r=>fat(r) >= (r.valorTotal||0)-0.01 && (r.valorTotal||0)>0);
+  const faturados  = f.filter(isFat);
 
   const byEtapa = {};
   STATUS_ORDER.forEach(s=>{ byEtapa[s]={ count:0, valor:0 }; });
-  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id]); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=(r.valorTotal||0);} });
+  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id], billOf(r)); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=(r.valorTotal||0);} });
 
   const byAnalista = {};
   f.forEach(r=>{
     if(!byAnalista[r.responsavel]) byAnalista[r.responsavel]={ total:0, fat:0, rep:0, cnt:0, fatCnt:0 };
     byAnalista[r.responsavel].total+=(r.valorTotal||0); byAnalista[r.responsavel].cnt++;
     byAnalista[r.responsavel].fat+=fat(r); byAnalista[r.responsavel].rep+=saldo(r);
-    if(fat(r) >= (r.valorTotal||0)-0.01 && (r.valorTotal||0)>0) byAnalista[r.responsavel].fatCnt++;
+    if(isFat(r)) byAnalista[r.responsavel].fatCnt++;
   });
 
   const byEmpresa = {};
@@ -1544,7 +1546,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
   const naoFatByCliente = {};
   naoFat.forEach(r=>{
     const key=r.cliente+"|"+r.pep;
-    if(!naoFatByCliente[key]) naoFatByCliente[key]={ cliente:r.cliente, pep:r.pep, responsavel:r.responsavel, count:0, valor:0, status:recStatus(r, fatByRec[r.id]), color:recStatusColor(r, fatByRec[r.id]) };
+    if(!naoFatByCliente[key]) naoFatByCliente[key]={ cliente:r.cliente, pep:r.pep, responsavel:r.responsavel, count:0, valor:0, status:recStatus(r, fatByRec[r.id], billOf(r)), color:recStatusColor(r, fatByRec[r.id], billOf(r)) };
     naoFatByCliente[key].count++; naoFatByCliente[key].valor+=saldo(r);
   });
 
@@ -3413,7 +3415,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   if (compDe!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)>=compRank(compDe));
   if (compAte!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)<=compRank(compAte));
   if (status==="_faltam_datas") recFiltered = recFiltered.filter(faltaDatas);
-  else if (status!=="todos") recFiltered = recFiltered.filter(r=>calcStatus(r.progress)===status);
+  else if (status!=="todos") recFiltered = recFiltered.filter(r=>recStatus(r, fatByRec[r.id], (r.valorTotal||0)+(varByRec[r.id]||0))===status);
   const temNota = r => (cidsByRec[r.id] && cidsByRec[r.id].size) || r.conciliacaoId || r.municipalNoteId;
   if (concil==="conciliado") recFiltered = recFiltered.filter(temNota);
   if (concil==="sem_nota") recFiltered = recFiltered.filter(r=>!temNota(r));
