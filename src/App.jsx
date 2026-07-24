@@ -1414,11 +1414,14 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
                     const colCount = (isAdmin?1:0)+7+(isAdmin?1:0);
                     const fatR = fatByRec[r.id]||0;
                     const saldoR = Math.max(0,(r.valorTotal||0)-fatR);
+                    const saldoBill = bill(r) - fatR;                                   // saldo faturável (inclui variação)
+                    const parcial = Math.abs(fatR)>0.01 && Math.abs(saldoBill)>0.01;     // faturado em parte
                     const temAlerta = r.valorAnterior!=null || r.ausenteRelatorio || r.valorBaseDivergente!=null;
+                    const subRow = temAlerta || parcial;
                     const alertaFat = r.valorAnterior!=null && fatR>0.001;
                     return (
                     <Fragment key={r.id}>
-                    <tr className="fc-row" style={{borderBottom:temAlerta?"none":`1px solid ${T.lineSoft}`}}>
+                    <tr className="fc-row" style={{borderBottom:subRow?"none":`1px solid ${T.lineSoft}`}}>
                       {isAdmin&&<td style={{padding:"7px 10px"}}><Badge label={r.responsavel} color="purple" small/></td>}
                       <td style={{padding:"7px 10px",fontWeight:500,color:T.ink}}>{r.profissional}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11,color:r.ordemVenda?T.inkSoft:T.faint}}>{r.ordemVenda||"—"}</td>
@@ -1435,8 +1438,12 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
                         <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}><Icon name="trash" size={14}/></button>
                       </td>}
                     </tr>
-                    {temAlerta&&<tr style={{borderBottom:`1px solid ${T.lineSoft}`}}><td colSpan={colCount} style={{padding:"0 10px 8px"}}>
-                      {r.valorAnterior!=null && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:alertaFat?"#fef2f2":"#fffbeb",border:`1px solid ${alertaFat?"#fecaca":"#fde68a"}`,color:alertaFat?"#991b1b":"#92400e",fontWeight:600}}>
+                    {subRow&&<tr style={{borderBottom:`1px solid ${T.lineSoft}`}}><td colSpan={colCount} style={{padding:"0 10px 8px"}}>
+                      {parcial && <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:"#fff7ed",border:"1px solid #fed7aa",color:"#9a3412",fontWeight:600}}>
+                        <Icon name="wallet" size={14}/>
+                        <span><b>Faturamento parcial</b> — ✓ faturado {brl(fatR)} · <b>saldo a faturar {brl(saldoBill)}</b> (pendente de nova NF na conciliação)</span>
+                      </div>}
+                      {r.valorAnterior!=null && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:alertaFat?"#fef2f2":"#fffbeb",border:`1px solid ${alertaFat?"#fecaca":"#fde68a"}`,color:alertaFat?"#991b1b":"#92400e",fontWeight:600,marginTop:parcial?6:0}}>
                         <Icon name={alertaFat?"alert":"info"} size={14}/>
                         {alertaFat
                           ? <span>Valor mudou <b>após faturamento</b>: {brl(r.valorAnterior)} → {brl(r.valorTotal)}. Já faturado {brl(fatR)}{saldoR>0.01?<> · <b>saldo a faturar {brl(saldoR)}</b></>:<> · <b>faturado a maior {brl(fatR-(r.valorTotal||0))} — NF a corrigir</b></>}. {r.nfNumero?`NF ${r.nfNumero} a revisar/cancelar.`:""}</span>
@@ -3381,7 +3388,7 @@ function notesForRecord(r, notes, cidsByRec) {
   return [];
 }
 
-function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], varByRec={}, isAdmin, analistas }) {
+function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], varByRec={}, fatByRec={}, isAdmin, analistas }) {
   const cidsByRec = {}; faturamentos.forEach(a=>{ if(a.conciliacaoId){ (cidsByRec[a.recordId]=cidsByRec[a.recordId]||new Set()).add(a.conciliacaoId); } });
   const [tab, setTab] = useState("receitas");
 
@@ -3413,26 +3420,35 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   if (qCli.trim()) { const s=qCli.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.cliente||"").toLowerCase().includes(s)); }
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
 
-  // UMA linha por receita (o valor NÃO se repete por nota). Quando o registro
-  // está num lote com várias notas, os números vêm juntos e os campos de valor
-  // por nota ficam em branco (o valor da receita não se divide por nota).
-  // Valores como número e datas como Date → xlsx já formatado.
-  function buildRecRows() {
-    const rows = [];
-    recFiltered.forEach(r=>{
-      const p=r.progress||{};
-      const ns=notesForRecord(r, notes, cidsByRec);
-      const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
-      const baseB=[r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,varByRec[r.id]||0,calcStatus(p)];
-      const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov),p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];
-      let nfNum="", nfEm="", nfVal="", nfMun="";
-      if (ns.length===1) { nfNum=ns[0].numero; nfEm=toDate(ns[0].emitidaEm); nfVal=ns[0].valorServicos||0; nfMun=ns[0].municipio||""; }
-      else if (ns.length>1) { nfNum=ns.map(n=>n.numero).join(", "); }   // valores por nota ambíguos no lote
-      rows.push([...baseA,...baseB,nfNum,nfEm,nfVal,nfMun,...funil]);
-    });
-    return rows;
-  }
-  const previewLines = recFiltered.length;
+  // Faturamento parcial → DUAS linhas do consultor: o que já foi faturado
+  // (status "Faturado", com a NF) e o saldo pendente (status a faturar, sem NF).
+  // Assim o contábil vê exatamente quanto está faturado e quanto falta.
+  const linhasDe = (r) => {
+    const p=r.progress||{};
+    const fat = fatByRec[r.id]||0;
+    const bill = (r.valorTotal||0) + (varByRec[r.id]||0);
+    const saldo = bill - fat;
+    const ns=notesForRecord(r, notes, cidsByRec);
+    const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
+    let nfNum="", nfEm="", nfVal="", nfMun="";
+    if (ns.length===1) { nfNum=ns[0].numero; nfEm=toDate(ns[0].emitidaEm); nfVal=ns[0].valorServicos||0; nfMun=ns[0].municipio||""; }
+    else if (ns.length>1) { nfNum=ns.map(n=>n.numero).join(", "); }
+    const funilBase=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov)];
+    const funilFat=[...funilBase,"S","S",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];       // P5 NF=S
+    const funilSaldo=[...funilBase,"N","N",r.obs||"","",""];                                            // saldo: NF pendente
+    // linha: [...baseA, vVenda, hrs, valTotal, vLiq, variação, status, NF..., funil]
+    const linha = (vVenda,hrs,valTot,vLiq,varc,status,nf,funil) => [...baseA,vVenda,hrs,valTot,vLiq,varc,status,nf.num,nf.em,nf.val,nf.mun,...funil];
+    const nfCheia={num:nfNum,em:nfEm,val:nfVal,mun:nfMun}, nfVazia={num:"",em:"",val:"",mun:""};
+    const out=[];
+    const temFat = Math.abs(fat)>0.01, temSaldo = Math.abs(saldo)>0.01;
+    const stSaldo = p.p5_liberado ? "Liberado para faturamento" : calcStatus(p);
+    if (temFat)   out.push(linha(r.valorVenda||0,r.hrsAprovadas||0,fat,r.valorLiquido||0,varByRec[r.id]||0,"Faturado",nfCheia,funilFat));
+    if (temSaldo) out.push(linha(temFat?"":(r.valorVenda||0),temFat?"":(r.hrsAprovadas||0),saldo,temFat?"":(r.valorLiquido||0),temFat?"":(varByRec[r.id]||0),stSaldo,nfVazia,funilSaldo));
+    if (!temFat && !temSaldo) out.push(linha(r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,varByRec[r.id]||0,calcStatus(p),nfVazia,funilSaldo));
+    return out;
+  };
+  function buildRecRows() { const rows=[]; recFiltered.forEach(r=>rows.push(...linhasDe(r))); return rows; }
+  const previewLines = recFiltered.reduce((s,r)=>s+linhasDe(r).length,0);
 
   function exportReceitas() {
     const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
@@ -3492,7 +3508,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
           </div>
         </Card>
         <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no relatório <span style={{color:T.muted,fontSize:11}}>(uma linha por receita; as notas do lote vêm juntas na coluna NF)</span></div>
+          <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no relatório <span style={{color:T.muted,fontSize:11}}>(faturamento parcial gera 2 linhas: valor faturado + saldo a faturar)</span></div>
           <div style={{flex:1}}/>
           <Btn primary icon="download" disabled={!recFiltered.length} onClick={exportReceitas}>Exportar receitas (.xlsx)</Btn>
         </Card>
@@ -4196,7 +4212,7 @@ function AppInner() {
           )}
           {page==="reports"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} variacoes={variacoes} varByRec={varByRec} isAdmin={isAdmin} analistas={responsaveis}/>
+              <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} variacoes={variacoes} varByRec={varByRec} fatByRec={fatByRec} isAdmin={isAdmin} analistas={responsaveis}/>
             </div>
           )}
           {page==="clients"&&(
