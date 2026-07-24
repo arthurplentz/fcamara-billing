@@ -2694,9 +2694,11 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
 
-  // Totais do que está filtrado (mostrados no topo de cada quadro)
+  // Totais do que está filtrado (mostrados no topo de cada quadro).
+  // Coluna de receitas: soma o MESMO que cada linha mostra — saldo a faturar
+  // (faturados = o valor já faturado). Assim bate com a seleção e com as notas.
   const leftTotVal = leftNotes.reduce((s,n)=>s+(n.valorServicos||0),0);
-  const rightTotVal = rightRecs.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const rightTotVal = rightRecs.reduce((s,r)=>s+(recStat==="faturados" ? fat(r) : saldoR(r)),0);
   const rightPend = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   const leftPendFiltered = leftNotes.filter(n=>!notaConc(n));
   const allRightSel = rightPend.length>0 && rightPend.every(r=>selRecs.has(r.id));
@@ -2915,7 +2917,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
               <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
                   <span style={{fontWeight:700,fontSize:13}}>Receitas reconhecidas</span>
-                  <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{rightRecs.length}</b> · {brl(rightTotVal)}</span>
+                  <span style={{fontSize:12,color:T.muted}}><b style={{color:T.ink}}>{rightRecs.length}</b> · {brl(rightTotVal)} <span style={{fontSize:10.5}}>{recStat==="faturados"?"faturado":"a faturar"}</span></span>
                   <div style={{flex:1}}/>
                   {rightPend.length>0 && <Btn small onClick={toggleAllRecs}>{allRightSel?"Limpar":"Tudo filtrado"}</Btn>}
                   {selectedNotes.length>0 && <Btn small onClick={selSugeridos}>Sugeridos</Btn>}
@@ -2945,7 +2947,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
                             <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
                           </div>
                           {on && hasSaldo(r)
-                            ? <input style={{...inp,width:110,fontSize:12,padding:"4px 7px",textAlign:"right"}} title="Valor a faturar (parcial)" value={valores[r.id] ?? String(saldoR(r))} onChange={e=>setValor(r.id,e.target.value)} onClick={e=>e.stopPropagation()}/>
+                            ? <input style={{...inp,width:110,fontSize:12,padding:"4px 7px",textAlign:"right"}} title="Valor a faturar (parcial)" value={valores[r.id] ?? saldoR(r).toFixed(2)} onChange={e=>setValor(r.id,e.target.value)} onClick={e=>e.stopPropagation()}/>
                             : <div style={{fontSize:12.5,fontWeight:700,color:full?T.muted:T.ink,whiteSpace:"nowrap"}}>{brl(full ? fat(r) : saldoR(r))}</div>}
                         </div>
                       );
