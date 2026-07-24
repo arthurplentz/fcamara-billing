@@ -344,9 +344,23 @@ export async function restoreRecords(list) {
   if (error) throw error;
 }
 
+// ─── VARIAÇÃO DE RECEITA (ajustes pós-fechamento, faturáveis) ────────────────
+export async function fetchVariacoes() {
+  const rows = await fetchAllPaged("receita_variacoes", "*", "created_at");
+  return rows.map(r => ({ id: r.id, recordId: r.record_id, valor: Number(r.valor) || 0, motivo: r.motivo || "", criadoPor: r.criado_por || "", createdAt: r.created_at }));
+}
+export async function insertVariacao({ recordId, valor, motivo, criadoPor }) {
+  const { error } = await supabase.from("receita_variacoes").insert({ record_id: recordId, valor: valor || 0, motivo: motivo || null, criado_por: criadoPor || null });
+  if (error) throw error;
+}
+export async function deleteVariacao(id) {
+  const { error } = await supabase.from("receita_variacoes").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ─── CLIENTS (perfil de faturamento) ─────────────────────────────────────────
-const CLIENT_FIELDS = ["nome","cod_sap","cnpj","cnpjs","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email"];
-const BOOL_CLIENT_FIELDS = ["tem_portal","incompleto"];
+const CLIENT_FIELDS = ["nome","cod_sap","cnpj","cnpjs","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email","aceita_variacao"];
+const BOOL_CLIENT_FIELDS = ["tem_portal","incompleto","aceita_variacao"];
 
 // Busca paginada — traz TODAS as linhas (o Supabase pode limitar a 1000 por página).
 async function fetchAllPaged(table, columns, orderCol) {

@@ -184,14 +184,14 @@ function calcStatusColor(prog) {
 
 const STATUS_ORDER = ["Não iniciado","Dados extraídos","Racional montado","Aguard. retorno comercial","Retorno comercial recebido","Aguard. aprovação cliente","Cliente aprovou","Liberado para faturamento","Faturado parcial","Faturado"];
 // Status considerando o faturamento parcial (allocated = quanto já foi faturado).
-function recStatus(r, allocated) {
-  const total = r.valorTotal||0, a = allocated||0;
+function recStatus(r, allocated, totalOverride) {
+  const total = totalOverride==null ? (r.valorTotal||0) : totalOverride, a = allocated||0;
   if (Math.abs(total) > 0.01 && Math.abs(total - a) < 0.01) return "Faturado";
   if (Math.abs(a) > 0.001)                                  return "Faturado parcial";
   return calcStatus(r.progress);
 }
-function recStatusColor(r, allocated) {
-  const total = r.valorTotal||0, a = allocated||0;
+function recStatusColor(r, allocated, totalOverride) {
+  const total = totalOverride==null ? (r.valorTotal||0) : totalOverride, a = allocated||0;
   if (Math.abs(total) > 0.01 && Math.abs(total - a) < 0.01) return "green";
   if (Math.abs(a) > 0.001)                                  return "orange";
   return calcStatusColor(r.progress);
@@ -1182,10 +1182,56 @@ function RecordEditModal({ record, conciliado, onSave, onClose }) {
   );
 }
 
+// Lançar variação de receita pós-fechamento (ex.: Casas Bahia). Não altera a
+// receita original — cria um lançamento faturável à parte, com histórico.
+function VariacaoModal({ record, lancamentos, onAdd, onDelete, onClose }) {
+  const [valor, setValor] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const total = lancamentos.reduce((s,v)=>s+(v.valor||0),0);
+  function add() {
+    const v = parseBR(valor);
+    if (!v) return;
+    onAdd(v, motivo.trim());
+    setValor(""); setMotivo("");
+  }
+  return (
+    <Modal title="Variação de receita" subtitle={`${record.cliente} · ${record.profissional||record.pep}`} onClose={onClose}
+      footer={<Btn onClick={onClose}>Fechar</Btn>}>
+      <div style={{fontSize:12.5,color:T.inkSoft,background:C.purple.bg,border:`1px solid ${C.purple.border}`,borderRadius:T.rMd,padding:"10px 12px",marginBottom:16}}>
+        Ajuste <b>pós-fechamento</b>: não altera a receita original (que continua a verdade final). O valor entra como <b>saldo a faturar</b> — emita uma NF própria — e aparece nos relatórios como variação.
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:6,flexWrap:"wrap"}}>
+        <Field label="Valor da variação (R$)"><input style={{...inp,width:150}} placeholder="0,00" value={valor} onChange={e=>setValor(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")add();}}/></Field>
+        <Field label="Motivo (opcional)"><input style={{...inp,minWidth:200}} placeholder="Ex.: valor extra do cliente" value={motivo} onChange={e=>setMotivo(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")add();}}/></Field>
+        <Btn primary onClick={add} disabled={!parseBR(valor)}>Lançar</Btn>
+      </div>
+      <div style={{marginTop:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:T.muted,marginBottom:6}}>
+          <span>Lançamentos ({lancamentos.length})</span>
+          <span>Total: <b style={{color:C.purple.solid}}>{brl(total)}</b></span>
+        </div>
+        {lancamentos.length===0 ? <div style={{fontSize:12,color:T.muted,padding:"10px 0"}}>Nenhuma variação lançada ainda.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {lancamentos.slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).map(v=>(
+              <div key={v.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 11px",border:`1px solid ${T.line}`,borderRadius:T.rSm,fontSize:12.5}}>
+                <span style={{fontWeight:700,color:C.purple.solid,whiteSpace:"nowrap"}}>{brl(v.valor)}</span>
+                <span style={{flex:1,color:T.inkSoft,overflow:"hidden",textOverflow:"ellipsis"}}>{v.motivo||"—"}</span>
+                <span style={{fontSize:11,color:T.faint,whiteSpace:"nowrap"}}>{v.criadoPor}{v.createdAt?` · ${new Date(v.createdAt).toLocaleDateString("pt-BR")}`:""}</span>
+                <button title="Remover" onClick={()=>onDelete(v.id)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger}}><Icon name="trash" size={13}/></button>
+              </div>
+            ))}
+          </div>}
+      </div>
+    </Modal>
+  );
+}
+
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
-function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDeleteRecord, onClearAlert, competenciaAtual, onCompetenciaChange }) {
+function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRec={}, aceitaVar=()=>false, onAddVariacao, onDelVariacao, onUpdateBulk, onDeleteRecord, onClearAlert, competenciaAtual, onCompetenciaChange }) {
   const isMobile = useIsMobile();
+  const [varTarget, setVarTarget] = useState(null);   // registro para lançar variação
+  const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);   // faturável (receita + variação)
   const [recordEdit, setRecEdit] = useState(null);
   const [recordDel, setRecDel]   = useState(null);
   const [empresa, setEmpresa]       = useState("");
@@ -1238,6 +1284,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
       {recordDel&&<ConfirmDialog title="Excluir registro" danger confirmLabel="Excluir"
         message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.${(fatByRec[recordDel.id]||0)>0.001?" ⚠️ Este registro está CONCILIADO — a(s) nota(s) do lote serão reabertas na conciliação." : ""}`}
         onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
+      {varTarget&&<VariacaoModal record={varTarget} lancamentos={(varsByRec[varTarget.id]||[])} onAdd={(valor,motivo)=>onAddVariacao(varTarget.id,valor,motivo)} onDelete={onDelVariacao} onClose={()=>setVarTarget(null)}/>}
 
       <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
         <h1 style={Ty.h1}>Minha visão</h1>
@@ -1307,11 +1354,12 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
       {/* Cards de clientes */}
       {groups.map(g=>{
         const total   = g.records.reduce((a,r)=>a+(r.valorTotal||0),0);
-        const totalG  = g.records.reduce((a,r)=>a+(r.valorTotal||0),0);
+        const varG    = g.records.reduce((a,r)=>a+(varByRec[r.id]||0),0);
+        const totalG  = g.records.reduce((a,r)=>a+bill(r),0);   // faturável (com variação)
         const fatG    = g.records.reduce((a,r)=>a+(fatByRec[r.id]||0),0);
         const pct     = totalG>0 ? Math.round(fatG/totalG*100) : 0;
         const isOpen  = expandedCliente===(g.cliente+g.pep);
-        const fullG = g.records.filter(r=>{const t=r.valorTotal||0;return Math.abs(t)>0.01 && Math.abs(t-(fatByRec[r.id]||0))<0.01;}).length;
+        const fullG = g.records.filter(r=>{const t=bill(r);return Math.abs(t)>0.01 && Math.abs(t-(fatByRec[r.id]||0))<0.01;}).length;
         const anyG  = g.records.filter(r=>Math.abs(fatByRec[r.id]||0)>0.001).length;
         const overallStatus = fullG===g.records.length?"Faturado":anyG>0?"Faturado parcial":g.records.every(r=>r.progress?.p5_liberado)?"Liberado p/ faturamento":"Em andamento";
         const overallColor  = fullG===g.records.length?"green":anyG>0?"orange":g.records.every(r=>r.progress?.p5_liberado)?"teal":"yellow";
@@ -1376,9 +1424,12 @@ function MyView({ records, analista, isAdmin, fatByRec={}, onUpdateBulk, onDelet
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11,color:r.ordemVenda?T.inkSoft:T.faint}}>{r.ordemVenda||"—"}</td>
                       <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} size="sm"/></td>
                       <td style={{padding:"7px 10px",color:T.muted,whiteSpace:"nowrap"}}>{r.inicio} → {r.fim}</td>
-                      <td style={{padding:"7px 10px",fontWeight:500}}>{fmtShort(r.valorTotal)}</td>
+                      <td style={{padding:"7px 10px",fontWeight:500,whiteSpace:"nowrap"}}>{fmtShort(r.valorTotal)}{(varByRec[r.id]||0)>0.001&&<div style={{fontSize:10.5,color:C.purple.solid,fontWeight:700}}>+ {fmtShort(varByRec[r.id])} variação</div>}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
-                      <td style={{padding:"7px 10px"}}><Badge label={recStatus(r, fatByRec[r.id])} color={recStatusColor(r, fatByRec[r.id])} small dot/></td>
+                      <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
+                        <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color={recStatusColor(r, fatByRec[r.id], bill(r))} small dot/>
+                        {aceitaVar(r) && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"#fff",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
+                      </td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
                         <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}><Icon name="pencil" size={14}/></button>
                         <button title="Excluir registro" onClick={()=>setRecDel(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14,padding:"0 4px"}}><Icon name="trash" size={14}/></button>
@@ -1436,7 +1487,7 @@ function Donut({ pct, size=120, label, sub }) {
   );
 }
 
-function Dashboard({ records, analista, isAdmin, fatByRec={} }) {
+function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
   const [filterEmpresa, setFE] = useState("todas");
   const [filterComp,    setFC] = useState("todas");
   const [filterAnalista,setFA] = useState(isAdmin?"todos":analista);
@@ -1457,7 +1508,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={} }) {
   if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id])===filterEtapa);
 
   const fat = (r) => fatByRec[r.id]||0;                     // já faturado (alocado)
-  const saldo = (r) => (r.valorTotal||0) - fat(r);          // a faturar (com sinal: desconto negativo)
+  const saldo = (r) => (r.valorTotal||0) + (varByRec[r.id]||0) - fat(r);   // a faturar (receita + variação − faturado)
   const totalValor = f.reduce((a,r)=>a+(r.valorTotal||0),0);
   const naoFat     = f.filter(r=>Math.abs(saldo(r)) > 0.01); // tem saldo a faturar (inclui descontos)
   const valorFat   = f.reduce((a,r)=>a+fat(r),0);           // faturado = só o emitido
@@ -2264,6 +2315,14 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         </div>}
       </div>
 
+      <div style={{marginBottom:16,padding:"12px 14px",borderRadius:T.rLg,background:T.canvas,border:`1px solid ${T.line}`}}>
+        <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:T.ink,cursor:"pointer"}}>
+          <input type="checkbox" checked={!!f.aceitaVariacao} onChange={e=>set("aceitaVariacao",e.target.checked)} style={{width:16,height:16}}/>
+          Aceita variação de receita pós-fechamento?
+        </label>
+        <div style={{fontSize:11.5,color:T.muted,marginTop:6}}>Habilita, na Minha visão, o lançamento de valores extras por consultor <b>depois</b> que a receita foi fechada (ex.: Casas Bahia). O extra vira saldo a faturar e aparece nos relatórios como variação.</div>
+      </div>
+
       <CSec title="Contato financeiro">
         <Field label="Nome"><input style={inp} value={f.contatoFinanceiro||""} onChange={e=>set("contatoFinanceiro",e.target.value)}/></Field>
         <Field label="E-mail"><input style={inp} type="email" placeholder="financeiro@cliente.com" value={f.contatoFinanceiroEmail||""} onChange={e=>set("contatoFinanceiroEmail",e.target.value)}/></Field>
@@ -2561,7 +2620,7 @@ function NotesImportModal({ onImport, onClose }) {
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, faturamentos=[], orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
+function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varByRec={}, faturamentos=[], orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
@@ -2590,9 +2649,12 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
   const notaConc = (n) => !!n.conciliacaoId || records.some(r => r.municipalNoteId === n.id);
   // Faturamento parcial: quanto já foi faturado e quanto falta (saldo).
   const fat    = (r) => fatByRec[r.id] || 0;
+  // Faturável = receita + variação pós-fechamento (ex.: Casas Bahia). A variação
+  // vira saldo a conciliar (NF própria) sem alterar a receita original.
+  const bill   = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
   // Saldo COM sinal: descontos (valor negativo) também precisam ser conciliados
   // para fechar o total da nota. Ex.: +10.500 serviço − 500 desconto = 10.000.
-  const saldoR = (r) => (r.valorTotal||0) - fat(r);
+  const saldoR = (r) => bill(r) - fat(r);
   const hasSaldo = (r) => Math.abs(saldoR(r)) > 0.01;
   const hasFat   = (r) => Math.abs(fat(r)) > 0.001;
   // valor a faturar do registro (padrão = saldo; digitável; nunca passa do saldo,
@@ -2879,8 +2941,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, fatur
                             ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
-                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(r.valorTotal)}`:""}</div>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
+                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
                           </div>
                           {on && hasSaldo(r)
                             ? <input style={{...inp,width:110,fontSize:12,padding:"4px 7px",textAlign:"right"}} title="Valor a faturar (parcial)" value={valores[r.id] ?? String(saldoR(r))} onChange={e=>setValor(r.id,e.target.value)} onClick={e=>e.stopPropagation()}/>
@@ -3317,7 +3379,7 @@ function notesForRecord(r, notes, cidsByRec) {
   return [];
 }
 
-function ReportsView({ records, clients, notes, faturamentos=[], isAdmin, analistas }) {
+function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], varByRec={}, isAdmin, analistas }) {
   const cidsByRec = {}; faturamentos.forEach(a=>{ if(a.conciliacaoId){ (cidsByRec[a.recordId]=cidsByRec[a.recordId]||new Set()).add(a.conciliacaoId); } });
   const [tab, setTab] = useState("receitas");
 
@@ -3357,7 +3419,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], isAdmin, analis
       const p=r.progress||{};
       const ns=notesForRecord(r, notes, cidsByRec);
       const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
-      const baseB=[r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,calcStatus(p)];
+      const baseB=[r.valorVenda||0,r.hrsAprovadas||0,r.valorTotal||0,r.valorLiquido||0,varByRec[r.id]||0,calcStatus(p)];
       const funil=[p.p1_extrair?"S":"N",p.p2_racional?"S":"N",p.p3_retorno_com?"S":"N",toDate(p.p3_data_retorno),p.p4_aprovacao?"S":"N",toDate(p.p4_data_aprov),p.p5_nf?"S":"N",p.p5_no_corte?"S":"N",r.obs||"",r.conciliadoPor||"",toDate(r.conciliadoEm)];
       if (ns.length===0) rows.push([...baseA,...baseB,"","","","",...funil]);
       else ns.forEach(n=>rows.push([...baseA,...baseB,n.numero,toDate(n.emitidaEm),n.valorServicos||0,n.municipio||"",...funil]));
@@ -3367,7 +3429,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], isAdmin, analis
   const previewLines = recFiltered.reduce((s,r)=>{ const n=notesForRecord(r,notes,cidsByRec).length; return s+(n||1); },0);
 
   function exportReceitas() {
-    const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
+    const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Val. Líquido","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
     downloadXLSX(`Relatorio_Receitas_${previewLines}linhas.xlsx`, headers, buildRecRows());
   }
 
@@ -3630,6 +3692,7 @@ function AppInner() {
   const [deliveries, setDeliveries] = useState([]);
   const [notes, setNotes] = useState([]);   // notas da prefeitura (NFS-e)
   const [faturamentos, setFaturamentos] = useState([]);  // livro de faturamento (alocações parciais)
+  const [variacoes, setVariacoes] = useState([]);        // variações de receita pós-fechamento
   const [mural, setMural] = useState({ id:null, frase:"", autor:"", lembretes:[] });
   const [dataReady, setDataRdy] = useState(false);
 
@@ -3645,15 +3708,16 @@ function AppInner() {
   const reloadDeliveries = useCallback(async () => { try { setDeliveries(await db.fetchDeliveries()); } catch(e){ /* idem */ } }, []);
   const reloadNotes = useCallback(async () => { try { setNotes(await db.fetchMunicipalNotes()); } catch(e){ /* notas: tabela pode não existir ainda */ } }, []);
   const reloadFaturamentos = useCallback(async () => { try { setFaturamentos(await db.fetchFaturamentos()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
+  const reloadVariacoes = useCallback(async () => { try { setVariacoes(await db.fetchVariacoes()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
   const reloadMural = useCallback(async () => { try { setMural(await db.fetchMural()); } catch(e){ /* mural: tabela pode não existir ainda */ } }, []);
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[])])
-      .then(([r, t, h, p, c, tm, dv, nt, mu, fa]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[])])
+      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -3952,13 +4016,14 @@ function AppInner() {
       recordIds.forEach(id => {
         const r = records.find(x => x.id === id); if (!r) return;
         const jaFat = fatByRec[r.id] || 0;
-        const saldo = (r.valorTotal||0) - jaFat;   // com sinal (aceita desconto negativo)
+        const faturavel = (r.valorTotal||0) + (varByRec[r.id]||0);   // inclui variação pós-fechamento
+        const saldo = faturavel - jaFat;   // com sinal (aceita desconto negativo)
         const bruto = valoresMap?.[id] ?? saldo;
         // Clampa ao saldo respeitando o sinal (não ultrapassa nem inverte).
         const valor = saldo >= 0 ? Math.max(0, Math.min(bruto, saldo)) : Math.min(0, Math.max(bruto, saldo));
         if (Math.abs(valor) <= 0.001) return;
         allocations.push({ recordId: id, valor });
-        const full = Math.abs((r.valorTotal||0) - (jaFat + valor)) <= 0.01;
+        const full = Math.abs(faturavel - (jaFat + valor)) <= 0.01;
         const progress = full ? faturarProgress(r, { emitidaEm: dataNf }) : { ...(r.progress||{}), p5_liberado: true };
         const nfNumero = [...new Set([r.nfNumero, numero].join(", ").split(", ").map(s=>s.trim()).filter(Boolean))].join(", ");
         recordItems.push({ id, progress, nfNumero });
@@ -4038,6 +4103,23 @@ function AppInner() {
   faturamentos.forEach(a => { fatByRec[a.recordId] = (fatByRec[a.recordId]||0) + (a.valor||0); });
   records.forEach(r => { if (!(r.id in fatByRec) && isFaturado(r.progress)) fatByRec[r.id] = r.valorTotal||0; });
 
+  // Variação de receita pós-fechamento (faturável) — soma por registro + lista.
+  const varByRec = {}; const varsByRec = {};
+  variacoes.forEach(v => { varByRec[v.recordId] = (varByRec[v.recordId]||0) + (v.valor||0); (varsByRec[v.recordId] = varsByRec[v.recordId] || []).push(v); });
+  // Clientes que aceitam variação (marcados no cadastro) — casa pelo nome.
+  const normCli = s => (s||"").toString().trim().toLowerCase();
+  const varClientes = clients.filter(c => c.aceitaVariacao).map(c => normCli(c.nome)).filter(Boolean);
+  const aceitaVar = (r) => { const rc = normCli(r.cliente); return varClientes.some(cn => rc===cn || (cn.length>4 && rc.includes(cn))); };
+
+  async function handleAddVariacao(recordId, valor, motivo) {
+    try { await db.insertVariacao({ recordId, valor, motivo, criadoPor: user.name }); await Promise.all([reloadVariacoes(), reloadRecords()]); toast("Variação lançada — vai aparecer como saldo a faturar"); }
+    catch(e){ toast("Erro ao lançar variação: "+e.message, "error"); }
+  }
+  async function handleDelVariacao(id) {
+    try { await db.deleteVariacao(id); await reloadVariacoes(); toast("Variação removida", "info"); }
+    catch(e){ toast("Erro ao remover variação: "+e.message, "error"); }
+  }
+
   const responsaveis = [...new Set([...profiles.map(p=>p.name), ...records.map(r=>r.responsavel)].filter(Boolean))].sort();
 
   if (recovery) return (
@@ -4087,8 +4169,8 @@ function AppInner() {
           )}
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
-              {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec}/>}
+              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec}/>}
             </div>
           )}
           {page==="dados"&&isAdmin&&(
@@ -4100,7 +4182,7 @@ function AppInner() {
           )}
           {page==="concil"&&(
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec} faturamentos={faturamentos}
+              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec} faturamentos={faturamentos}
                 orfas={notasOrfas.length} onReopenOrphans={handleReopenOrphans}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
@@ -4108,7 +4190,7 @@ function AppInner() {
           )}
           {page==="reports"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} isAdmin={isAdmin} analistas={responsaveis}/>
+              <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} variacoes={variacoes} varByRec={varByRec} isAdmin={isAdmin} analistas={responsaveis}/>
             </div>
           )}
           {page==="clients"&&(
