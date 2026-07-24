@@ -3492,7 +3492,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
           </div>
         </Card>
         <Card style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no CSV <span style={{color:T.muted,fontSize:11}}>(uma por nota; receita com 2 notas gera 2 linhas)</span></div>
+          <div style={{fontSize:13}}><b>{recFiltered.length}</b> receita(s) · <b>{previewLines}</b> linha(s) no relatório <span style={{color:T.muted,fontSize:11}}>(uma linha por receita; as notas do lote vêm juntas na coluna NF)</span></div>
           <div style={{flex:1}}/>
           <Btn primary icon="download" disabled={!recFiltered.length} onClick={exportReceitas}>Exportar receitas (.xlsx)</Btn>
         </Card>
