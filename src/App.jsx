@@ -1265,7 +1265,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
 
   // Resumo por tipo de contrato
   const porTipo = {};
-  filtered.forEach(r=>{ const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=(r.valorTotal||0); porTipo[t].fat+=(fatByRec[r.id]||0); });
+  filtered.forEach(r=>{ const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=bill(r); porTipo[t].fat+=(fatByRec[r.id]||0); });
   const tipoColors = { "Time & Expenses":"blue", "Fee":"purple", "WIP":"teal", "Usage Based":"orange" };
 
   const grouped = {};
@@ -3206,7 +3206,7 @@ function ApelidoModal({ atual, onSave, onClose }) {
   );
 }
 
-function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={}, mural, onSaveMural, onSaveApelido, onNavigate }) {
+function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={}, varByRec={}, mural, onSaveMural, onSaveApelido, onNavigate }) {
   const [editing, setEditing] = useState(false);
   const [editApelido, setEditApelido] = useState(false);
   // Relógio leve: mantém data/saudação sempre corretas (vira o dia / muda o turno)
@@ -3239,7 +3239,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
   const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   const compAtual = comps[comps.length-1] || "";
   const doMes = records.filter(r=>r.competencia===compAtual);
-  const totalMes = doMes.reduce((s,r)=>s+(r.valorTotal||0),0);
+  const totalMes = doMes.reduce((s,r)=>s+(r.valorTotal||0)+(varByRec[r.id]||0),0);   // faturável (receita + variação)
   const fatMes = doMes.reduce((s,r)=>s+(fatByRec[r.id]||0),0);
   const pctMes = totalMes ? Math.round(fatMes/totalMes*100) : 0;
 
@@ -4188,7 +4188,7 @@ function AppInner() {
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
           {page==="home"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} profiles={profiles} fatByRec={fatByRec} mural={mural} onSaveMural={handleMuralSave} onSaveApelido={handleSaveApelido} onNavigate={setPage}/>
+              <HomeView user={user} isAdmin={isAdmin} records={records} notes={notes} tasks={tasks} profiles={profiles} fatByRec={fatByRec} varByRec={varByRec} mural={mural} onSaveMural={handleMuralSave} onSaveApelido={handleSaveApelido} onNavigate={setPage}/>
             </div>
           )}
           {(page==="time"||page==="dash")&&(
