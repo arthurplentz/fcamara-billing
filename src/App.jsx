@@ -2546,6 +2546,9 @@ function parseMunicipalSheet(rows, municipio) {
     // Pula linhas de total/rodapé (ex.: "Total;355;...") — não têm tomador válido.
     const tomadorCnpj = onlyDigits(get(row, "tomadorCnpj"));
     if (tomadorCnpj.length < 11 || /^total/i.test(String(get(row, "numero")).trim()) || /^total/i.test(String(row[0]||"").trim())) { ignoradas++; continue; }
+    // Rodapé de soma costuma vir SEM CNPJ do prestador (toda NFS-e real tem).
+    // Só aplica quando o arquivo tem a coluna de prestador (senão dropava tudo).
+    if (idx.prestCnpj >= 0 && onlyDigits(get(row, "prestCnpj")).length < 11) { ignoradas++; continue; }
     const disc = String(get(row, "discrim") || "");
     const meta = parseDiscriminacao(disc);
     const situacao = String(get(row, "situacao")).trim();
