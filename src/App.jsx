@@ -1675,7 +1675,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
 const NAV_SECTIONS = [
   { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"valida",icon:"check",label:"Validações"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
@@ -2629,6 +2629,113 @@ function NotesImportModal({ onImport, onClose }) {
   );
 }
 
+// Validações do sistema — só leitura. Confere a integridade do faturamento:
+// (1) conciliado da prefeitura × receita conciliada (regra de R$ 1,00 por lote),
+// (2) receitas possivelmente duplicadas, (3) faturado sem nota amarrada.
+function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec={} }) {
+  const [open, setOpen] = useState("");
+  const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
+
+  // 1) Conciliado prefeitura vs receita conciliada — regra de R$ 1,00 por lote.
+  const cids = [...new Set(faturamentos.filter(a=>a.conciliacaoId).map(a=>a.conciliacaoId))];
+  const lotes = cids.map(cid => {
+    const sn = notes.filter(n=>n.conciliacaoId===cid && !n.cancelada).reduce((s,n)=>s+(n.valorServicos||0),0);
+    const sr = faturamentos.filter(a=>a.conciliacaoId===cid).reduce((s,a)=>s+(a.valor||0),0);
+    const r0 = records.find(r=>faturamentos.some(a=>a.conciliacaoId===cid && a.recordId===r.id));
+    const nfs = notes.filter(n=>n.conciliacaoId===cid).map(n=>n.numero).filter(Boolean).join(", ");
+    return { cid, sn, sr, dif: sn-sr, cli: r0?.cliente||"—", nfs };
+  });
+  const foraRegra = lotes.filter(l => Math.abs(l.dif) > 1.005).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
+
+  // 2) Receitas duplicadas — mesmo racional (empresa+tipo+PEP+profissional+competência+valor).
+  const grp = {};
+  records.forEach(r => { const k=[r.empresa,r.tipo,r.pep,r.profissional,r.competencia,r.valorTotal].join("|"); (grp[k]=grp[k]||[]).push(r); });
+  const dups = Object.values(grp).filter(g => g.length>1);
+
+  // 3) Faturado (total ou parcial) sem nota amarrada — o caso do Erik.
+  const cidsComNota = new Set(notes.filter(n=>n.conciliacaoId).map(n=>n.conciliacaoId));
+  const cidsByRec = {}; faturamentos.forEach(a=>{ if(a.conciliacaoId){ (cidsByRec[a.recordId]=cidsByRec[a.recordId]||new Set()).add(a.conciliacaoId); } });
+  const semNota = records.filter(r => {
+    const st = recStatus(r, fatByRec[r.id], bill(r));
+    if (st!=="Faturado" && st!=="Faturado parcial") return false;
+    const set = cidsByRec[r.id];
+    const viaAloc = set && [...set].some(c=>cidsComNota.has(c));
+    const viaLegado = r.municipalNoteId && notes.some(n=>n.id===r.municipalNoteId);
+    return !viaAloc && !viaLegado;
+  });
+
+  const Result = ({ id, titulo, desc, problemas, children }) => {
+    const ok = problemas===0; const isOpen = open===id;
+    return (
+      <Card style={{padding:0,overflow:"hidden",marginBottom:14,border:`1px solid ${ok?T.okLine:T.dangerLine}`}}>
+        <div onClick={()=>!ok&&setOpen(isOpen?"":id)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:ok?"default":"pointer",background:ok?"#f0fdf4":"#fef2f2"}}>
+          <div style={{fontSize:22}}>{ok?"✅":"⚠️"}</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:14,color:T.ink}}>{titulo}</div>
+            <div style={{fontSize:12,color:T.muted,marginTop:2}}>{desc}</div>
+          </div>
+          <div style={{fontSize:14,fontWeight:800,color:ok?T.ok:T.danger}}>{ok?"Tudo certo":`${problemas} a revisar`}</div>
+          {!ok && <div style={{fontSize:12,color:T.muted,width:14,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>}
+        </div>
+        {!ok && isOpen && <div style={{borderTop:`1px solid ${T.line}`,maxHeight:420,overflowY:"auto"}}>{children}</div>}
+      </Card>
+    );
+  };
+  const Row = ({ children }) => <div style={{padding:"8px 16px",borderBottom:`1px solid ${T.lineSoft}`,fontSize:12.5,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>{children}</div>;
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+        <h1 style={Ty.h1}>Validações do sistema</h1>
+        <span style={Ty.small}>confere se o faturamento está batendo</span>
+      </div>
+      <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Rodam sobre todos os dados carregados. Verde = ok; laranja = clique para ver o que revisar.</div>
+
+      <Result id="lotes" titulo="Conciliado da prefeitura × receita conciliada (regra de R$ 1,00)"
+        desc="Em cada conciliação, a soma das notas deve bater com a soma das receitas — diferença máxima de R$ 1,00."
+        problemas={foraRegra.length}>
+        {foraRegra.map(l=>(
+          <Row key={l.cid}>
+            <Badge label={`dif. ${brl(l.dif)}`} color="red" small/>
+            <b style={{color:T.ink}}>{l.cli}</b>
+            <span style={{color:T.muted}}>NF {l.nfs||"—"}</span>
+            <div style={{flex:1}}/>
+            <span>Notas <b style={{color:T.ink}}>{brl(l.sn)}</b> ↔ Receitas <b style={{color:T.ink}}>{brl(l.sr)}</b></span>
+          </Row>
+        ))}
+      </Result>
+
+      <Result id="dups" titulo="Receitas possivelmente duplicadas"
+        desc="Registros com mesmo tipo, PEP, profissional, competência e valor — pode ser duplicidade de importação/racional."
+        problemas={dups.length}>
+        {dups.map((g,i)=>(
+          <Row key={i}>
+            <Badge label={`${g.length}×`} color="orange" small/>
+            <b style={{color:T.ink}}>{g[0].cliente}</b>
+            <span style={{color:T.muted}}>{g[0].profissional||g[0].pep} · {g[0].competencia} · {g[0].tipo} · {g[0].empresa}</span>
+            <div style={{flex:1}}/>
+            <span><b style={{color:T.ink}}>{brl(g[0].valorTotal)}</b> cada</span>
+          </Row>
+        ))}
+      </Result>
+
+      <Result id="semnota" titulo="Faturado sem nota amarrada"
+        desc="Receitas com status Faturado/parcial mas sem nota conciliada — o tipo de caso que gerou o problema do Erik."
+        problemas={semNota.length}>
+        {semNota.map(r=>(
+          <Row key={r.id}>
+            <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color="orange" small/>
+            <b style={{color:T.ink}}>{r.cliente}</b>
+            <span style={{color:T.muted}}>{r.profissional||r.pep} · {r.competencia} · {r.empresa}</span>
+            <div style={{flex:1}}/>
+            <span><b style={{color:T.ink}}>{brl(bill(r))}</b></span>
+          </Row>
+        ))}
+      </Result>
+    </div>
+  );
+}
+
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
@@ -2794,6 +2901,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
         </Modal>
       )}
 
+      {/* Cabeçalho congelado: título + empresa + cards ficam fixos ao rolar. */}
+      <div style={{position:"sticky",top:0,zIndex:15,background:T.canvas,paddingTop:8,marginTop:-8}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
           <h1 style={Ty.h1}>Conciliação de notas</h1>
@@ -2814,13 +2923,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
         </div>
       </Card>
 
-      {!empresa ? (
-        <Card style={{textAlign:"center",padding:"3rem"}}>
-          <div style={{fontSize:32,marginBottom:10}}></div>
-          <div style={{fontSize:14,color:T.muted}}>Escolha uma empresa do grupo acima para conciliar as notas com as receitas.</div>
-        </Card>
-      ) : (
-        <>
+      {empresa && (
           <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
             <Card style={{flex:1,minWidth:200,padding:"12px 14px",borderLeft:`3px solid ${T.warn}`}}>
               <div style={Ty.small}>Notas a conciliar (represadas)</div>
@@ -2843,7 +2946,16 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
               <div style={{fontSize:11,color:T.muted}}>receita conciliada, nota ausente</div>
             </Card>
           </div>
+      )}
+      </div>
 
+      {!empresa ? (
+        <Card style={{textAlign:"center",padding:"3rem"}}>
+          <div style={{fontSize:32,marginBottom:10}}></div>
+          <div style={{fontSize:14,color:T.muted}}>Escolha uma empresa do grupo acima para conciliar as notas com as receitas.</div>
+        </Card>
+      ) : (
+        <>
           {showConf && (
             <Card style={{padding:0,overflow:"hidden",marginBottom:14,border:`1px solid ${lotesDiverg>0?T.dangerLine:T.line}`}}>
               <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${T.line}`,flexWrap:"wrap"}}>
@@ -4244,6 +4356,11 @@ function AppInner() {
           {page==="reports"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} variacoes={variacoes} varByRec={varByRec} fatByRec={fatByRec} isAdmin={isAdmin} analistas={responsaveis}/>
+            </div>
+          )}
+          {page==="valida"&&(
+            <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ValidatorsView records={records} notes={notes} faturamentos={faturamentos} fatByRec={fatByRec} varByRec={varByRec}/>
             </div>
           )}
           {page==="clients"&&(
