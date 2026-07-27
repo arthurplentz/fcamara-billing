@@ -2765,6 +2765,15 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
   const lotesDiverg = lotes.filter(L=>!L.bate).length;
   const lotesShown = confSoDif ? lotes.filter(L=>!L.bate) : lotes;
 
+  // Lotes órfãos: têm receita alocada mas NENHUMA nota amarrada (ex.: a nota foi
+  // apagada/recriada numa re-importação e perdeu o conciliacao_id). É o "Erik":
+  // faturado de um lado, nota some do outro. Escopo: lotes com receita da empresa.
+  const cidsComNota = new Set(notes.filter(n=>n.conciliacaoId).map(n=>n.conciliacaoId));
+  const lotesOrfaos = [...new Set(faturamentos
+    .filter(a => a.conciliacaoId && !cidsComNota.has(a.conciliacaoId))
+    .map(a => a.conciliacaoId))]
+    .filter(cid => faturamentos.some(a => a.conciliacaoId===cid && (records.find(x=>x.id===a.recordId)?.empresa===empresa)));
+
   return (
     <div>
       {importing && <NotesImportModal onImport={onImport} onClose={()=>setImporting(false)}/>}
@@ -2824,6 +2833,11 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
               <div style={Ty.small}>Conferência de conciliações</div>
               <div style={{fontSize:18,fontWeight:800,color:lotesDiverg>0?T.danger:T.ok}}>{lotesDiverg>0?`${lotesDiverg} divergente(s)`:`✓ ${lotes.length} ok`}</div>
               <div style={{fontSize:11,color:T.muted}}>{lotes.length} lote(s) · clique para {showConf?"ocultar":"conferir"}</div>
+            </Card>
+            <Card style={{flex:1,minWidth:200,padding:"12px 14px",borderLeft:`3px solid ${lotesOrfaos.length>0?T.danger:T.ok}`}}>
+              <div style={Ty.small}>Faturado sem nota (órfãos)</div>
+              <div style={{fontSize:18,fontWeight:800,color:lotesOrfaos.length>0?T.danger:T.ok}}>{lotesOrfaos.length>0?`${lotesOrfaos.length} lote(s)`:`✓ 0`}</div>
+              <div style={{fontSize:11,color:T.muted}}>receita conciliada, nota ausente</div>
             </Card>
           </div>
 
@@ -4001,8 +4015,12 @@ function AppInner() {
   // ─ Conciliação de notas (prefeitura) ─
   async function handleNotesImport(list) {
     try {
-      // Dedup por empresa+número: nota já existente é ATUALIZADA (não duplica).
-      const key = n => `${n.empresa}|${String(n.numero||"").trim()}`;
+      // Dedup por prestador+número (campos INTRÍNSECOS da nota, não a empresa
+      // escolhida no modal): nota já existente é ATUALIZADA (não duplica). A
+      // empresa era escolhida na importação e variava (NULL vs BR02), o que
+      // furava o dedup e duplicava toda a base.
+      const digits = s => String(s||"").replace(/\D/g,"");
+      const key = n => `${digits(n.prestadorCnpj)}|${String(n.numero||"").trim()}`;
       const existing = {}; notes.forEach(n => { existing[key(n)] = n; });
       const toInsert = [], toUpdate = [];
       list.forEach(n => { const ex = existing[key(n)]; ex ? toUpdate.push({ ex, novo: n }) : toInsert.push(n); });
