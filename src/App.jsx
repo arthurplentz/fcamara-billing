@@ -3556,18 +3556,41 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   const [concil, setConcil] = useState("todas");
   const [compDe, setCompDe] = useState("todas");
   const [compAte, setCompAte] = useState("todas");
+  const [dim, setDim] = useState("servico");   // competência: mês de serviço × ciclo de faturamento
   const [qCli, setQCli] = useState("");
   const [qProf, setQProf] = useState("");
 
-  const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  // Período quebrado: deriva a competência de faturamento (ciclo) do dia de corte
+  // do cliente + a data de início da receita (peça >= dia de corte fatura no mês
+  // seguinte). Cliente sem corte = mês de serviço.
+  const normCli = s => (s||"").toString().trim().toLowerCase();
+  const diaCorteDe = (r) => {
+    const rc = normCli(r.cliente);
+    const c = clients.find(cl => { const cn = normCli(cl.nome); return cn && (rc===cn || (cn.length>4 && rc.includes(cn))); });
+    const d = parseInt(c?.diaCorte, 10);
+    return (d>=1 && d<=28) ? d : 0;
+  };
+  const compFat = (r) => {
+    const D = diaCorteDe(r);
+    if (!D) return r.competencia || "";
+    const p = String(r.inicio||"").split("/");
+    let day = +p[0], m = +p[1], y = +p[2];
+    if (!m || !y) { const cp = String(r.competencia||"").split("/"); m = +cp[0]; y = +cp[1]; day = 1; }
+    if (!m || !y) return r.competencia || "";
+    if (day >= D) { m += 1; if (m>12){ m=1; y+=1; } }
+    return `${String(m).padStart(2,"0")}/${y}`;
+  };
+  const compValue = (r) => dim==="ciclo" ? compFat(r) : (r.competencia || "");
+
+  const comps = [...new Set(records.map(compValue).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   const tipos = [...new Set(records.map(r=>r.tipo).filter(Boolean))].sort();
 
   let recFiltered = records;
   if (empresa!=="todas") recFiltered = recFiltered.filter(r=>r.empresa===empresa);
   if (analista!=="todos") recFiltered = recFiltered.filter(r=>r.responsavel===analista);
   if (tipo!=="todos") recFiltered = recFiltered.filter(r=>r.tipo===tipo);
-  if (compDe!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)>=compRank(compDe));
-  if (compAte!=="todas") recFiltered = recFiltered.filter(r=>compRank(r.competencia)<=compRank(compAte));
+  if (compDe!=="todas") recFiltered = recFiltered.filter(r=>compRank(compValue(r))>=compRank(compDe));
+  if (compAte!=="todas") recFiltered = recFiltered.filter(r=>compRank(compValue(r))<=compRank(compAte));
   if (status==="_faltam_datas") recFiltered = recFiltered.filter(faltaDatas);
   else if (status!=="todos") recFiltered = recFiltered.filter(r=>recStatus(r, fatByRec[r.id], (r.valorTotal||0)+(varByRec[r.id]||0))===status);
   const temNota = r => (cidsByRec[r.id] && cidsByRec[r.id].size) || r.conciliacaoId || r.municipalNoteId;
@@ -3585,7 +3608,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
     const bill = (r.valorTotal||0) + (varByRec[r.id]||0);
     const saldo = bill - fat;
     const ns=notesForRecord(r, notes, cidsByRec);
-    const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
+    const baseA=[r.responsavel,r.empresa,r.tipo,r.competencia,compFat(r),r.codCliente,r.cliente,r.pep,r.profissional,r.ordemVenda||""];
     let nfNum="", nfEm="", nfVal="", nfMun="";
     if (ns.length===1) { nfNum=ns[0].numero; nfEm=toDate(ns[0].emitidaEm); nfVal=ns[0].valorServicos||0; nfMun=ns[0].municipio||""; }
     else if (ns.length>1) { nfNum=ns.map(n=>n.numero).join(", "); }
@@ -3607,7 +3630,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   const previewLines = recFiltered.reduce((s,r)=>s+linhasDe(r).length,0);
 
   function exportReceitas() {
-    const headers=["Analista","Empresa","Tipo","Competência","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
+    const headers=["Analista","Empresa","Tipo","Competência (serviço)","Compet. faturamento (cliente)","Cód Cliente","Cliente","PEP","Profissional","Ordem de venda","Val. Venda","Hrs","Val. Total","Variação pós-fecham.","Status","NF Número","NF Emissão","NF Valor","NF Município","P1 Extração","P2 Racional","P3 Retorno com.","Data Retorno","P4 Aprov. cliente","Data Aprovação","P5 NF","Faturado corte","Obs","Conciliado por","Conciliado em"];
     downloadXLSX(`Relatorio_Receitas_${previewLines}linhas.xlsx`, headers, buildRecRows());
   }
 
@@ -3655,6 +3678,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
             <Sel label="Empresa" value={empresa} onChange={setEmpresa}><option value="todas">Todas</option>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</Sel>
             {isAdmin && <Sel label="Analista" value={analista} onChange={setAnalista}><option value="todos">Todos</option>{analistas.map(a=><option key={a}>{a}</option>)}</Sel>}
             <Sel label="Tipo de contrato" value={tipo} onChange={setTipo}><option value="todos">Todos</option>{tipos.map(t=><option key={t}>{t}</option>)}</Sel>
+            <Sel label="Visão da competência" value={dim} onChange={v=>{setDim(v);setCompDe("todas");setCompAte("todas");}}><option value="servico">Mês de serviço (Fcamara)</option><option value="ciclo">Ciclo de faturamento (cliente)</option></Sel>
             <Sel label="Competência (de)" value={compDe} onChange={setCompDe}><option value="todas">Início</option>{comps.map(c=><option key={c}>{c}</option>)}</Sel>
             <Sel label="Competência (até)" value={compAte} onChange={setCompAte}><option value="todas">Fim</option>{comps.map(c=><option key={c}>{c}</option>)}</Sel>
             <Sel label="Status" value={status} onChange={setStatus}><option value="todos">Todos</option>{STATUS_ORDER.map(s=><option key={s}>{s}</option>)}<option value="_faltam_datas">Faltam datas</option></Sel>
