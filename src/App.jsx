@@ -2295,6 +2295,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
 
       <CSec title="Faturamento">
         <Field label="Período de faturamento"><input style={inp} placeholder="Ex: 01 a 31 (ou outro)" value={f.periodoFaturamento||""} onChange={e=>set("periodoFaturamento",e.target.value)}/></Field>
+        <Field label="Dia de corte" hint="(período quebrado — vazio = 01 a 31)"><input type="number" min="1" max="28" style={inp} placeholder="Ex: 10, 20…" value={f.diaCorte||""} onChange={e=>set("diaCorte",e.target.value)}/></Field>
         <Field label="Prazo de vencimento acordado"><input style={inp} placeholder="Ex: 30 dias" value={f.prazoVencimento||""} onChange={e=>set("prazoVencimento",e.target.value)}/></Field>
         <Field label="Forma de pagamento"><input style={inp} placeholder="Ex: Boleto, transferência" value={f.formaPagamento||""} onChange={e=>set("formaPagamento",e.target.value)}/></Field>
       </CSec>
