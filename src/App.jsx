@@ -760,7 +760,7 @@ function ImportModal({ onImport, onClose }) {
           ))}
         </div>
         {mode==="replace"&&<div style={{marginTop:8,fontSize:12,color:T.danger,fontWeight:600}}>Apenas os registros desta competência (mês), empresa e tipo serão substituídos. O progresso já registrado para esse recorte será perdido; os demais meses permanecem intactos.</div>}
-        {mode==="merge"&&<div style={{marginTop:8,fontSize:12,color:T.inkSoft}}>As linhas são casadas por <b>empresa + PEP + profissional + competência</b>. Valores mudados são atualizados sem apagar o passo a passo; se a NF já foi emitida, a diferença vira <b>saldo a faturar</b> e um alerta vermelho aparece na Minha visão. Linhas que sumirem do relatório são sinalizadas, não apagadas.</div>}
+        {mode==="merge"&&<div style={{marginTop:8,fontSize:12,color:T.inkSoft}}>As linhas são casadas por <b>empresa + PEP + profissional + competência + período (início/fim)</b>. O período na chave garante o casamento certo dos clientes de faturamento quebrado (peças 01–10 e 11–31). Valores mudados são atualizados sem apagar o passo a passo; se a NF já foi emitida, a diferença vira <b>saldo a faturar</b> e um alerta vermelho aparece na Minha visão. Linhas que sumirem do relatório são sinalizadas, não apagadas.</div>}
       </div>
       <div style={{marginBottom:14}}><Field label="Nota da importação (opcional)"><input style={inp} placeholder="Ex: Ajuste de valores de maio" value={note} onChange={e=>setNote(e.target.value)}/></Field></div>
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xlsm,.xls" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
@@ -3966,9 +3966,14 @@ function AppInner() {
   async function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
     try {
       if (mode==="merge") {
-        // Re-importação: casa por empresa+PEP+profissional+competência.
+        // Re-importação: casa por empresa+tipo+PEP+profissional+competência+PERÍODO.
+        // O período (início/fim) na chave é o que distingue clientes de faturamento
+        // quebrado (10 a 10, 20 a 20): a mesma pessoa vem em 2 peças (ex.: 01–10 e
+        // 11–31) e cada peça casa 1:1 com a sua, sem trocar valores. Cliente normal
+        // (mês cheio) tem período fixo, então nada muda pra ele.
         const norm = s => (s||"").toString().trim().toLowerCase();
-        const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}`;
+        const dnorm = s => String(s||"").replace(/\D/g,"");   // data: só dígitos (tolera separador)
+        const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
         const combos = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
         const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
         // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
