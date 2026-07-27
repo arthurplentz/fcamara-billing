@@ -1518,7 +1518,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
   const isFat = (r) => Math.abs(billOf(r))>0.01 && Math.abs(billOf(r)-fat(r))<0.01;  // faturado por completo (faturável)
   if (filterEtapa!=="todas")   f=f.filter(r=>recStatus(r, fatByRec[r.id], billOf(r))===filterEtapa);
 
-  const totalValor = f.reduce((a,r)=>a+(r.valorTotal||0),0);
+  const totalValor = f.reduce((a,r)=>a+billOf(r),0);   // faturável (receita + variação)
   const naoFat     = f.filter(r=>Math.abs(saldo(r)) > 0.01); // tem saldo a faturar (inclui descontos)
   const valorFat   = f.reduce((a,r)=>a+fat(r),0);           // faturado = só o emitido
   const valorRep   = f.reduce((a,r)=>a+saldo(r),0);         // represado = saldo
@@ -1527,21 +1527,21 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
   const byEtapa = {};
   STATUS_ORDER.forEach(s=>{ byEtapa[s]={ count:0, valor:0 }; });
-  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id], billOf(r)); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=(r.valorTotal||0);} });
+  f.forEach(r=>{ const s=recStatus(r, fatByRec[r.id], billOf(r)); if(byEtapa[s]){byEtapa[s].count++;byEtapa[s].valor+=billOf(r);} });
 
   const byAnalista = {};
   f.forEach(r=>{
     if(!byAnalista[r.responsavel]) byAnalista[r.responsavel]={ total:0, fat:0, rep:0, cnt:0, fatCnt:0 };
-    byAnalista[r.responsavel].total+=(r.valorTotal||0); byAnalista[r.responsavel].cnt++;
+    byAnalista[r.responsavel].total+=billOf(r); byAnalista[r.responsavel].cnt++;
     byAnalista[r.responsavel].fat+=fat(r); byAnalista[r.responsavel].rep+=saldo(r);
     if(isFat(r)) byAnalista[r.responsavel].fatCnt++;
   });
 
   const byEmpresa = {};
-  f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=(r.valorTotal||0); byEmpresa[r.empresa].fat+=fat(r); });
+  f.forEach(r=>{ if(!byEmpresa[r.empresa])byEmpresa[r.empresa]={total:0,fat:0}; byEmpresa[r.empresa].total+=billOf(r); byEmpresa[r.empresa].fat+=fat(r); });
 
   const byTipo = {};
-  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=(r.valorTotal||0); byTipo[t].cnt++; byTipo[t].fat+=fat(r); });
+  f.forEach(r=>{ const t=r.tipo||"—"; if(!byTipo[t])byTipo[t]={total:0,fat:0,cnt:0}; byTipo[t].total+=billOf(r); byTipo[t].cnt++; byTipo[t].fat+=fat(r); });
 
   const naoFatByCliente = {};
   naoFat.forEach(r=>{
@@ -1675,7 +1675,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
 const NAV_SECTIONS = [
   { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"valida",icon:"check",label:"Validações"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
@@ -2546,6 +2546,9 @@ function parseMunicipalSheet(rows, municipio) {
     // Pula linhas de total/rodapé (ex.: "Total;355;...") — não têm tomador válido.
     const tomadorCnpj = onlyDigits(get(row, "tomadorCnpj"));
     if (tomadorCnpj.length < 11 || /^total/i.test(String(get(row, "numero")).trim()) || /^total/i.test(String(row[0]||"").trim())) { ignoradas++; continue; }
+    // Rodapé de soma costuma vir SEM CNPJ do prestador (toda NFS-e real tem).
+    // Só aplica quando o arquivo tem a coluna de prestador (senão dropava tudo).
+    if (idx.prestCnpj >= 0 && onlyDigits(get(row, "prestCnpj")).length < 11) { ignoradas++; continue; }
     const disc = String(get(row, "discrim") || "");
     const meta = parseDiscriminacao(disc);
     const situacao = String(get(row, "situacao")).trim();
@@ -2623,6 +2626,113 @@ function NotesImportModal({ onImport, onClose }) {
       {msgs.map((m,i)=>(<div key={i} style={{marginTop:10,padding:"9px 12px",borderRadius:T.rMd,fontSize:12.5,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>))}
       {preview?.length>0 && <div style={{marginTop:12,fontSize:12,color:T.muted}}>Pré-visualização: {preview.slice(0,3).map(n=>`NF ${n.numero} · ${n.tomadorNome||"—"} · ${brl(n.valorServicos)}`).join("  |  ")}{preview.length>3?"  …":""}</div>}
     </Modal>
+  );
+}
+
+// Validações do sistema — só leitura. Confere a integridade do faturamento:
+// (1) conciliado da prefeitura × receita conciliada (regra de R$ 1,00 por lote),
+// (2) receitas possivelmente duplicadas, (3) faturado sem nota amarrada.
+function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec={} }) {
+  const [open, setOpen] = useState("");
+  const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
+
+  // 1) Conciliado prefeitura vs receita conciliada — regra de R$ 1,00 por lote.
+  const cids = [...new Set(faturamentos.filter(a=>a.conciliacaoId).map(a=>a.conciliacaoId))];
+  const lotes = cids.map(cid => {
+    const sn = notes.filter(n=>n.conciliacaoId===cid && !n.cancelada).reduce((s,n)=>s+(n.valorServicos||0),0);
+    const sr = faturamentos.filter(a=>a.conciliacaoId===cid).reduce((s,a)=>s+(a.valor||0),0);
+    const r0 = records.find(r=>faturamentos.some(a=>a.conciliacaoId===cid && a.recordId===r.id));
+    const nfs = notes.filter(n=>n.conciliacaoId===cid).map(n=>n.numero).filter(Boolean).join(", ");
+    return { cid, sn, sr, dif: sn-sr, cli: r0?.cliente||"—", nfs };
+  });
+  const foraRegra = lotes.filter(l => Math.abs(l.dif) > 1.005).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif));
+
+  // 2) Receitas duplicadas — mesmo racional (empresa+tipo+PEP+profissional+competência+valor).
+  const grp = {};
+  records.forEach(r => { const k=[r.empresa,r.tipo,r.pep,r.profissional,r.competencia,r.valorTotal].join("|"); (grp[k]=grp[k]||[]).push(r); });
+  const dups = Object.values(grp).filter(g => g.length>1);
+
+  // 3) Faturado (total ou parcial) sem nota amarrada — o caso do Erik.
+  const cidsComNota = new Set(notes.filter(n=>n.conciliacaoId).map(n=>n.conciliacaoId));
+  const cidsByRec = {}; faturamentos.forEach(a=>{ if(a.conciliacaoId){ (cidsByRec[a.recordId]=cidsByRec[a.recordId]||new Set()).add(a.conciliacaoId); } });
+  const semNota = records.filter(r => {
+    const st = recStatus(r, fatByRec[r.id], bill(r));
+    if (st!=="Faturado" && st!=="Faturado parcial") return false;
+    const set = cidsByRec[r.id];
+    const viaAloc = set && [...set].some(c=>cidsComNota.has(c));
+    const viaLegado = r.municipalNoteId && notes.some(n=>n.id===r.municipalNoteId);
+    return !viaAloc && !viaLegado;
+  });
+
+  const Result = ({ id, titulo, desc, problemas, children }) => {
+    const ok = problemas===0; const isOpen = open===id;
+    return (
+      <Card style={{padding:0,overflow:"hidden",marginBottom:14,border:`1px solid ${ok?T.okLine:T.dangerLine}`}}>
+        <div onClick={()=>!ok&&setOpen(isOpen?"":id)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:ok?"default":"pointer",background:ok?"#f0fdf4":"#fef2f2"}}>
+          <div style={{fontSize:22}}>{ok?"✅":"⚠️"}</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:14,color:T.ink}}>{titulo}</div>
+            <div style={{fontSize:12,color:T.muted,marginTop:2}}>{desc}</div>
+          </div>
+          <div style={{fontSize:14,fontWeight:800,color:ok?T.ok:T.danger}}>{ok?"Tudo certo":`${problemas} a revisar`}</div>
+          {!ok && <div style={{fontSize:12,color:T.muted,width:14,textAlign:"center"}}>{isOpen?"▲":"▼"}</div>}
+        </div>
+        {!ok && isOpen && <div style={{borderTop:`1px solid ${T.line}`,maxHeight:420,overflowY:"auto"}}>{children}</div>}
+      </Card>
+    );
+  };
+  const Row = ({ children }) => <div style={{padding:"8px 16px",borderBottom:`1px solid ${T.lineSoft}`,fontSize:12.5,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>{children}</div>;
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+        <h1 style={Ty.h1}>Validações do sistema</h1>
+        <span style={Ty.small}>confere se o faturamento está batendo</span>
+      </div>
+      <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Rodam sobre todos os dados carregados. Verde = ok; laranja = clique para ver o que revisar.</div>
+
+      <Result id="lotes" titulo="Conciliado da prefeitura × receita conciliada (regra de R$ 1,00)"
+        desc="Em cada conciliação, a soma das notas deve bater com a soma das receitas — diferença máxima de R$ 1,00."
+        problemas={foraRegra.length}>
+        {foraRegra.map(l=>(
+          <Row key={l.cid}>
+            <Badge label={`dif. ${brl(l.dif)}`} color="red" small/>
+            <b style={{color:T.ink}}>{l.cli}</b>
+            <span style={{color:T.muted}}>NF {l.nfs||"—"}</span>
+            <div style={{flex:1}}/>
+            <span>Notas <b style={{color:T.ink}}>{brl(l.sn)}</b> ↔ Receitas <b style={{color:T.ink}}>{brl(l.sr)}</b></span>
+          </Row>
+        ))}
+      </Result>
+
+      <Result id="dups" titulo="Receitas possivelmente duplicadas"
+        desc="Registros com mesmo tipo, PEP, profissional, competência e valor — pode ser duplicidade de importação/racional."
+        problemas={dups.length}>
+        {dups.map((g,i)=>(
+          <Row key={i}>
+            <Badge label={`${g.length}×`} color="orange" small/>
+            <b style={{color:T.ink}}>{g[0].cliente}</b>
+            <span style={{color:T.muted}}>{g[0].profissional||g[0].pep} · {g[0].competencia} · {g[0].tipo} · {g[0].empresa}</span>
+            <div style={{flex:1}}/>
+            <span><b style={{color:T.ink}}>{brl(g[0].valorTotal)}</b> cada</span>
+          </Row>
+        ))}
+      </Result>
+
+      <Result id="semnota" titulo="Faturado sem nota amarrada"
+        desc="Receitas com status Faturado/parcial mas sem nota conciliada — o tipo de caso que gerou o problema do Erik."
+        problemas={semNota.length}>
+        {semNota.map(r=>(
+          <Row key={r.id}>
+            <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color="orange" small/>
+            <b style={{color:T.ink}}>{r.cliente}</b>
+            <span style={{color:T.muted}}>{r.profissional||r.pep} · {r.competencia} · {r.empresa}</span>
+            <div style={{flex:1}}/>
+            <span><b style={{color:T.ink}}>{brl(bill(r))}</b></span>
+          </Row>
+        ))}
+      </Result>
+    </div>
   );
 }
 
@@ -2765,6 +2875,15 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
   const lotesDiverg = lotes.filter(L=>!L.bate).length;
   const lotesShown = confSoDif ? lotes.filter(L=>!L.bate) : lotes;
 
+  // Lotes órfãos: têm receita alocada mas NENHUMA nota amarrada (ex.: a nota foi
+  // apagada/recriada numa re-importação e perdeu o conciliacao_id). É o "Erik":
+  // faturado de um lado, nota some do outro. Escopo: lotes com receita da empresa.
+  const cidsComNota = new Set(notes.filter(n=>n.conciliacaoId).map(n=>n.conciliacaoId));
+  const lotesOrfaos = [...new Set(faturamentos
+    .filter(a => a.conciliacaoId && !cidsComNota.has(a.conciliacaoId))
+    .map(a => a.conciliacaoId))]
+    .filter(cid => faturamentos.some(a => a.conciliacaoId===cid && (records.find(x=>x.id===a.recordId)?.empresa===empresa)));
+
   return (
     <div>
       {importing && <NotesImportModal onImport={onImport} onClose={()=>setImporting(false)}/>}
@@ -2782,6 +2901,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
         </Modal>
       )}
 
+      {/* Cabeçalho congelado: título + empresa + cards ficam fixos ao rolar. */}
+      <div style={{position:"sticky",top:0,zIndex:15,background:T.canvas,paddingTop:8,marginTop:-8}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}>
           <h1 style={Ty.h1}>Conciliação de notas</h1>
@@ -2802,13 +2923,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
         </div>
       </Card>
 
-      {!empresa ? (
-        <Card style={{textAlign:"center",padding:"3rem"}}>
-          <div style={{fontSize:32,marginBottom:10}}></div>
-          <div style={{fontSize:14,color:T.muted}}>Escolha uma empresa do grupo acima para conciliar as notas com as receitas.</div>
-        </Card>
-      ) : (
-        <>
+      {empresa && (
           <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
             <Card style={{flex:1,minWidth:200,padding:"12px 14px",borderLeft:`3px solid ${T.warn}`}}>
               <div style={Ty.small}>Notas a conciliar (represadas)</div>
@@ -2825,8 +2940,22 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
               <div style={{fontSize:18,fontWeight:800,color:lotesDiverg>0?T.danger:T.ok}}>{lotesDiverg>0?`${lotesDiverg} divergente(s)`:`✓ ${lotes.length} ok`}</div>
               <div style={{fontSize:11,color:T.muted}}>{lotes.length} lote(s) · clique para {showConf?"ocultar":"conferir"}</div>
             </Card>
+            <Card style={{flex:1,minWidth:200,padding:"12px 14px",borderLeft:`3px solid ${lotesOrfaos.length>0?T.danger:T.ok}`}}>
+              <div style={Ty.small}>Faturado sem nota (órfãos)</div>
+              <div style={{fontSize:18,fontWeight:800,color:lotesOrfaos.length>0?T.danger:T.ok}}>{lotesOrfaos.length>0?`${lotesOrfaos.length} lote(s)`:`✓ 0`}</div>
+              <div style={{fontSize:11,color:T.muted}}>receita conciliada, nota ausente</div>
+            </Card>
           </div>
+      )}
+      </div>
 
+      {!empresa ? (
+        <Card style={{textAlign:"center",padding:"3rem"}}>
+          <div style={{fontSize:32,marginBottom:10}}></div>
+          <div style={{fontSize:14,color:T.muted}}>Escolha uma empresa do grupo acima para conciliar as notas com as receitas.</div>
+        </Card>
+      ) : (
+        <>
           {showConf && (
             <Card style={{padding:0,overflow:"hidden",marginBottom:14,border:`1px solid ${lotesDiverg>0?T.dangerLine:T.line}`}}>
               <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${T.line}`,flexWrap:"wrap"}}>
@@ -4001,8 +4130,12 @@ function AppInner() {
   // ─ Conciliação de notas (prefeitura) ─
   async function handleNotesImport(list) {
     try {
-      // Dedup por empresa+número: nota já existente é ATUALIZADA (não duplica).
-      const key = n => `${n.empresa}|${String(n.numero||"").trim()}`;
+      // Dedup por prestador+número (campos INTRÍNSECOS da nota, não a empresa
+      // escolhida no modal): nota já existente é ATUALIZADA (não duplica). A
+      // empresa era escolhida na importação e variava (NULL vs BR02), o que
+      // furava o dedup e duplicava toda a base.
+      const digits = s => String(s||"").replace(/\D/g,"");
+      const key = n => `${digits(n.prestadorCnpj)}|${String(n.numero||"").trim()}`;
       const existing = {}; notes.forEach(n => { existing[key(n)] = n; });
       const toInsert = [], toUpdate = [];
       list.forEach(n => { const ex = existing[key(n)]; ex ? toUpdate.push({ ex, novo: n }) : toInsert.push(n); });
@@ -4027,7 +4160,15 @@ function AppInner() {
     } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
   }
   async function handleNotesUndo(importId) {
-    try { const n = await db.deleteMunicipalNotesByImport(importId); await reloadNotes(); toast(`${n} nota(s) removida(s)`, "info"); }
+    try {
+      // Reabre os lotes conciliados dessas notas ANTES de apagar — senão a receita
+      // ficaria faturada sem nota (alocação órfã, o caso do Erik). O trigger
+      // guard_faturamento_orfao no banco barra o resto.
+      const cids = [...new Set(notes.filter(n => n.importId === importId && n.conciliacaoId).map(n => n.conciliacaoId))];
+      for (const cid of cids) await reopenCid(cid);
+      const n = await db.deleteMunicipalNotesByImport(importId);
+      await Promise.all([reloadNotes(), reloadRecords(), reloadFaturamentos()]);
+      toast(`${n} nota(s) removida(s)${cids.length?` · ${cids.length} lote(s) reaberto(s)`:""}`, "info"); }
     catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
   }
   // Conciliação N:N com faturamento PARCIAL. valoresMap: {recordId: valor a faturar}.
@@ -4055,7 +4196,7 @@ function AppInner() {
       if (!allocations.length) { toast("Informe um valor para faturar.", "error"); return; }
       await db.conciliateSet({ cid, allocations, recordItems, noteIds: notesArr.map(n => n.id), userName: user.name });
       await Promise.all([reloadRecords(), reloadNotes(), reloadFaturamentos()]);
-      const parciais = allocations.filter(a => { const r = records.find(x=>x.id===a.recordId); return r && (fatByRec[r.id]||0)+a.valor < (r.valorTotal||0)-0.01; }).length;
+      const parciais = allocations.filter(a => { const r = records.find(x=>x.id===a.recordId); return r && (fatByRec[r.id]||0)+a.valor < ((r.valorTotal||0)+(varByRec[r.id]||0))-0.01; }).length;   // faturável (receita + variação)
       toast(`${allocations.length} receita(s) × ${notesArr.length} nota(s) conciliadas${parciais?` · ${parciais} parcial(is)`:""}`);
     } catch(e) { toast("Erro ao conciliar: "+e.message, "error"); }
   }
@@ -4068,7 +4209,8 @@ function AppInner() {
       const r = records.find(x => x.id === id) || {};
       const removido = allocs.filter(a => a.recordId === id).reduce((s,a)=>s+(a.valor||0),0);
       const restante = (fatByRec[id]||0) - removido;
-      const full = restante >= (r.valorTotal||0) - 0.01 && (r.valorTotal||0) > 0;
+      const faturavel = (r.valorTotal||0) + (varByRec[r.id]||0);   // receita + variação
+      const full = restante >= faturavel - 0.01 && faturavel > 0;
       const progress = { ...(r.progress||{}), p5_liberado: r.progress?.p5_liberado ?? true, p5_nf: full, p5_no_corte: full, p5_data_nf: full ? (r.progress?.p5_data_nf||"") : "" };
       const item = { id, progress, nfNumero: restante>0.001 ? (r.nfNumero||"") : "", conciliadoEm: restante>0.001 ? r.conciliadoEm : null, conciliadoPor: restante>0.001 ? r.conciliadoPor : null };
       // Se a base divergiu enquanto estava conciliado, ao reabrir aplicamos o
@@ -4215,6 +4357,11 @@ function AppInner() {
           {page==="reports"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ReportsView records={records} clients={clients} notes={notes} faturamentos={faturamentos} variacoes={variacoes} varByRec={varByRec} fatByRec={fatByRec} isAdmin={isAdmin} analistas={responsaveis}/>
+            </div>
+          )}
+          {page==="valida"&&(
+            <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ValidatorsView records={records} notes={notes} faturamentos={faturamentos} fatByRec={fatByRec} varByRec={varByRec}/>
             </div>
           )}
           {page==="clients"&&(
