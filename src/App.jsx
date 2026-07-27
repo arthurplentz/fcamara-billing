@@ -4196,7 +4196,7 @@ function AppInner() {
       if (!allocations.length) { toast("Informe um valor para faturar.", "error"); return; }
       await db.conciliateSet({ cid, allocations, recordItems, noteIds: notesArr.map(n => n.id), userName: user.name });
       await Promise.all([reloadRecords(), reloadNotes(), reloadFaturamentos()]);
-      const parciais = allocations.filter(a => { const r = records.find(x=>x.id===a.recordId); return r && (fatByRec[r.id]||0)+a.valor < (r.valorTotal||0)-0.01; }).length;
+      const parciais = allocations.filter(a => { const r = records.find(x=>x.id===a.recordId); return r && (fatByRec[r.id]||0)+a.valor < ((r.valorTotal||0)+(varByRec[r.id]||0))-0.01; }).length;   // faturável (receita + variação)
       toast(`${allocations.length} receita(s) × ${notesArr.length} nota(s) conciliadas${parciais?` · ${parciais} parcial(is)`:""}`);
     } catch(e) { toast("Erro ao conciliar: "+e.message, "error"); }
   }
@@ -4209,7 +4209,8 @@ function AppInner() {
       const r = records.find(x => x.id === id) || {};
       const removido = allocs.filter(a => a.recordId === id).reduce((s,a)=>s+(a.valor||0),0);
       const restante = (fatByRec[id]||0) - removido;
-      const full = restante >= (r.valorTotal||0) - 0.01 && (r.valorTotal||0) > 0;
+      const faturavel = (r.valorTotal||0) + (varByRec[r.id]||0);   // receita + variação
+      const full = restante >= faturavel - 0.01 && faturavel > 0;
       const progress = { ...(r.progress||{}), p5_liberado: r.progress?.p5_liberado ?? true, p5_nf: full, p5_no_corte: full, p5_data_nf: full ? (r.progress?.p5_data_nf||"") : "" };
       const item = { id, progress, nfNumero: restante>0.001 ? (r.nfNumero||"") : "", conciliadoEm: restante>0.001 ? r.conciliadoEm : null, conciliadoPor: restante>0.001 ? r.conciliadoPor : null };
       // Se a base divergiu enquanto estava conciliado, ao reabrir aplicamos o
