@@ -898,7 +898,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
       if (!selected.has(r.id) && !ovChanged) return null;
       const base = { ...r, ordemVenda: ovMap[r.id]||"", updatedAt: now };
       return selected.has(r.id)
-        ? { ...base, progress: { ...sharedProg, p5_nf: r.progress?.p5_nf || false, p5_data_nf: r.progress?.p5_data_nf || "" }, obs: obs || r.obs }
+        ? { ...base, progress: { ...sharedProg, p5_nf: r.progress?.p5_nf || false, p5_no_corte: r.progress?.p5_no_corte || false, p5_data_nf: r.progress?.p5_data_nf || "" }, obs: obs || r.obs }
         : base;
     }).filter(Boolean);
     onSave(updated);
