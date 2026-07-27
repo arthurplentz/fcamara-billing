@@ -4045,7 +4045,15 @@ function AppInner() {
     } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
   }
   async function handleNotesUndo(importId) {
-    try { const n = await db.deleteMunicipalNotesByImport(importId); await reloadNotes(); toast(`${n} nota(s) removida(s)`, "info"); }
+    try {
+      // Reabre os lotes conciliados dessas notas ANTES de apagar — senão a receita
+      // ficaria faturada sem nota (alocação órfã, o caso do Erik). O trigger
+      // guard_faturamento_orfao no banco barra o resto.
+      const cids = [...new Set(notes.filter(n => n.importId === importId && n.conciliacaoId).map(n => n.conciliacaoId))];
+      for (const cid of cids) await reopenCid(cid);
+      const n = await db.deleteMunicipalNotesByImport(importId);
+      await Promise.all([reloadNotes(), reloadRecords(), reloadFaturamentos()]);
+      toast(`${n} nota(s) removida(s)${cids.length?` · ${cids.length} lote(s) reaberto(s)`:""}`, "info"); }
     catch(e) { toast("Erro ao desfazer importação: "+e.message, "error"); }
   }
   // Conciliação N:N com faturamento PARCIAL. valoresMap: {recordId: valor a faturar}.
