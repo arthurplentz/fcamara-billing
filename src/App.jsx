@@ -2295,6 +2295,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
 
       <CSec title="Faturamento">
         <Field label="Período de faturamento"><input style={inp} placeholder="Ex: 01 a 31 (ou outro)" value={f.periodoFaturamento||""} onChange={e=>set("periodoFaturamento",e.target.value)}/></Field>
+        <Field label="Dia de corte" hint="(período quebrado — vazio = 01 a 31)"><input type="number" min="1" max="28" style={inp} placeholder="Ex: 10, 20…" value={f.diaCorte||""} onChange={e=>set("diaCorte",e.target.value)}/></Field>
         <Field label="Prazo de vencimento acordado"><input style={inp} placeholder="Ex: 30 dias" value={f.prazoVencimento||""} onChange={e=>set("prazoVencimento",e.target.value)}/></Field>
         <Field label="Forma de pagamento"><input style={inp} placeholder="Ex: Boleto, transferência" value={f.formaPagamento||""} onChange={e=>set("formaPagamento",e.target.value)}/></Field>
       </CSec>
@@ -2755,6 +2756,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState(""); const [noteCli, setNoteCli] = useState("todos");
   // filtros e ordenação — lado direito (receitas)
   const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
+  const [recDim, setRecDim] = useState("servico");   // competência: mês de serviço × ciclo de faturamento
   // Incluir receitas ainda não "Liberadas para faturamento" (ex.: conciliação
   // adiantada antes do time preencher o passo a passo). Conciliar já libera o funil.
   const [incluirNaoLib, setIncluirNaoLib] = useState(true);
@@ -2803,12 +2805,34 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
   if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
   leftNotes = leftNotes.sort(sortNotes);
 
-  const compsUsadas = [...new Set(empRecs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
+  // Período quebrado: dia de corte do cliente → "competência de faturamento" (ciclo).
+  // Para cliente com corte D, uma peça cujo dia de início é >= D fatura no mês
+  // seguinte (a nota fecha em D do próximo mês); antes de D, fatura no mês atual.
+  const normCli = s => (s||"").toString().trim().toLowerCase();
+  const diaCorteDe = (r) => {
+    const rc = normCli(r.cliente);
+    const c = clients.find(cl => { const cn = normCli(cl.nome); return cn && (rc===cn || (cn.length>4 && rc.includes(cn))); });
+    const d = parseInt(c?.diaCorte, 10);
+    return (d>=1 && d<=28) ? d : 0;
+  };
+  const compFat = (r) => {
+    const D = diaCorteDe(r);
+    if (!D) return r.competencia || "";
+    const p = String(r.inicio||"").split("/");   // dd/mm/yyyy
+    let day = +p[0], m = +p[1], y = +p[2];
+    if (!m || !y) { const cp = String(r.competencia||"").split("/"); m = +cp[0]; y = +cp[1]; day = 1; }
+    if (!m || !y) return r.competencia || "";
+    if (day >= D) { m += 1; if (m>12){ m=1; y+=1; } }
+    return `${String(m).padStart(2,"0")}/${y}`;
+  };
+  const compValue = (r) => recDim==="ciclo" ? compFat(r) : (r.competencia || "");
+
+  const compsUsadas = [...new Set(empRecs.map(compValue).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
   let rightRecs = empRecs.slice();
   // Só entra na conciliação quem está "Liberado para faturamento" e tem saldo (gate).
   if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
-  if (recComp!=="todas") rightRecs = rightRecs.filter(r=>r.competencia===recComp);
+  if (recComp!=="todas") rightRecs = rightRecs.filter(r=>compValue(r)===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
@@ -3062,7 +3086,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
-                  <SortSel value={recComp} onChange={setRecComp} opts={[["todas","Todas comp."],...compsUsadas.map(c=>[c,c])]}/>
+                  <SortSel value={recDim} onChange={v=>{setRecDim(v);setRecComp("todas");}} opts={[["servico","Mês de serviço"],["ciclo","Ciclo de fatur."]]}/>
+                  <SortSel value={recComp} onChange={setRecComp} opts={[["todas",recDim==="ciclo"?"Todos ciclos":"Todas comp."],...compsUsadas.map(c=>[c,c])]}/>
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
                 </div>
@@ -3074,15 +3099,15 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
               <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
-                      const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r);
+                      const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r), dc=diaCorteDe(r);
                       return (
                         <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"#fff")}}>
                           {full
                             ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>}</div>
-                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>} {dc>0&&<Badge label={`ciclo ${compFat(r)}`} color="teal" small/>}</div>
+                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{dc>0?` · fatura ${compFat(r)} · ${r.inicio}–${r.fim}`:""}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
                           </div>
                           {on && hasSaldo(r)
                             ? <input style={{...inp,width:110,fontSize:12,padding:"4px 7px",textAlign:"right"}} title="Valor a faturar (parcial)" value={valores[r.id] ?? saldoR(r).toFixed(2)} onChange={e=>setValor(r.id,e.target.value)} onClick={e=>e.stopPropagation()}/>
