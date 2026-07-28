@@ -2892,9 +2892,13 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const [qProf, setQProf] = useState("");
   const [tipoF, setTipoF] = useState("todos");
   const [empF, setEmpF] = useState("todas");
+  const [statusF, setStatusF] = useState("todos");  // faturado | represado | ciclo
+  const [perF, setPerF] = useState("todos");        // competência
   const [detail, setDetail] = useState(null);       // {label, ids:Set} da célula clicada
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
   const fat  = (r) => fatByRec[r.id]||0;
+  // Status do registro: faturado (nada em aberto), ou (em aberto) represado / dentro do ciclo.
+  const statusOf = (r) => { const saldo=bill(r)-fat(r); if (saldo<=0.01) return "faturado"; return categoriaOf(r,clients).cat==="represado" ? "represado" : "ciclo"; };
   // Valor represado de uma lista: saldo em aberto dos registros já represados.
   const represSaldo = (list) => list.reduce((s,r)=>{ const saldo=bill(r)-fat(r); return s + ((saldo>0.01 && categoriaOf(r,clients).cat==="represado") ? saldo : 0); }, 0);
   const empNome = (cod) => EMPRESAS.find(e=>e.cod===cod)?.nome || "";
@@ -2907,8 +2911,11 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
   let recs = cliente ? recsEmp.filter(r=>r.cliente===cliente) : [];
   const tiposCli = [...new Set(recs.map(r=>r.tipo).filter(Boolean))].sort();
+  const mesesOpts = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recs = recs.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
+  if (statusF!=="todos") recs = recs.filter(r=>statusOf(r)===statusF);
+  if (perF!=="todos") recs = recs.filter(r=>r.competencia===perF);
 
   const meses = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   const projMap = {};
@@ -2955,6 +2962,17 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   };
 
   const detailList = detail ? recs.filter(r=>detail.ids.has(r.id)).sort((a,b)=>bill(b)-bill(a)) : [];
+  // Totalizadores da célula clicada: faturado vs. em aberto (represado / dentro do ciclo).
+  const dFat   = detailList.reduce((s,r)=>s+Math.max(0,fat(r)),0);
+  const dRep   = detailList.reduce((s,r)=>{ const a=bill(r)-fat(r); return s + (a>0.01 && categoriaOf(r,clients).cat==="represado" ? a : 0); },0);
+  const dCiclo = detailList.reduce((s,r)=>{ const a=bill(r)-fat(r); return s + (a>0.01 && categoriaOf(r,clients).cat!=="represado" ? a : 0); },0);
+  const dTot   = dFat + dRep + dCiclo;
+  const totBox = (label,value,color,strong)=>(
+    <div style={{textAlign:"right",minWidth:96}}>
+      <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",fontWeight:600}}>{label}</div>
+      <div style={{fontSize:strong?16:14,fontWeight:strong?800:700,color,fontVariantNumeric:"tabular-nums"}}>{brl(value)}</div>
+    </div>
+  );
 
   const thProj = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"10px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".05em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:190 };
   const thMes  = { padding:"10px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:100 };
@@ -2968,15 +2986,17 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
       <Card style={{padding:"12px 14px",marginBottom:16}}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          {empresasAll.length>1 && <select style={{...inp,width:"auto",minWidth:170}} value={empF} onChange={e=>{setEmpF(e.target.value);setCliente("");setTipoF("todos");}}>
+          {empresasAll.length>1 && <select style={{...inp,width:"auto",minWidth:170}} value={empF} onChange={e=>{setEmpF(e.target.value);setCliente("");setTipoF("todos");setPerF("todos");}}>
             <option value="todas">Todas as empresas</option>
             {empresasAll.map(cod=><option key={cod} value={cod}>{cod}{empNome(cod)?` — ${empNome(cod)}`:""}</option>)}
           </select>}
-          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");}}>
+          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");setPerF("todos");}}>
             <option value="">— Selecione um cliente —</option>
             {clientesList.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
           {cliente && <>
+            <select style={{...inp,width:"auto"}} value={perF} onChange={e=>setPerF(e.target.value)}><option value="todos">Todos os períodos</option>{mesesOpts.map(m=><option key={m} value={m}>{m}</option>)}</select>
+            <select style={{...inp,width:"auto"}} value={statusF} onChange={e=>setStatusF(e.target.value)}><option value="todos">Todos os status</option><option value="faturado">Faturado</option><option value="represado">Represado</option><option value="ciclo">Dentro do ciclo</option></select>
             <select style={{...inp,width:"auto"}} value={tipoF} onChange={e=>setTipoF(e.target.value)}><option value="todos">Todos os contratos</option>{tiposCli.map(t=><option key={t} value={t}>{t}</option>)}</select>
             <input style={{...inp,width:"auto",minWidth:180,flex:"1 1 180px"}} placeholder="Profissional dentro do cliente…" value={qProf} onChange={e=>setQProf(e.target.value)}/>
           </>}
@@ -3052,6 +3072,13 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
               })}
             </tbody>
           </table>
+        </div>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",justifyContent:"flex-end",alignItems:"flex-end",marginTop:14,padding:"12px 16px",background:T.canvas,borderRadius:T.rLg,border:`1px solid ${T.line}`}}>
+          {totBox("Faturado", dFat, dFat>0.01?C.green.solid:T.faint)}
+          {totBox("Represado", dRep, dRep>0.01?C.red.solid:T.faint)}
+          {dCiclo>0.01 && totBox("Dentro do ciclo", dCiclo, C.orange.solid)}
+          <div style={{width:1,alignSelf:"stretch",background:T.line}}/>
+          {totBox("Total", dTot, T.ink, true)}
         </div>
         <div style={{fontSize:11,color:T.muted,marginTop:12}}>Para classificar ou editar o motivo do represamento, use a aba <b>Represados</b>.</div>
       </Modal>}
