@@ -2909,13 +2909,23 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const represSaldo = (list) => list.reduce((s,r)=>{ const saldo=bill(r)-fat(r); return s + ((saldo>0.01 && categoriaOf(r,clients).cat==="represado") ? saldo : 0); }, 0);
   const empNome = (cod) => EMPRESAS.find(e=>e.cod===cod)?.nome || "";
 
+  // Nome canônico do cliente: mesmas COD CLIENTE com grafias/truncamentos
+  // diferentes (ex.: "JOHNSON & JOHNSON" e "JOHNSON & JOHNSON DO BRASIL INDUSTRIA
+  // E", ambos cod 1002060) contam como UM cliente. Usa o nome mais frequente do
+  // código; sem código, cai no próprio nome. Não altera o dado gravado.
+  const _nomeCod = {};
+  records.forEach(r => { const cod=(r.codCliente||"").trim(); if(!cod) return; const m=(_nomeCod[cod]=_nomeCod[cod]||{}); const nm=(r.cliente||"").trim(); if(nm) m[nm]=(m[nm]||0)+1; });
+  const _canon = {};
+  Object.entries(_nomeCod).forEach(([cod,m])=>{ _canon[cod]=Object.entries(m).sort((a,b)=>b[1]-a[1]||b[0].length-a[0].length)[0][0]; });
+  const cliNome = r => { const cod=(r.codCliente||"").trim(); return (cod && _canon[cod]) ? _canon[cod] : (r.cliente||""); };
+
   const empresasAll = [...new Set(records.map(r=>r.empresa).filter(Boolean))].sort();
   // Empresa é um filtro de topo (sempre visível): restringe a lista de clientes
   // e o mapa. "todas" = grupo inteiro.
   const recsEmp = empF==="todas" ? records : records.filter(r=>r.empresa===empF);
-  const clientesList = [...new Set(recsEmp.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const clientesList = [...new Set(recsEmp.map(r=>cliNome(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 
-  let recs = cliente ? recsEmp.filter(r=>r.cliente===cliente) : [];
+  let recs = cliente ? recsEmp.filter(r=>cliNome(r)===cliente) : [];
   const tiposCli = [...new Set(recs.map(r=>r.tipo).filter(Boolean))].sort();
   const mesesOpts = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
