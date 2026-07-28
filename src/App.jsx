@@ -1675,7 +1675,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
 const NAV_SECTIONS = [
   { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"valida",icon:"check",label:"Validações"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"valida",icon:"check",label:"Validações"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
@@ -2733,6 +2733,129 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
           </Row>
         ))}
       </Result>
+    </div>
+  );
+}
+
+// Visão por projeto — linha do tempo. Escolhe um cliente e vê cada PEP mês a mês,
+// com o faturável e a distribuição por etapa (faturado / liberado / em andamento /
+// não iniciado). Só renderiza ao escolher o cliente — mapa focado.
+function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
+  const [cliente, setCliente] = useState("");
+  const [qProf, setQProf] = useState("");
+  const [tipoF, setTipoF] = useState("todos");
+  const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
+  const fat  = (r) => fatByRec[r.id]||0;
+
+  const clientesList = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+
+  let recs = cliente ? records.filter(r=>r.cliente===cliente) : [];
+  const tiposCli = [...new Set((cliente?records.filter(r=>r.cliente===cliente):[]).map(r=>r.tipo).filter(Boolean))].sort();
+  if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
+  if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recs = recs.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
+
+  const meses = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  const projMap = {};
+  recs.forEach(r=>{ const k=`${r.tipo}||${r.pep}`; (projMap[k]=projMap[k]||{tipo:r.tipo,pep:r.pep,recs:[]}).recs.push(r); });
+  const projetos = Object.values(projMap).sort((a,b)=>(a.tipo||"").localeCompare(b.tipo||"")||(a.pep||"").localeCompare(b.pep||""));
+
+  const SEG = [
+    { key:"faturado",  label:"Faturado",     color:C.green.solid },
+    { key:"liberado",  label:"Liberado",     color:C.teal.solid },
+    { key:"andamento", label:"Em andamento", color:C.orange.solid },
+    { key:"pendente",  label:"Não iniciado", color:C.gray.solid },
+  ];
+  const segsOf = (list) => {
+    let faturado=0, liberado=0, andamento=0, pendente=0;
+    list.forEach(r=>{
+      const f=fat(r), saldo=bill(r)-f;
+      faturado += Math.max(0,f);
+      if (saldo>0.01){ const p=r.progress||{};
+        if (p.p5_liberado) liberado+=saldo;
+        else if (calcStatus(p)==="Não iniciado") pendente+=saldo;
+        else andamento+=saldo;
+      }
+    });
+    return { faturado, liberado, andamento, pendente, total:faturado+liberado+andamento+pendente };
+  };
+
+  const Cell = ({ list }) => {
+    const s = list.length ? segsOf(list) : null;
+    if (!s || s.total<=0.01) return <div style={{color:T.faint,fontSize:11,textAlign:"center"}}>—</div>;
+    const pctFat = Math.round(s.faturado/s.total*100);
+    return (
+      <div>
+        <div style={{fontSize:11.5,fontWeight:700,color:T.ink,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{fmtShort(s.total)}</div>
+        <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",margin:"5px 0 3px",background:T.lineSoft}}>
+          {SEG.map(g=> s[g.key]>0.01 ? <div key={g.key} title={`${g.label}: ${brl(s[g.key])}`} style={{width:`${s[g.key]/s.total*100}%`,background:g.color}}/> : null)}
+        </div>
+        <div style={{fontSize:10,color:pctFat>=100?C.green.solid:T.muted,fontWeight:600}}>{pctFat}% fat</div>
+      </div>
+    );
+  };
+
+  const thProj = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"10px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".05em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:190 };
+  const thMes  = { padding:"10px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:100 };
+  const tdProj = { position:"sticky", left:0, zIndex:1, background:"#fff", padding:"8px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:190 };
+  const tdCell = { padding:"8px 10px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, verticalAlign:"top" };
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+        <h1 style={Ty.h1}>Visão por projeto</h1>
+        <span style={Ty.small}>linha do tempo — faturável por PEP, mês a mês</span>
+      </div>
+      <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Escolha um cliente para desenhar o mapa. Cada célula mostra o faturável do mês e a distribuição por etapa.</div>
+
+      <Card style={{padding:"12px 14px",marginBottom:16}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");}}>
+            <option value="">— Selecione um cliente —</option>
+            {clientesList.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          {cliente && <>
+            <select style={{...inp,width:"auto"}} value={tipoF} onChange={e=>setTipoF(e.target.value)}><option value="todos">Todos os contratos</option>{tiposCli.map(t=><option key={t} value={t}>{t}</option>)}</select>
+            <input style={{...inp,width:"auto",minWidth:180,flex:"1 1 180px"}} placeholder="Profissional dentro do cliente…" value={qProf} onChange={e=>setQProf(e.target.value)}/>
+          </>}
+        </div>
+      </Card>
+
+      {!cliente ? (
+        <Card style={{textAlign:"center",padding:"3rem"}}>
+          <div style={{fontSize:14,color:T.muted}}>Escolha um cliente acima para ver o mapa de faturamento por projeto.</div>
+        </Card>
+      ) : projetos.length===0 ? (
+        <Card style={{textAlign:"center",padding:"2rem"}}><div style={{fontSize:13,color:T.muted}}>Nenhum registro para este filtro.</div></Card>
+      ) : (
+        <>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:12,fontSize:11.5,color:T.muted}}>
+            {SEG.map(g=><span key={g.key} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:13,height:13,borderRadius:3,background:g.color}}/>{g.label}</span>)}
+          </div>
+          <div style={{overflowX:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg,background:"#fff"}}>
+            <table style={{borderCollapse:"collapse",width:"100%"}}>
+              <thead><tr>
+                <th style={thProj}>Projeto (tipo · PEP)</th>
+                {meses.map(m=><th key={m} style={thMes}>{m}</th>)}
+              </tr></thead>
+              <tbody>
+                {projetos.map(p=>(
+                  <tr key={p.tipo+"|"+p.pep}>
+                    <td style={tdProj}>
+                      <div style={{fontWeight:700,fontSize:12,color:T.ink}}>{p.pep||"—"}</div>
+                      <div style={{fontSize:10.5,color:T.muted}}>{p.tipo}</div>
+                    </td>
+                    {meses.map(m=><td key={m} style={tdCell}><Cell list={p.recs.filter(r=>r.competencia===m)}/></td>)}
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{...tdProj,background:T.canvas,fontWeight:800,color:T.ink,fontSize:12}}>TOTAL · {cliente}</td>
+                  {meses.map(m=><td key={m} style={{...tdCell,background:T.canvas}}><Cell list={recs.filter(r=>r.competencia===m)}/></td>)}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -4416,6 +4539,11 @@ function AppInner() {
           {page==="valida"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ValidatorsView records={records} notes={notes} faturamentos={faturamentos} fatByRec={fatByRec} varByRec={varByRec}/>
+            </div>
+          )}
+          {page==="projeto"&&(
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ProjectTimelineView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
             </div>
           )}
           {page==="clients"&&(
