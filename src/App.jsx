@@ -4412,6 +4412,10 @@ function AppInner() {
         const norm = s => (s||"").toString().trim().toLowerCase();
         const dnorm = s => String(s||"").replace(/\D/g,"");   // data: só dígitos (tolera separador)
         const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
+        // Chave SEM empresa: identifica a mesma receita quando só o código da
+        // empresa mudou (correção de digitação). O PEP já é específico de empresa
+        // (BR02CLP…), então colisão entre empresas diferentes não acontece.
+        const keyNoEmp = r => `${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
         const combos = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
         const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
         // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
@@ -4424,7 +4428,7 @@ function AppInner() {
         const consumidos = new Set();
         const upserts = []; const inserts = []; const snapshot = [];
         const importId = uuid();
-        let novos=0, mudados=0, congelados=0;
+        let novos=0, mudados=0, congelados=0, movidos=0;
         const casar = (nr, ex) => {
           consumidos.add(ex.id);
           snapshot.push(ex);   // guarda o estado ANTERIOR para permitir desfazer
@@ -4440,8 +4444,11 @@ function AppInner() {
             upserts.push(merged);
             return;
           }
-          // Não conciliado: atualiza normalmente.
+          // Não conciliado: atualiza normalmente. `empresa` é refrescada do
+          // relatório — em casamento normal é igual (no-op); num MOVE por correção
+          // de empresa, é o que de fato transfere a receita para o código certo.
           const merged = { ...ex,
+            empresa: nr.empresa||ex.empresa,
             cliente: nr.cliente||ex.cliente, codCliente: nr.codCliente||ex.codCliente,
             inicio: nr.inicio||ex.inicio, fim: nr.fim||ex.fim,
             valorVenda: nr.valorVenda, hrsAprovadas: nr.hrsAprovadas,
@@ -4455,6 +4462,21 @@ function AppInner() {
           }
           upserts.push(merged);
         };
+        // Índice por identidade SEM empresa (mesma competência, todas as empresas)
+        // para detectar receita que só teve o código de empresa corrigido.
+        const compsNew = new Set(newRecs.map(r=>(r.competencia||"").trim()));
+        const byNoEmp = {};
+        records.forEach(r => { if (!compsNew.has((r.competencia||"").trim())) return; const k=keyNoEmp(r); (byNoEmp[k]=byNoEmp[k]||[]).push(r); });
+        // Tenta mover um registro de OUTRA empresa (mesmo PEP/profissional/período)
+        // em vez de criar um novo. Não mexe em conciliado. Retorna true se moveu.
+        const tentarMover = (nr) => {
+          const q = byNoEmp[keyNoEmp(nr)];
+          if (!q || !q.length) return false;
+          const idx = q.findIndex(ex => !consumidos.has(ex.id) && norm(ex.empresa)!==norm(nr.empresa) && (fatByRec[ex.id]||0)<=0.001);
+          if (idx<0) return false;
+          casar(nr, q.splice(idx,1)[0]);   // casar já seta empresa ← nr.empresa
+          return true;
+        };
         Object.entries(newByKey).forEach(([k, news]) => {
           const bucket = (byKey[k]||[]).slice();
           const pend = [];
@@ -4464,12 +4486,19 @@ function AppInner() {
             if (i>=0) casar(nr, bucket.splice(i,1)[0]);
             else pend.push(nr);
           });
-          // 2) as que sobraram (valor mudou) → o registro restante de valor mais próximo
+          // 2) as que sobraram: casa com o restante mais próximo no mesmo escopo;
+          //    se o escopo estiver vazio, tenta MOVER (correção de empresa) antes
+          //    de criar registro novo.
           pend.forEach(nr => {
-            if (!bucket.length) { inserts.push({ ...nr, importId }); novos++; return; }
-            let bi=0, bd=Infinity;
-            bucket.forEach((ex,idx)=>{ const d=Math.abs((ex.valorTotal||0)-(nr.valorTotal||0)); if(d<bd){bd=d;bi=idx;} });
-            casar(nr, bucket.splice(bi,1)[0]);
+            if (bucket.length) {
+              let bi=0, bd=Infinity;
+              bucket.forEach((ex,idx)=>{ const d=Math.abs((ex.valorTotal||0)-(nr.valorTotal||0)); if(d<bd){bd=d;bi=idx;} });
+              casar(nr, bucket.splice(bi,1)[0]);
+            } else if (tentarMover(nr)) {
+              movidos++;
+            } else {
+              inserts.push({ ...nr, importId }); novos++;
+            }
           });
         });
         const absentIds = escopo.filter(r => !consumidos.has(r.id) && !r.ausenteRelatorio).map(r=>r.id);
@@ -4477,7 +4506,7 @@ function AppInner() {
         try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId, snapshot }); } catch {}
         await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
         setState(s=>({...s, competenciaAtual:competencia}));
-        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${congelados?` · ${congelados} conciliado(s) divergindo (reabra p/ atualizar)`:""}, ${absentIds.length} fora do relatório`);
+        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${movidos?` · ${movidos} com empresa corrigida`:""}${congelados?` · ${congelados} conciliado(s) divergindo (reabra p/ atualizar)`:""}, ${absentIds.length} fora do relatório`);
         return;
       }
       if (mode==="replace") {
