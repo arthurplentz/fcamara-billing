@@ -289,6 +289,7 @@ const T = {
   danger:  "#dc2626", dangerBg:"#fef2f2", dangerLine:"#fca5a5",
   rSm:8, rMd:10, rLg:14, rXl:18, rPill:999,
   shSm:"0 1px 2px rgba(28,25,23,.05)",
+  shCard:"0 1px 2px rgba(28,25,23,.04), 0 8px 22px rgba(28,25,23,.05)",
   shMd:"0 6px 20px rgba(28,25,23,.07)",
   shLg:"0 20px 50px rgba(28,25,23,.16)",
 };
@@ -467,7 +468,22 @@ function FcamaraLogo({ size = 22, onDark }) {
 }
 
 function Card({ children, style:s={}, interactive, ...rest }) {
-  return <div className={interactive?"fc-card-int":undefined} style={{ background:"#fff", border:`1px solid ${T.line}`, borderRadius:T.rXl, ...s }} {...rest}>{children}</div>;
+  return <div className={interactive?"fc-card-int":undefined} style={{ background:"#fff", border:`1px solid ${T.line}`, borderRadius:T.rXl, boxShadow:T.shCard, ...s }} {...rest}>{children}</div>;
+}
+
+// Cabeçalho de página padrão — ícone (chip laranja) + título (display) + subtítulo.
+// Dá o mesmo capricho do Início nas demais telas.
+function PageHead({ icon, title, sub, right }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
+      {icon && <div style={{width:40,height:40,borderRadius:12,background:T.brandBg,color:T.brand,display:"grid",placeItems:"center",flexShrink:0}}><Icon name={icon} size={20}/></div>}
+      <div style={{flex:1,minWidth:180}}>
+        <h1 style={{...Ty.h1,fontSize:22}}>{title}</h1>
+        {sub && <div style={{...Ty.small,marginTop:2}}>{sub}</div>}
+      </div>
+      {right}
+    </div>
+  );
 }
 
 function Field({ label, hint, children }) {
@@ -1290,10 +1306,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
         onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
       {varTarget&&<VariacaoModal record={varTarget} lancamentos={(varsByRec[varTarget.id]||[])} onAdd={(valor,motivo)=>onAddVariacao(varTarget.id,valor,motivo)} onDelete={onDelVariacao} onClose={()=>setVarTarget(null)}/>}
 
-      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-        <h1 style={Ty.h1}>Minha visão</h1>
-        <span style={Ty.small}>{groups.length} cliente(s) · {filtered.length} registro(s)</span>
-      </div>
+      <PageHead icon="list" title="Minha visão" sub={`${groups.length} cliente(s) · ${filtered.length} registro(s)`}/>
 
       {/* Resumo por tipo de contrato */}
       {Object.keys(porTipo).length>0 && <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
