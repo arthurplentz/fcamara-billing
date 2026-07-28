@@ -2893,7 +2893,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const [tipoF, setTipoF] = useState("todos");
   const [empF, setEmpF] = useState("todas");
   const [statusF, setStatusF] = useState("todos");  // faturado | represado | ciclo
-  const [perF, setPerF] = useState("todos");        // competência
+  const [perSel, setPerSel] = useState([]);         // competências selecionadas (vazio = todas)
   const [detail, setDetail] = useState(null);       // {label, ids:Set} da célula clicada
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
   const fat  = (r) => fatByRec[r.id]||0;
@@ -2915,7 +2915,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recs = recs.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
   if (statusF!=="todos") recs = recs.filter(r=>statusOf(r)===statusF);
-  if (perF!=="todos") recs = recs.filter(r=>r.competencia===perF);
+  if (perSel.length) recs = recs.filter(r=>perSel.includes(r.competencia));
 
   const meses = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   const projMap = {};
@@ -2986,21 +2986,30 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
       <Card style={{padding:"12px 14px",marginBottom:16}}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          {empresasAll.length>1 && <select style={{...inp,width:"auto",minWidth:170}} value={empF} onChange={e=>{setEmpF(e.target.value);setCliente("");setTipoF("todos");setPerF("todos");}}>
+          {empresasAll.length>1 && <select style={{...inp,width:"auto",minWidth:170}} value={empF} onChange={e=>{setEmpF(e.target.value);setCliente("");setTipoF("todos");setPerSel([]);}}>
             <option value="todas">Todas as empresas</option>
             {empresasAll.map(cod=><option key={cod} value={cod}>{cod}{empNome(cod)?` — ${empNome(cod)}`:""}</option>)}
           </select>}
-          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");setPerF("todos");}}>
+          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");setPerSel([]);}}>
             <option value="">— Selecione um cliente —</option>
             {clientesList.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
           {cliente && <>
-            <select style={{...inp,width:"auto"}} value={perF} onChange={e=>setPerF(e.target.value)}><option value="todos">Todos os períodos</option>{mesesOpts.map(m=><option key={m} value={m}>{m}</option>)}</select>
             <select style={{...inp,width:"auto"}} value={statusF} onChange={e=>setStatusF(e.target.value)}><option value="todos">Todos os status</option><option value="faturado">Faturado</option><option value="represado">Represado</option><option value="ciclo">Dentro do ciclo</option></select>
             <select style={{...inp,width:"auto"}} value={tipoF} onChange={e=>setTipoF(e.target.value)}><option value="todos">Todos os contratos</option>{tiposCli.map(t=><option key={t} value={t}>{t}</option>)}</select>
             <input style={{...inp,width:"auto",minWidth:180,flex:"1 1 180px"}} placeholder="Profissional dentro do cliente…" value={qProf} onChange={e=>setQProf(e.target.value)}/>
           </>}
         </div>
+        {cliente && mesesOpts.length>0 && <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:11,paddingTop:11,borderTop:`1px solid ${T.lineSoft}`}}>
+          <span style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",marginRight:2}}>Período</span>
+          {mesesOpts.map(m=>{ const on=perSel.includes(m); return (
+            <button key={m} onClick={()=>setPerSel(on?perSel.filter(x=>x!==m):[...perSel,m])}
+              style={{padding:"5px 11px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${on?T.brand:T.line}`,background:on?"#fff5f1":"#fff",color:on?T.brand:T.inkSoft}}>{m}</button>
+          );})}
+          {perSel.length>0
+            ? <button onClick={()=>setPerSel([])} style={{padding:"5px 10px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${T.line}`,background:"#fff",color:T.muted}}>limpar</button>
+            : <span style={{fontSize:11,color:T.faint}}>todos os meses</span>}
+        </div>}
       </Card>
 
       {!cliente ? (
