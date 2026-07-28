@@ -23,6 +23,7 @@ function dbToRec(row) {
     valorAlteradoEm: row.valor_alterado_em || null,
     ausenteRelatorio: !!row.ausente_relatorio,
     valorBaseDivergente: row.valor_base_divergente == null ? null : Number(row.valor_base_divergente),
+    classMotivo: row.class_motivo || "", classObs: row.class_obs || "",
   };
 }
 function recToDb(r, withId) {
@@ -73,6 +74,16 @@ export async function freeNotes(cids) {
 export async function clearRecordAlert(id) {
   const { error } = await supabase.from("records")
     .update({ valor_anterior: null, valor_alterado_em: null, ausente_relatorio: false, updated_at: nowISO() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// Classificação do não-faturado (motivo padrão + observação livre). Atualização
+// dirigida — só toca nestes dois campos, então nunca colide com re-importação
+// (o upsert de merge não inclui estes campos, preservando a classificação).
+export async function updateRecordClass(id, { motivo, obs }) {
+  const { error } = await supabase.from("records")
+    .update({ class_motivo: motivo || null, class_obs: obs || null, updated_at: nowISO() })
     .eq("id", id);
   if (error) throw error;
 }
