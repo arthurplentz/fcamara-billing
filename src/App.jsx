@@ -1371,8 +1371,9 @@ function ClassifyChip({ record:r, clients=[], onClick, readOnly, style:s={} }) {
 
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
-function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec={}, varsByRec={}, aceitaVar=()=>false, onAddVariacao, onDelVariacao, onUpdateBulk, onDeleteRecord, onClearAlert, onSaveClass, competenciaAtual, onCompetenciaChange }) {
+function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByRec={}, varByRec={}, varsByRec={}, aceitaVar=()=>false, onAddVariacao, onDelVariacao, onUpdateBulk, onDeleteRecord, onClearAlert, onSaveClass, competenciaAtual, onCompetenciaChange }) {
   const isMobile = useIsMobile();
+  const seeAll = isAdmin || isViewer;   // enxerga todos os analistas (admin ou viewer)
   const [varTarget, setVarTarget] = useState(null);   // registro para lançar variação
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);   // faturável (receita + variação)
   const [recordEdit, setRecEdit] = useState(null);
@@ -1405,7 +1406,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
   if (empresa) filtered = filtered.filter(r=>r.empresa===empresa);
   if (tipo)    filtered = filtered.filter(r=>r.tipo===tipo);
   if (filterComp!=="todas") filtered = filtered.filter(r=>r.competencia===filterComp);
-  if (isAdmin && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
+  if (seeAll && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa==="_faltam_datas") filtered = filtered.filter(faltaDatas);
   else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id], bill(r))===filterEtapa);
   filtros.forEach(f=>{ const v=(f.val||"").trim().toLowerCase(); const g=FDIMS[f.dim]?.get; if(v&&g) filtered = filtered.filter(r=>String(g(r)||"").toLowerCase().includes(v)); });
@@ -1467,7 +1468,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
             <option value="">Todos os contratos</option>
             {tiposUsed.map(t=><option key={t}>{t}</option>)}
           </select>
-          {isAdmin&&<select style={{...inp,width:selW}} value={filterAnalista} onChange={e=>setFA(e.target.value)} aria-label="Analista">
+          {seeAll&&<select style={{...inp,width:selW}} value={filterAnalista} onChange={e=>setFA(e.target.value)} aria-label="Analista">
             <option value="todos">Todos os analistas</option>
             {analistas.map(a=><option key={a}>{a}</option>)}
           </select>}
@@ -1547,7 +1548,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
                 <div style={{fontSize:18,fontWeight:800,color:pct===100?T.ok:pct>50?T.brand:C.orange.solid}}>{pct}%</div>
                 <div style={{fontSize:10,color:T.muted}}>faturado</div>
               </div>
-              <Btn small icon="pencil" onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>Atualizar passos</Btn>
+              {!isViewer && <Btn small icon="pencil" onClick={e=>{e.stopPropagation();setBulk({cliente:g.cliente,pep:g.pep,records:g.records});}}>Atualizar passos</Btn>}
               <span style={{fontSize:16,color:T.faint}} aria-hidden="true">{isOpen?"▲":"▼"}</span>
             </div>
 
@@ -1558,13 +1559,13 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
               <div className="fc-scroll" style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginTop:10}}>
                 <thead><tr style={{background:T.canvas}}>
-                  {[isAdmin&&"Analista","Profissional","OV","Funil","Período","Val. Total","NF","Status",isAdmin&&"Ações"].filter(Boolean).map(h=>
+                  {[seeAll&&"Analista","Profissional","OV","Funil","Período","Val. Total","NF","Status",isAdmin&&"Ações"].filter(Boolean).map(h=>
                     <th key={h} style={{padding:"7px 10px",textAlign:h==="Ações"?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>
                   )}
                 </tr></thead>
                 <tbody>
                   {g.records.map(r=>{
-                    const colCount = (isAdmin?1:0)+7+(isAdmin?1:0);
+                    const colCount = (seeAll?1:0)+7+(isAdmin?1:0);
                     const fatR = fatByRec[r.id]||0;
                     const saldoR = Math.max(0,(r.valorTotal||0)-fatR);
                     const saldoBill = bill(r) - fatR;                                   // saldo faturável (inclui variação)
@@ -1575,7 +1576,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
                     return (
                     <Fragment key={r.id}>
                     <tr className="fc-row" style={{borderBottom:subRow?"none":`1px solid ${T.lineSoft}`}}>
-                      {isAdmin&&<td style={{padding:"7px 10px"}}><Badge label={r.responsavel} color="purple" small/></td>}
+                      {seeAll&&<td style={{padding:"7px 10px"}}><Badge label={r.responsavel} color="purple" small/></td>}
                       <td style={{padding:"7px 10px",fontWeight:500,color:T.ink}}>{r.profissional}</td>
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11,color:r.ordemVenda?T.inkSoft:T.faint}}>{r.ordemVenda||"—"}</td>
                       <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} size="sm"/></td>
@@ -1584,7 +1585,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
                       <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
                         <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color={recStatusColor(r, fatByRec[r.id], bill(r))} small dot/>
-                        {aceitaVar(r) && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"#fff",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
+                        {aceitaVar(r) && !isViewer && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"#fff",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
                         {fatR<0.01 && <ClassifyChip record={r} clients={clients} readOnly/>}
                       </td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
@@ -1602,7 +1603,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
                         {alertaFat
                           ? <span>Valor mudou <b>após faturamento</b>: {brl(r.valorAnterior)} → {brl(r.valorTotal)}. Já faturado {brl(fatR)}{saldoR>0.01?<> · <b>saldo a faturar {brl(saldoR)}</b></>:<> · <b>faturado a maior {brl(fatR-(r.valorTotal||0))} — NF a corrigir</b></>}. {r.nfNumero?`NF ${r.nfNumero} a revisar/cancelar.`:""}</span>
                           : <span>Valor alterado no relatório: <b>{brl(r.valorAnterior)} → {brl(r.valorTotal)}</b>.</span>}
-                        <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${alertaFat?"#fca5a5":"#fcd34d"}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:alertaFat?"#991b1b":"#92400e"}}>Ciente</button>
+                        {!isViewer && <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${alertaFat?"#fca5a5":"#fcd34d"}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:alertaFat?"#991b1b":"#92400e"}}>Ciente</button>}
                       </div>}
                       {r.valorBaseDivergente!=null && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:"#fef2f2",border:`1px solid #fecaca`,color:"#991b1b",fontWeight:600,marginTop:r.valorAnterior!=null?6:0}}>
                         <Icon name="alert" size={14}/>
@@ -1610,7 +1611,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
                       </div>}
                       {r.ausenteRelatorio && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:T.canvas,border:`1px solid ${T.line}`,color:T.muted,fontWeight:600,marginTop:(r.valorAnterior!=null||r.valorBaseDivergente!=null)?6:0}}>
                         <Icon name="info" size={14}/> Fora do último relatório importado — verifique se saiu do projeto.
-                        <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.inkSoft}}>Ciente</button>
+                        {!isViewer && <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.inkSoft}}>Ciente</button>}
                       </div>}
                     </td></tr>}
                     </Fragment>
@@ -2085,7 +2086,7 @@ function DeliveryManager({ templates, responsaveis, competenciaAtual, onTemplate
 
 // ─── KANBAN ──────────────────────────────────────────────────────────────────
 
-function Kanban({ tasks, responsaveis, isAdmin, competenciaAtual, templates, deliveries, onAdd, onUpdate, onDelete, onTemplateSave, onTemplateDelete, onGenerate }) {
+function Kanban({ tasks, responsaveis, isAdmin, isViewer=false, competenciaAtual, templates, deliveries, onAdd, onUpdate, onDelete, onTemplateSave, onTemplateDelete, onGenerate }) {
   const isMobile = useIsMobile();
   const [editing, setEditing]       = useState(null);
   const [dragId, setDragId]         = useState(null);
@@ -2159,7 +2160,7 @@ function Kanban({ tasks, responsaveis, isAdmin, competenciaAtual, templates, del
         </select>
         {isAdmin&&<Btn small onClick={()=>setByAnalyst(v=>!v)} style={byAnalyst?{borderColor:T.brand,color:T.brand}:{}}>Por analista</Btn>}
         {isAdmin&&<Btn small onClick={()=>setShowDeliv(true)}>Entregas</Btn>}
-        <Btn primary onClick={()=>setEditing({ status:"inbox" })}>+ Nova tarefa</Btn>
+        {!isViewer && <Btn primary onClick={()=>setEditing({ status:"inbox" })}>+ Nova tarefa</Btn>}
       </div>
 
       {!byAnalyst && <div className="fc-scroll" style={boardStyle}>
@@ -2210,14 +2211,19 @@ function AccessEditModal({ profile, onSave, onClose }) {
   const [apelido, setApelido] = useState(profile.apelido || "");
   const [aniversario, setAniv]= useState(profile.aniversario || "");
   const [responsavel, setResp]= useState(profile.responsavel || "");
-  const [isAdmin, setIsAdmin] = useState(!!profile.isAdmin);
+  const [papel, setPapel]     = useState(profile.isViewer ? "viewer" : profile.isAdmin ? "admin" : "analista");
   const [err, setErr]         = useState("");
   function save() {
     const nm = name.trim();
     if (!nm) { setErr("Informe o nome de exibição."); return; }
-    onSave({ id: profile.id, name: nm, isAdmin, responsavel: responsavel.trim(), apelido: apelido.trim(), aniversario: aniversario.trim() });
+    onSave({ id: profile.id, name: nm, isAdmin: papel==="admin", isViewer: papel==="viewer", responsavel: responsavel.trim(), apelido: apelido.trim(), aniversario: aniversario.trim() });
     onClose();
   }
+  const PAPEIS = [
+    { v:"analista", l:"Analista", d:"Vê e edita as próprias receitas (vínculo abaixo)." },
+    { v:"viewer",   l:"Somente visualização", d:"Vê todas as telas e extrai relatórios, mas não altera nenhum dado." },
+    { v:"admin",    l:"Administrador", d:"Acesso completo: importar, exportar, todos os analistas e gestão de acessos." },
+  ];
   return (
     <Modal title={`Editar acesso — ${profile.name}`} subtitle="Ajuste o nome, o apelido, o vínculo de receitas e o papel" onClose={onClose}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
@@ -2229,10 +2235,17 @@ function AccessEditModal({ profile, onSave, onClose }) {
         <Field label="Responsável na base de receitas"><input style={inp} value={responsavel} onChange={e=>setResp(e.target.value)} placeholder="Ex: Juliana Teles"/></Field>
         <div style={{fontSize:11,color:T.muted,marginTop:4}}>Cole aqui o nome <b>exatamente</b> como aparece na coluna "Responsável" do Excel. É isso que faz a pessoa ver as receitas dela. (Se ficar vazio, usamos o nome de exibição.)</div>
       </div>
-      <label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",marginBottom:16,padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${isAdmin?T.brand:T.line}`,background:isAdmin?T.brandBg:"#fff"}}>
-        <input type="checkbox" checked={isAdmin} onChange={e=>setIsAdmin(e.target.checked)} style={{width:16,height:16,marginTop:1}}/>
-        <span><b style={{color:isAdmin?T.brand:T.inkSoft}}>Administrador</b><br/><span style={{fontSize:11,color:T.muted}}>Acesso completo: importar, exportar, todos os analistas e gestão de acessos.</span></span>
-      </label>
+      <div style={{marginBottom:16}}>
+        <label style={Ty.label}>Papel</label>
+        <div style={{display:"grid",gap:8}}>
+          {PAPEIS.map(op=>{ const on=papel===op.v; return (
+            <label key={op.v} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff"}}>
+              <input type="radio" name="papel" checked={on} onChange={()=>setPapel(op.v)} style={{width:16,height:16,marginTop:1}}/>
+              <span><b style={{color:on?T.brand:T.inkSoft}}>{op.l}</b><br/><span style={{fontSize:11,color:T.muted}}>{op.d}</span></span>
+            </label>
+          );})}
+        </div>
+      </div>
       {err&&<div style={{marginBottom:12,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerLine}`}}>{err}</div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
@@ -2287,7 +2300,7 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
                         <span style={{fontWeight:600,color:T.ink}}>{u.name}{isSelf&&<span style={{fontSize:11,color:T.muted,fontWeight:500}}> (você)</span>}</span>
                       </span>
                     </td>
-                    <td style={{padding:"10px 14px"}}><Badge label={u.isAdmin?"Administrador":"Analista"} color={u.isAdmin?"blue":"gray"} small dot/></td>
+                    <td style={{padding:"10px 14px"}}><Badge label={u.isViewer?"Somente visualização":u.isAdmin?"Administrador":"Analista"} color={u.isViewer?"teal":u.isAdmin?"blue":"gray"} small dot/></td>
                     <td style={{padding:"10px 14px",textAlign:"right",whiteSpace:"nowrap"}}>
                       <Btn small onClick={()=>setEditing(u)} style={{marginRight:6}}>Editar</Btn>
                       <Btn small danger disabled={isSelf||lastAdmin} onClick={()=>setConfirm(u)}
@@ -3125,7 +3138,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 // Represados — receitas ainda em aberto que passaram da folga de faturamento.
 // É o ÚNICO lugar onde se edita a classificação (motivo) e a observação do
 // represamento. Filtra por empresa e cliente; agrupa por cliente.
-function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClass }) {
+function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClass, isViewer=false }) {
   const [empF, setEmpF] = useState("todas");
   const [cliF, setCliF] = useState("todos");
   const [q, setQ] = useState("");
@@ -3208,7 +3221,7 @@ function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClas
                         <td style={{padding:"7px 10px",color:r.classMotivo?T.ink:T.faint,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.classMotivo||"— a classificar"}</td>
                         <td style={{padding:"7px 10px",color:r.classObs?T.inkSoft:T.faint,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.classObs||""}>{r.classObs||"—"}</td>
                         <td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
-                          <Btn small icon="pencil" onClick={()=>setClass(r)}>{(r.classMotivo||r.classObs)?"Editar":"Classificar"}</Btn>
+                          {!isViewer && <Btn small icon="pencil" onClick={()=>setClass(r)}>{(r.classMotivo||r.classObs)?"Editar":"Classificar"}</Btn>}
                         </td>
                       </tr>
                     );})}
@@ -3225,7 +3238,7 @@ function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClas
 // Conciliação (estilo conciliação bancária), por empresa do grupo (BR02, BR04…).
 // De um lado as notas da prefeitura a conciliar; do outro as receitas. Filtros e
 // ordenação independentes nos dois lados. Nada é conciliado automaticamente.
-function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varByRec={}, faturamentos=[], orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
+function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fatByRec={}, varByRec={}, faturamentos=[], orfas=0, onReopenOrphans, onImport, onUndoImport, onDeleteNote, onConciliate, onReopen }) {
   const [importing, setImporting] = useState(false);
   const [manage, setManage] = useState(false);
   const [noteDel, setNoteDel] = useState(null);
@@ -3490,7 +3503,7 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
               </div>
               <div style={{flex:1}}/>
               <Btn onClick={resetSel}>Limpar</Btn>
-              <Btn primary disabled={!selectedNotes.length||!selRecs.size||!bate} onClick={confirmar}>Conciliar {selectedNotes.length}×{selRecs.size}</Btn>
+              {!isViewer && <Btn primary disabled={!selectedNotes.length||!selRecs.size||!bate} onClick={confirmar}>Conciliar {selectedNotes.length}×{selRecs.size}</Btn>}
             </Card>
           )}
 
@@ -3605,7 +3618,7 @@ function clientCnpjs(c) {
   return c.cnpj ? [c.cnpj] : [];
 }
 
-function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge }) {
+function ClientsView({ clients, isAdmin, isViewer=false, onSave, onDelete, onBulkImport, onMerge }) {
   const [editing, setEditing] = useState(null);
   const [importing, setImporting] = useState(false);
   const [q, setQ] = useState("");
@@ -3715,7 +3728,7 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
           <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s){incompletos>0 && <> · <b style={{color:T.warn}}>{incompletos} incompleto(s)</b></>}</div>
         </div>
         {isAdmin && <Btn icon="upload" onClick={()=>setImporting(true)}>Importar clientes</Btn>}
-        <Btn primary icon="plus" onClick={()=>setEditing({ temPortal:false })}>Novo cliente</Btn>
+        {!isViewer && <Btn primary icon="plus" onClick={()=>setEditing({ temPortal:false })}>Novo cliente</Btn>}
       </div>
 
       <Card style={{padding:"10px 12px",marginBottom:14}}>
@@ -3741,8 +3754,8 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
           <b style={{fontSize:13,color:T.ink}}>{sel.size} selecionado(s)</b>
           <Btn small onClick={()=>setSel(new Set())}>Limpar</Btn>
           <div style={{flex:1}}/>
-          <Btn small icon="plus" onClick={startAdd}>Incluir em grupo existente</Btn>
-          <Btn primary small icon="link" disabled={sel.size<2} onClick={startMerge}>Agrupar (novo grupo)</Btn>
+          {!isViewer && <Btn small icon="plus" onClick={startAdd}>Incluir em grupo existente</Btn>}
+          {!isViewer && <Btn primary small icon="link" disabled={sel.size<2} onClick={startMerge}>Agrupar (novo grupo)</Btn>}
         </Card>
       )}
 
@@ -4390,12 +4403,19 @@ function AppInner() {
       if (session?.user) {
         const { data: prof } = await supabase.from("profiles").select("name,is_admin,apelido").eq("id", session.user.id).single();
         if (!mounted) return;
-        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, apelido: prof?.apelido || "", email: session.user.email };
+        // is_viewer é buscado à parte e tolerante a falha: se a coluna ainda não
+        // existir (migração não aplicada), o login segue normal (viewer=false),
+        // sem quebrar a detecção de admin.
+        let isViewerFlag = false;
+        const vres = await supabase.from("profiles").select("is_viewer").eq("id", session.user.id).single();
+        if (!vres.error) isViewerFlag = !!vres.data?.is_viewer;
+        if (!mounted) return;
+        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, isViewer: isViewerFlag, apelido: prof?.apelido || "", email: session.user.email };
         const isNewLogin = userIdRef.current !== next.id;
         userIdRef.current = next.id;
         // Mantém a MESMA referência do usuário se nada mudou — evita recarregar
         // a tela (e fechar modais) quando o app volta do foco / renova o token.
-        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin && prev.apelido===next.apelido) ? prev : next);
+        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin && prev.isViewer===next.isViewer && prev.apelido===next.apelido) ? prev : next);
         if (greet && isNewLogin) { setPage("home"); toast(`Bem-vindo(a), ${next.apelido || (next.name||"").split(" ")[0]}!`, "info"); }
       } else if (mounted) {
         userIdRef.current = null;
@@ -4411,8 +4431,12 @@ function AppInner() {
   }, []);
 
   const isAdmin = user?.isAdmin || false;
+  const isViewer = user?.isViewer || false;   // somente-visualização: lê tudo, não escreve
+  // Trava de UX para o viewer (a trava real é o RLS). Retorna true se bloqueou.
+  const blockIfViewer = () => { if (isViewer) { toast("Acesso somente visualização — ação não permitida.", "info"); return true; } return false; };
 
   async function handleUpdateBulk(updatedList) {
+    if (blockIfViewer()) return;
     try {
       await db.upsertRecords(updatedList);
       await reloadRecords();
@@ -4421,6 +4445,7 @@ function AppInner() {
   }
 
   async function handleSaveClass(id, { motivo, obs }) {
+    if (blockIfViewer()) return;
     try {
       await db.updateRecordClass(id, { motivo, obs });
       setRecords(rs => rs.map(r => r.id===id ? { ...r, classMotivo:motivo||"", classObs:obs||"" } : r));
@@ -4429,6 +4454,7 @@ function AppInner() {
   }
 
   async function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
+    if (blockIfViewer()) return;
     try {
       if (mode==="merge") {
         // Re-importação: casa por empresa+tipo+PEP+profissional+competência+PERÍODO.
@@ -4558,6 +4584,7 @@ function AppInner() {
   }
 
   async function handleUndoImport(entry) {
+    if (blockIfViewer()) return;
     if (!entry?.importId) { toast("Esta importação é antiga e não pode ser desfeita automaticamente.", "error"); return; }
     try {
       // 1) apaga os registros incluídos por esta importação
@@ -4588,13 +4615,14 @@ function AppInner() {
     } catch(e) { toast("Erro ao excluir registro: "+e.message, "error"); }
   }
   async function handleClearAlert(id) {
+    if (blockIfViewer()) return;
     try { await db.clearRecordAlert(id); await reloadRecords(); toast("Alerta baixado", "info"); }
     catch(e) { toast("Erro ao baixar alerta: "+e.message, "error"); }
   }
 
-  async function handleTaskAdd(t)    { try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
-  async function handleTaskUpdate(u) { try { await db.updateTask(u); await reloadTasks(); } catch(e){ toast("Erro ao atualizar tarefa: "+e.message,"error"); } }
-  async function handleTaskDelete(id){ try { await db.deleteTask(id); await reloadTasks(); toast("Tarefa excluída","info"); } catch(e){ toast("Erro ao excluir tarefa: "+e.message,"error"); } }
+  async function handleTaskAdd(t)    { if(blockIfViewer())return; try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
+  async function handleTaskUpdate(u) { if(blockIfViewer())return; try { await db.updateTask(u); await reloadTasks(); } catch(e){ toast("Erro ao atualizar tarefa: "+e.message,"error"); } }
+  async function handleTaskDelete(id){ if(blockIfViewer())return; try { await db.deleteTask(id); await reloadTasks(); toast("Tarefa excluída","info"); } catch(e){ toast("Erro ao excluir tarefa: "+e.message,"error"); } }
 
   // ─ Entregas recorrentes ─
   async function handleTemplateSave(t)   { try { t.id ? await db.updateTemplate(t) : await db.insertTemplate(t); await reloadTemplates(); toast(t.id?"Modelo atualizado":"Modelo de entrega criado"); } catch(e){ toast("Erro ao salvar modelo: "+e.message,"error"); } }
@@ -4610,6 +4638,7 @@ function AppInner() {
 
   // ─ Gestão de acessos (Supabase) ─
   async function handleProfileUpdate(data) {
+    if (blockIfViewer()) return;
     // Impede rebaixar o último administrador.
     if (data.isAdmin === false) {
       const target = profiles.find(p => p.id === data.id);
@@ -4619,7 +4648,7 @@ function AppInner() {
       await db.updateProfile(data);
       await reloadProfiles();
       // Se o admin alterou o próprio papel/nome, reflete na sessão atual.
-      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin, apelido: data.apelido ?? u.apelido }));
+      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin, isViewer: data.isViewer, apelido: data.apelido ?? u.apelido }));
       toast(`Acesso de ${(data.name||"").split(" ")[0]} atualizado`);
     } catch(e) { toast("Erro ao atualizar acesso: "+e.message, "error"); }
   }
@@ -4634,6 +4663,7 @@ function AppInner() {
   }
   // ─ Clientes ─
   async function handleClientSave(c) {
+    if (blockIfViewer()) return;
     try {
       if (c.id) { await db.updateClient(c); toast("Cliente atualizado"); }
       else { await db.insertClient(c); toast("Cliente cadastrado"); }
@@ -4641,6 +4671,7 @@ function AppInner() {
     } catch(e) { toast("Erro ao salvar cliente: "+e.message, "error"); }
   }
   async function handleClientDelete(id) {
+    if (blockIfViewer()) return;
     try { await db.deleteClient(id); await reloadClients(); toast("Cliente excluído", "info"); }
     catch(e) { toast("Erro ao excluir cliente: "+e.message, "error"); }
   }
@@ -4651,6 +4682,7 @@ function AppInner() {
   // Agrupa N cadastros num só. baseId define qual cadastro é o destino (grupo);
   // sem baseId, usa o primeiro da lista. Reúne os CNPJs no destino e remove os demais.
   async function handleClientsMerge(ids, nome, baseId) {
+    if (blockIfViewer()) return;
     try {
       const sel = clients.filter(c=>ids.includes(c.id));
       if (sel.length<2) return;
@@ -4721,6 +4753,7 @@ function AppInner() {
   }
   // Conciliação N:N com faturamento PARCIAL. valoresMap: {recordId: valor a faturar}.
   async function handleConciliate(recordIds, notesArr, valoresMap) {
+    if (blockIfViewer()) return;
     try {
       const cid = uuid();
       const numero = notesArr.map(n => n.numero).join(", ");
@@ -4769,6 +4802,7 @@ function AppInner() {
     await db.reopenConciliacao(cid, recordItems);
   }
   async function handleReopenGroup({ conciliacaoId, noteId }) {
+    if (blockIfViewer()) return;
     try {
       if (conciliacaoId) await reopenCid(conciliacaoId);
       else { // conciliações antigas (1 nota por registro, sem alocação)
@@ -4803,6 +4837,7 @@ function AppInner() {
   }
 
   async function handleMuralSave(m) {
+    if (blockIfViewer()) return;
     try { await db.saveMural(m); await reloadMural(); toast("Mural atualizado"); }
     catch(e) { toast("Erro ao salvar mural: "+e.message, "error"); }
   }
@@ -4826,10 +4861,12 @@ function AppInner() {
   const aceitaVar = (r) => { const rc = normCli(r.cliente); return varClientes.some(cn => rc===cn || (cn.length>4 && rc.includes(cn))); };
 
   async function handleAddVariacao(recordId, valor, motivo) {
+    if (blockIfViewer()) return;
     try { await db.insertVariacao({ recordId, valor, motivo, criadoPor: user.name }); await Promise.all([reloadVariacoes(), reloadRecords()]); toast("Variação lançada — vai aparecer como saldo a faturar"); }
     catch(e){ toast("Erro ao lançar variação: "+e.message, "error"); }
   }
   async function handleDelVariacao(id) {
+    if (blockIfViewer()) return;
     try { await db.deleteVariacao(id); await reloadVariacoes(); toast("Variação removida", "info"); }
     catch(e){ toast("Erro ao remover variação: "+e.message, "error"); }
   }
@@ -4870,6 +4907,9 @@ function AppInner() {
       {isAdmin&&<div style={{background:T.warnBg,borderBottom:`1px solid ${T.warnLine}`,padding:"7px 20px",fontSize:12,color:T.warn,display:"flex",alignItems:"center",gap:8}}>
         <Badge label="Admin" color="blue" small/> Acesso completo a todos os analistas, empresas e competências.
       </div>}
+      {isViewer&&<div style={{background:C.teal.bg,borderBottom:`1px solid ${C.teal.border}`,padding:"7px 20px",fontSize:12,color:C.teal.text,display:"flex",alignItems:"center",gap:8}}>
+        <Badge label="Somente visualização" color="teal" small/> Você vê todas as telas e pode extrair relatórios, mas não pode alterar dados.
+      </div>}
 
       {isMobile && <MobileDrawer open={drawer} onClose={()=>setDrawer(false)} page={page} setPage={setPage} user={user} isAdmin={isAdmin}/>}
 
@@ -4883,7 +4923,7 @@ function AppInner() {
           )}
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={records} clients={clients} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} onSaveClass={handleSaveClass} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="time"&&<MyView records={records} clients={clients} analista={user.name} isAdmin={isAdmin} isViewer={isViewer} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} onSaveClass={handleSaveClass} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
               {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec}/>}
             </div>
           )}
@@ -4896,7 +4936,7 @@ function AppInner() {
           )}
           {page==="concil"&&(
             <div style={{maxWidth:1280,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec} faturamentos={faturamentos}
+              <ConciliationView records={records} clients={clients} notes={notes} isAdmin={isAdmin} isViewer={isViewer} fatByRec={fatByRec} varByRec={varByRec} faturamentos={faturamentos}
                 orfas={notasOrfas.length} onReopenOrphans={handleReopenOrphans}
                 onImport={handleNotesImport} onUndoImport={handleNotesUndo} onDeleteNote={handleNoteDelete}
                 onConciliate={handleConciliate} onReopen={handleReopenGroup}/>
@@ -4919,17 +4959,17 @@ function AppInner() {
           )}
           {page==="represados"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <RepresadosView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass}/>
+              <RepresadosView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass} isViewer={isViewer}/>
             </div>
           )}
           {page==="clients"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ClientsView clients={clients} isAdmin={isAdmin} onSave={handleClientSave} onDelete={handleClientDelete} onBulkImport={handleClientsImport} onMerge={handleClientsMerge}/>
+              <ClientsView clients={clients} isAdmin={isAdmin} isViewer={isViewer} onSave={handleClientSave} onDelete={handleClientDelete} onBulkImport={handleClientsImport} onMerge={handleClientsMerge}/>
             </div>
           )}
           {page==="tasks"&&(
             <div style={{padding:isMobile?"18px 14px":"24px 22px"}}>
-              <Kanban tasks={tasks} responsaveis={responsaveis} isAdmin={isAdmin} competenciaAtual={state.competenciaAtual}
+              <Kanban tasks={tasks} responsaveis={responsaveis} isAdmin={isAdmin} isViewer={isViewer} competenciaAtual={state.competenciaAtual}
                 templates={templates} deliveries={deliveries}
                 onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}
                 onTemplateSave={handleTemplateSave} onTemplateDelete={handleTemplateDelete} onGenerate={handleGenerateDelivery}/>
