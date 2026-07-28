@@ -1332,11 +1332,23 @@ function ClassifyModal({ record:r, clients=[], fatByRec={}, varByRec={}, onSave,
 
 // Chip clicável de classificação — mostra o motivo/categoria de um não-faturado.
 // Vermelho quando represado; tracejado "+ classificar" quando ainda sem motivo.
-function ClassifyChip({ record:r, clients=[], onClick, style:s={} }) {
+function ClassifyChip({ record:r, clients=[], onClick, readOnly, style:s={} }) {
   const { cat } = categoriaOf(r, clients);
   const repres = cat==="represado";
   const has = !!(r.classMotivo || r.classObs);
-  const base = { marginLeft:6, cursor:"pointer", borderRadius:T.rPill, padding:"2px 8px", fontSize:10, fontWeight:600, verticalAlign:"middle", ...s };
+  const base = { marginLeft:6, cursor:readOnly?"default":"pointer", borderRadius:T.rPill, padding:"2px 8px", fontSize:10, fontWeight:600, verticalAlign:"middle", ...s };
+  // Só leitura (Minha visão / Visão por projeto): mostra o estado, não edita.
+  // A edição vive só na aba Represados. Sem motivo e dentro do ciclo → nada.
+  if (readOnly) {
+    if (!has && !repres) return null;
+    const label = has ? (repres?"⚠ ":"")+(r.classMotivo||"obs") : "⚠ represado";
+    return (
+      <span title={`${r.classMotivo||(repres?"represado":"—")}${r.classObs?` — ${r.classObs}`:""}${has?"":" · classifique na aba Represados"}`}
+        style={{...base, cursor:"default", border:`1px solid ${repres?C.red.border:C.gray.border}`, background:repres?C.red.bg:C.gray.bg, color:repres?C.red.text:C.gray.text}}>
+        {label}
+      </span>
+    );
+  }
   if (has) return (
     <button onClick={onClick} title={`${r.classMotivo||"—"}${r.classObs?` — ${r.classObs}`:""} (clique p/ editar)`}
       style={{...base, border:`1px solid ${repres?C.red.border:C.gray.border}`, background:repres?C.red.bg:C.gray.bg, color:repres?C.red.text:C.gray.text}}>
@@ -1374,7 +1386,6 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
   const [expandedCliente, setExp]   = useState(null);
   const [bulkTarget, setBulk]       = useState(null);
   const [nfTarget, setNf]           = useState(null);
-  const [classTarget, setClass]     = useState(null);   // registro para classificar
 
   // O banco (RLS) já entrega apenas os registros do analista, vinculados pelo
   // "Responsável na base". Não refiltramos pelo nome de exibição.
@@ -1415,7 +1426,6 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
         message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.${(fatByRec[recordDel.id]||0)>0.001?" ⚠️ Este registro está CONCILIADO — a(s) nota(s) do lote serão reabertas na conciliação." : ""}`}
         onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
       {varTarget&&<VariacaoModal record={varTarget} lancamentos={(varsByRec[varTarget.id]||[])} onAdd={(valor,motivo)=>onAddVariacao(varTarget.id,valor,motivo)} onDelete={onDelVariacao} onClose={()=>setVarTarget(null)}/>}
-      {classTarget&&<ClassifyModal record={classTarget} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSave={onSaveClass} onClose={()=>setClass(null)}/>}
 
       <PageHead icon="list" title="Minha visão" sub={`${groups.length} cliente(s) · ${filtered.length} registro(s)`}/>
 
@@ -1569,7 +1579,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
                       <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
                         <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color={recStatusColor(r, fatByRec[r.id], bill(r))} small dot/>
                         {aceitaVar(r) && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"#fff",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
-                        {fatR<0.01 && <ClassifyChip record={r} clients={clients} onClick={()=>setClass(r)}/>}
+                        {fatR<0.01 && <ClassifyChip record={r} clients={clients} readOnly/>}
                       </td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
                         <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}><Icon name="pencil" size={14}/></button>
@@ -1813,7 +1823,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
 const NAV_SECTIONS = [
   { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"valida",icon:"check",label:"Validações"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"represados",icon:"alert",label:"Represados"}, {id:"valida",icon:"check",label:"Validações"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
@@ -2877,15 +2887,16 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
 // Visão por projeto — linha do tempo. Escolhe um cliente e vê cada PEP mês a mês,
 // com o faturável e a distribuição por etapa (faturado / liberado / em andamento /
 // não iniciado). Só renderiza ao escolher o cliente — mapa focado.
-function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSaveClass }) {
+function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const [cliente, setCliente] = useState("");
   const [qProf, setQProf] = useState("");
   const [tipoF, setTipoF] = useState("todos");
   const [empF, setEmpF] = useState("todas");
   const [detail, setDetail] = useState(null);       // {label, ids:Set} da célula clicada
-  const [classTarget, setClass] = useState(null);   // registro sendo classificado
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
   const fat  = (r) => fatByRec[r.id]||0;
+  // Valor represado de uma lista: saldo em aberto dos registros já represados.
+  const represSaldo = (list) => list.reduce((s,r)=>{ const saldo=bill(r)-fat(r); return s + ((saldo>0.01 && categoriaOf(r,clients).cat==="represado") ? saldo : 0); }, 0);
   const empNome = (cod) => EMPRESAS.find(e=>e.cod===cod)?.nome || "";
 
   const clientesList = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -2985,9 +2996,10 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSav
                 <th style={thProj}>Projeto (tipo · PEP)</th>
                 {meses.map(m=><th key={m} style={thMes}>{m}</th>)}
                 <th style={{...thMes,background:T.canvas,borderLeft:`2px solid ${T.line}`}}>Total projeto</th>
+                <th style={{...thMes,background:T.canvas,color:C.red.solid}}>Represado</th>
               </tr></thead>
               <tbody>
-                {projetos.map(p=>(
+                {projetos.map(p=>{ const rep=represSaldo(p.recs); return (
                   <tr key={p.tipo+"|"+p.pep}>
                     <td style={tdProj}>
                       <div style={{fontWeight:700,fontSize:12,color:T.ink}}>{p.pep||"—"}</div>
@@ -2995,12 +3007,14 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSav
                     </td>
                     {meses.map(m=><td key={m} style={tdCell}><Cell list={p.recs.filter(r=>r.competencia===m)} label={`${p.pep||p.tipo} · ${m}`}/></td>)}
                     <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`}}><Cell list={p.recs} label={`${p.pep||p.tipo} · Total`}/></td>
+                    <td style={{...tdCell,background:T.canvas,textAlign:"right",fontWeight:700,color:rep>0.01?C.red.solid:T.faint,whiteSpace:"nowrap"}}>{rep>0.01?fmtShort(rep):"—"}</td>
                   </tr>
-                ))}
+                );})}
                 <tr>
                   <td style={{...tdProj,background:T.canvas,fontWeight:800,color:T.ink,fontSize:12}}>TOTAL · {cliente}</td>
                   {meses.map(m=><td key={m} style={{...tdCell,background:T.canvas}}><Cell list={recs.filter(r=>r.competencia===m)} label={`${cliente} · ${m}`}/></td>)}
                   <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`}}><Cell list={recs} label={`${cliente} · Total`}/></td>
+                  <td style={{...tdCell,background:T.canvas,textAlign:"right",fontWeight:800,color:represSaldo(recs)>0.01?C.red.solid:T.faint,whiteSpace:"nowrap"}}>{represSaldo(recs)>0.01?fmtShort(represSaldo(recs)):"—"}</td>
                 </tr>
               </tbody>
             </table>
@@ -3008,7 +3022,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSav
         </>
       )}
 
-      {detail && <Modal title={`Detalhe — ${detail.label}`} subtitle={`${detailList.length} registro(s) · clique em "classificar" p/ registrar o motivo do não-faturamento`} wide onClose={()=>setDetail(null)}>
+      {detail && <Modal title={`Detalhe — ${detail.label}`} subtitle={`${detailList.length} registro(s) · status e classificação (edição na aba Represados)`} wide onClose={()=>setDetail(null)}>
         <div className="fc-scroll" style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:T.canvas}}>
@@ -3026,7 +3040,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSav
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap",color:f>0.01?C.green.solid:T.faint}}>{f>0.01?fmtShort(f):"—"}</td>
                     <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} size="sm"/></td>
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
-                      {aberto ? <ClassifyChip record={r} clients={clients} onClick={()=>setClass(r)} style={{marginLeft:0}}/>
+                      {aberto ? (<ClassifyChip record={r} clients={clients} readOnly style={{marginLeft:0}}/> || <span style={{fontSize:11,color:T.faint}}>—</span>)
                               : <span style={{fontSize:11,color:T.faint}}>faturado</span>}
                     </td>
                   </tr>
@@ -3035,8 +3049,108 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSav
             </tbody>
           </table>
         </div>
+        <div style={{fontSize:11,color:T.muted,marginTop:12}}>Para classificar ou editar o motivo do represamento, use a aba <b>Represados</b>.</div>
       </Modal>}
+    </div>
+  );
+}
+
+// Represados — receitas ainda em aberto que passaram da folga de faturamento.
+// É o ÚNICO lugar onde se edita a classificação (motivo) e a observação do
+// represamento. Filtra por empresa e cliente; agrupa por cliente.
+function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClass }) {
+  const [empF, setEmpF] = useState("todas");
+  const [cliF, setCliF] = useState("todos");
+  const [q, setQ] = useState("");
+  const [onlyPend, setOnlyPend] = useState(false);   // só sem classificação
+  const [classTarget, setClass] = useState(null);
+  const bill = (r) => (r.valorTotal||0)+(varByRec[r.id]||0);
+  const fat  = (r) => fatByRec[r.id]||0;
+  const rep  = (r) => bill(r)-fat(r);
+  const empNome = cod => EMPRESAS.find(e=>e.cod===cod)?.nome||"";
+
+  // Base: saldo em aberto E categoria represado (pela data).
+  const base = records.filter(r => rep(r)>0.01 && categoriaOf(r,clients).cat==="represado");
+  const empresas = [...new Set(base.map(r=>r.empresa).filter(Boolean))].sort();
+  const clientes = [...new Set(base.filter(r=>empF==="todas"||r.empresa===empF).map(r=>r.cliente).filter(Boolean))].sort();
+
+  let list = base;
+  if (empF!=="todas") list = list.filter(r=>r.empresa===empF);
+  if (cliF!=="todos") list = list.filter(r=>r.cliente===cliF);
+  if (q.trim()){ const s=q.trim().toLowerCase(); list=list.filter(r=>[r.cliente,r.pep,r.profissional,r.classMotivo,r.classObs].some(v=>String(v||"").toLowerCase().includes(s))); }
+  if (onlyPend) list = list.filter(r=>!(r.classMotivo||r.classObs));
+
+  const totalBase = base.reduce((s,r)=>s+rep(r),0);
+  const semClass  = base.filter(r=>!(r.classMotivo||r.classObs)).length;
+  const totalList = list.reduce((s,r)=>s+rep(r),0);
+
+  const grouped = {};
+  list.forEach(r=>{ (grouped[r.cliente]=grouped[r.cliente]||[]).push(r); });
+  const groups = Object.entries(grouped).map(([cli,recs])=>({cli, recs, tot:recs.reduce((s,r)=>s+rep(r),0)})).sort((a,b)=>b.tot-a.tot);
+
+  return (
+    <div>
       {classTarget && <ClassifyModal record={classTarget} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSave={onSaveClass} onClose={()=>setClass(null)}/>}
+      <PageHead icon="alert" title="Represados" sub={`${base.length} receita(s) · ${brl(totalBase)} represado · ${semClass} sem classificação`}/>
+      <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Único lugar para registrar/editar o motivo do represamento e a observação. Represado = receita ainda em aberto que passou da folga de 1 mês sobre a competência de faturamento (respeita período quebrado).</div>
+
+      <Card style={{padding:"12px 14px",marginBottom:16}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <select style={{...inp,width:"auto",minWidth:170}} value={empF} onChange={e=>{setEmpF(e.target.value);setCliF("todos");}}>
+            <option value="todas">Todas as empresas</option>
+            {empresas.map(cod=><option key={cod} value={cod}>{cod}{empNome(cod)?` — ${empNome(cod)}`:""}</option>)}
+          </select>
+          <select style={{...inp,width:"auto",minWidth:200,flex:"1 1 200px"}} value={cliF} onChange={e=>setCliF(e.target.value)}>
+            <option value="todos">Todos os clientes</option>
+            {clientes.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <input style={{...inp,width:"auto",minWidth:160,flex:"1 1 160px"}} placeholder="Buscar PEP, profissional, motivo…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+            <input type="checkbox" checked={onlyPend} onChange={e=>setOnlyPend(e.target.checked)}/> só sem classificação
+          </label>
+        </div>
+      </Card>
+
+      {groups.length===0
+        ? <Card style={{textAlign:"center",padding:"3rem"}}><div style={{fontSize:14,color:T.muted}}>Nenhum represado para os filtros selecionados.</div></Card>
+        : <>
+          <div style={{fontSize:13,marginBottom:12,color:T.inkSoft}}>Mostrando <b>{list.length}</b> receita(s) · total represado <b style={{color:C.red.solid}}>{brl(totalList)}</b></div>
+          {groups.map(g=>(
+            <Card key={g.cli} style={{marginBottom:10,overflow:"hidden"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.canvas,borderBottom:`1px solid ${T.lineSoft}`,flexWrap:"wrap"}}>
+                <span style={{fontWeight:700,fontSize:13,color:T.ink}}>{g.cli}</span>
+                <span style={{fontSize:11,color:T.muted}}>{g.recs.length} receita(s)</span>
+                <div style={{flex:1}}/>
+                <span style={{fontSize:13,fontWeight:800,color:C.red.solid}}>{brl(g.tot)}</span>
+              </div>
+              <div className="fc-scroll" style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr>
+                    {["Empresa","PEP · Profissional","Compet. fat.","Represado","Motivo","Observação",""].map(h=>
+                      <th key={h} style={{padding:"7px 10px",textAlign:h==="Represado"?"right":"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {g.recs.sort((a,b)=>rep(b)-rep(a)).map(r=>{
+                      const { compFat } = categoriaOf(r,clients);
+                      return (
+                      <tr key={r.id} style={{borderBottom:`1px solid ${T.lineSoft}`}}>
+                        <td style={{padding:"7px 10px"}}><Badge label={r.empresa||"—"} color="gray" small/></td>
+                        <td style={{padding:"7px 10px"}}><div style={{fontWeight:600,color:T.ink}}>{r.profissional||"—"}</div><div style={{fontSize:10.5,color:T.muted}}>{r.pep||"—"} · {r.tipo}</div></td>
+                        <td style={{padding:"7px 10px",color:T.inkSoft,whiteSpace:"nowrap"}}>{compFat||"—"}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.red.solid,whiteSpace:"nowrap"}}>{brl(rep(r))}</td>
+                        <td style={{padding:"7px 10px",color:r.classMotivo?T.ink:T.faint,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.classMotivo||"— a classificar"}</td>
+                        <td style={{padding:"7px 10px",color:r.classObs?T.inkSoft:T.faint,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.classObs||""}>{r.classObs||"—"}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
+                          <Btn small icon="pencil" onClick={()=>setClass(r)}>{(r.classMotivo||r.classObs)?"Editar":"Classificar"}</Btn>
+                        </td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ))}
+        </>}
     </div>
   );
 }
@@ -4704,7 +4818,12 @@ function AppInner() {
           )}
           {page==="projeto"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ProjectTimelineView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass}/>
+              <ProjectTimelineView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
+            </div>
+          )}
+          {page==="represados"&&(
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <RepresadosView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass}/>
             </div>
           )}
           {page==="clients"&&(
