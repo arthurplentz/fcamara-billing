@@ -2909,15 +2909,26 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const represSaldo = (list) => list.reduce((s,r)=>{ const saldo=bill(r)-fat(r); return s + ((saldo>0.01 && categoriaOf(r,clients).cat==="represado") ? saldo : 0); }, 0);
   const empNome = (cod) => EMPRESAS.find(e=>e.cod===cod)?.nome || "";
 
-  // Nome canônico do cliente: mesmas COD CLIENTE com grafias/truncamentos
-  // diferentes (ex.: "JOHNSON & JOHNSON" e "JOHNSON & JOHNSON DO BRASIL INDUSTRIA
-  // E", ambos cod 1002060) contam como UM cliente. Usa o nome mais frequente do
-  // código; sem código, cai no próprio nome. Não altera o dado gravado.
-  const _nomeCod = {};
-  records.forEach(r => { const cod=(r.codCliente||"").trim(); if(!cod) return; const m=(_nomeCod[cod]=_nomeCod[cod]||{}); const nm=(r.cliente||"").trim(); if(nm) m[nm]=(m[nm]||0)+1; });
-  const _canon = {};
-  Object.entries(_nomeCod).forEach(([cod,m])=>{ _canon[cod]=Object.entries(m).sort((a,b)=>b[1]-a[1]||b[0].length-a[0].length)[0][0]; });
-  const cliNome = r => { const cod=(r.codCliente||"").trim(); return (cod && _canon[cod]) ? _canon[cod] : (r.cliente||""); };
+  // Cliente canônico por NOME (o cod_cliente é manual e não confiável — o mesmo
+  // código aparece em clientes diferentes e o mesmo cliente tem dezenas de
+  // códigos). Normaliza (maiúsculas/espaços/pontuação final) e FUNDE truncamentos:
+  // quando um nome (≥12 chars) é prefixo de outro, é o mesmo cliente. Ex.:
+  // "JOHNSON & JOHNSON" ⊂ "JOHNSON & JOHNSON DO BRASIL INDUSTRIA E" → um cliente.
+  // Mantém nomes distintos separados (Anglo × MRV). Não altera o dado gravado.
+  const _nn = s => String(s||"").toUpperCase().replace(/\s+/g," ").trim().replace(/[^A-Z0-9)]+$/,"");
+  const _freq = {};   // nome normalizado -> { nome original -> contagem }
+  records.forEach(r => { const k=_nn(r.cliente); if(!k) return; const m=(_freq[k]=_freq[k]||{}); const o=(r.cliente||"").trim(); if(o) m[o]=(m[o]||0)+1; });
+  const _names = Object.keys(_freq).sort((a,b)=>a.length-b.length);
+  const _parent = {}; _names.forEach(n=>_parent[n]=n);
+  const _find = x => { while(_parent[x]!==x){ _parent[x]=_parent[_parent[x]]; x=_parent[x]; } return x; };
+  for (let i=0;i<_names.length;i++){ const a=_names[i]; if(a.length<12) continue;
+    for (let j=i+1;j<_names.length;j++){ const b=_names[j]; if(b.startsWith(a)){ const ra=_find(a), rb=_find(b); if(ra!==rb) _parent[ra]=rb; } } }
+  // nome canônico do grupo: o original mais frequente (desempate: mais longo).
+  const _tally = {};
+  _names.forEach(n=>{ const root=_find(n); const t=(_tally[root]=_tally[root]||{}); Object.entries(_freq[n]).forEach(([o,c])=>t[o]=(t[o]||0)+c); });
+  const _canonByRoot = {};
+  Object.entries(_tally).forEach(([root,t])=>{ _canonByRoot[root]=Object.entries(t).sort((a,b)=>b[1]-a[1]||b[0].length-a[0].length)[0][0]; });
+  const cliNome = r => { const k=_nn(r.cliente); return (k && _parent[k]!=null) ? _canonByRoot[_find(k)] : (r.cliente||""); };
 
   const empresasAll = [...new Set(records.map(r=>r.empresa).filter(Boolean))].sort();
   // Empresa é um filtro de topo (sempre visível): restringe a lista de clientes
