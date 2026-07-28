@@ -471,12 +471,17 @@ function Card({ children, style:s={}, interactive, ...rest }) {
   return <div className={interactive?"fc-card-int":undefined} style={{ background:"#fff", border:`1px solid ${T.line}`, borderRadius:T.rXl, boxShadow:T.shCard, ...s }} {...rest}>{children}</div>;
 }
 
+// Chip laranja com ícone — usado no cabeçalho de página (mesmo capricho do Início).
+function HeadChip({ icon }) {
+  return <div style={{width:40,height:40,borderRadius:12,background:T.brandBg,color:T.brand,display:"grid",placeItems:"center",flexShrink:0}}><Icon name={icon} size={20}/></div>;
+}
+
 // Cabeçalho de página padrão — ícone (chip laranja) + título (display) + subtítulo.
 // Dá o mesmo capricho do Início nas demais telas.
 function PageHead({ icon, title, sub, right }) {
   return (
     <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
-      {icon && <div style={{width:40,height:40,borderRadius:12,background:T.brandBg,color:T.brand,display:"grid",placeItems:"center",flexShrink:0}}><Icon name={icon} size={20}/></div>}
+      {icon && <HeadChip icon={icon}/>}
       <div style={{flex:1,minWidth:180}}>
         <h1 style={{...Ty.h1,fontSize:22}}>{title}</h1>
         {sub && <div style={{...Ty.small,marginTop:2}}>{sub}</div>}
@@ -1587,7 +1592,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
   return (
     <div>
-      <h1 style={{...Ty.h1, marginBottom:14}}>Dashboard</h1>
+      <PageHead icon="chart" title="Dashboard" sub="Visão geral do reconhecimento e do faturamento"/>
 
       {/* Filtros */}
       <Card style={{ padding:"12px 14px", marginBottom:18 }}>
@@ -2014,9 +2019,10 @@ function Kanban({ tasks, responsaveis, isAdmin, competenciaAtual, templates, del
       {showDeliv && <DeliveryManager templates={templates} responsaveis={responsaveis} competenciaAtual={competenciaAtual}
         onTemplateSave={onTemplateSave} onTemplateDelete={onTemplateDelete} onGenerate={onGenerate} onClose={()=>setShowDeliv(false)}/>}
 
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
+        <HeadChip icon="task"/>
         <div style={{flex:1,minWidth:180}}>
-          <h1 style={Ty.h1}>Tarefas do time</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Tarefas do time</h1>
           <div style={{...Ty.small, marginTop:3}}>{tasks.length} tarefa(s) · arraste os cards entre as colunas ou use as setas</div>
         </div>
         <select style={{...inp,width:"auto"}} value={filterTipo} onChange={e=>setFilterTipo(e.target.value)} aria-label="Tipo de tarefa">
@@ -2128,9 +2134,10 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
         message={`Remover o acesso de "${confirmDel.name}"? A pessoa deixa de ver os dados na plataforma. Os registros já lançados são mantidos. (Para apagar o login por completo, use o painel do Supabase.)`}
         onConfirm={()=>onRemove(confirmDel)} onClose={()=>setConfirm(null)}/>}
 
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
+        <HeadChip icon="lock"/>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>Gestão de acessos</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Gestão de acessos</h1>
           <div style={{...Ty.small, marginTop:3}}>{profiles.length} usuário(s) · {adminCount} administrador(es). Ajuste papéis e remova acessos.</div>
         </div>
         <Btn onClick={onRefresh}>Atualizar lista</Btn>
@@ -2712,10 +2719,7 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
 
   return (
     <div>
-      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6,flexWrap:"wrap"}}>
-        <h1 style={Ty.h1}>Validações do sistema</h1>
-        <span style={Ty.small}>confere se o faturamento está batendo</span>
-      </div>
+      <PageHead icon="check" title="Validações do sistema" sub="confere se o faturamento está batendo"/>
       <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Rodam sobre todos os dados carregados. Verde = ok; laranja = clique para ver o que revisar.</div>
 
       <Result id="lotes" titulo="Conciliado da prefeitura × receita conciliada (regra de R$ 1,00)"
@@ -2827,10 +2831,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
   return (
     <div>
-      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6,flexWrap:"wrap"}}>
-        <h1 style={Ty.h1}>Visão por projeto</h1>
-        <span style={Ty.small}>linha do tempo — faturável por PEP, mês a mês</span>
-      </div>
+      <PageHead icon="chart" title="Visão por projeto" sub="linha do tempo — faturável por PEP, mês a mês"/>
       <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Escolha um cliente para desenhar o mapa. Cada célula mostra o faturável do mês e a distribuição por etapa.</div>
 
       <Card style={{padding:"12px 14px",marginBottom:16}}>
@@ -3079,9 +3080,10 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
 
       {/* Cabeçalho congelado: título + empresa + cards ficam fixos ao rolar. */}
       <div style={{position:"sticky",top:0,zIndex:15,background:T.canvas,paddingTop:8,marginTop:-8}}>
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14,flexWrap:"wrap"}}>
+        <HeadChip icon="receipt"/>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>Conciliação de notas</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Conciliação de notas</h1>
           <div style={{...Ty.small,marginTop:3}}>{notes.length} nota(s) importada(s) · conciliação por empresa do grupo</div>
         </div>
         {isAdmin && orfas>0 && <Btn icon="undo" onClick={onReopenOrphans}>Reabrir notas órfãs ({orfas})</Btn>}
@@ -3387,9 +3389,10 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
         </Modal>
       )}
 
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14,flexWrap:"wrap"}}>
+        <HeadChip icon="building"/>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>Clientes</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Clientes</h1>
           <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s){incompletos>0 && <> · <b style={{color:T.warn}}>{incompletos} incompleto(s)</b></>}</div>
         </div>
         {isAdmin && <Btn icon="upload" onClick={()=>setImporting(true)}>Importar clientes</Btn>}
@@ -3815,8 +3818,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
 
   return (
     <div>
-      <h1 style={{...Ty.h1,marginBottom:6}}>Relatórios</h1>
-      <div style={{...Ty.small,marginBottom:16}}>Extraia relatórios em Excel (.xlsx) já formatados — números como número e datas em dd/mm/aaaa.</div>
+      <PageHead icon="file" title="Relatórios" sub="Extraia relatórios em Excel (.xlsx) já formatados — números como número e datas em dd/mm/aaaa."/>
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
         {[["receitas","Receitas"],["clientes","Clientes"]].map(([id,label])=>(
@@ -3879,8 +3881,7 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
   );
   return (
     <div>
-      <h1 style={{ ...Ty.h1, marginBottom:6 }}>Importar documentos</h1>
-      <div style={{ ...Ty.small, marginBottom:18 }}>Carga de dados de reconhecimento. As exportações agora ficam na aba <b>Relatórios</b>.</div>
+      <PageHead icon="import" title="Importar documentos" sub={<>Carga de dados de reconhecimento. As exportações agora ficam na aba <b>Relatórios</b>.</>}/>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
         <Tile icon="" title="Importar receitas" primary desc={`Carregar a planilha de T&E / Fee-WIP / Usage (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
         <Tile icon="" title="Histórico de importações" desc="Ver o log de todas as importações realizadas." btn="Ver histórico" onClick={onHistory}/>
