@@ -427,14 +427,15 @@ export async function deleteClient(id) {
 
 // ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
 export async function fetchProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,responsavel,apelido,aniversario").order("name", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,is_viewer,responsavel,apelido,aniversario").order("name", { ascending: true });
   if (error) throw error;
-  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, responsavel: p.responsavel || "", apelido: p.apelido || "", aniversario: p.aniversario || "" }));
+  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, isViewer: !!p.is_viewer, responsavel: p.responsavel || "", apelido: p.apelido || "", aniversario: p.aniversario || "" }));
 }
-export async function updateProfile({ id, name, isAdmin, responsavel, apelido, aniversario }) {
+export async function updateProfile({ id, name, isAdmin, isViewer, responsavel, apelido, aniversario }) {
   const patch = {};
   if (name != null) patch.name = name;
   if (isAdmin != null) patch.is_admin = isAdmin;
+  if (isViewer != null) patch.is_viewer = isViewer;
   if (responsavel !== undefined) patch.responsavel = responsavel || null;
   if (apelido !== undefined) patch.apelido = apelido || null;
   if (aniversario !== undefined) patch.aniversario = aniversario || null;
