@@ -2770,7 +2770,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const meses = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   const projMap = {};
   recs.forEach(r=>{ const k=`${r.tipo}||${r.pep}`; (projMap[k]=projMap[k]||{tipo:r.tipo,pep:r.pep,recs:[]}).recs.push(r); });
-  const projetos = Object.values(projMap).sort((a,b)=>(a.tipo||"").localeCompare(b.tipo||"")||(a.pep||"").localeCompare(b.pep||""));
+  const projetos = Object.values(projMap).map(p=>({...p, tot:p.recs.reduce((s,r)=>s+bill(r),0)})).sort((a,b)=>b.tot-a.tot);
 
   const SEG = [
     { key:"faturado",  label:"Faturado",     color:C.green.solid },
@@ -2802,7 +2802,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
         <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",margin:"5px 0 3px",background:T.lineSoft}}>
           {SEG.map(g=> s[g.key]>0.01 ? <div key={g.key} title={`${g.label}: ${brl(s[g.key])}`} style={{width:`${s[g.key]/s.total*100}%`,background:g.color}}/> : null)}
         </div>
-        <div style={{fontSize:10,color:pctFat>=100?C.green.solid:T.muted,fontWeight:600}}>{pctFat}% fat</div>
+        <div style={{fontSize:10,fontWeight:600}}><span style={{color:pctFat>=100?C.green.solid:T.muted}}>{pctFat}% fat</span> · <span style={{color:C.orange.solid}}>{100-pctFat}% aberto</span></div>
       </div>
     );
   };
@@ -2849,6 +2849,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
               <thead><tr>
                 <th style={thProj}>Projeto (tipo · PEP)</th>
                 {meses.map(m=><th key={m} style={thMes}>{m}</th>)}
+                <th style={{...thMes,background:T.canvas,borderLeft:`2px solid ${T.line}`}}>Total projeto</th>
               </tr></thead>
               <tbody>
                 {projetos.map(p=>(
@@ -2858,11 +2859,13 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
                       <div style={{fontSize:10.5,color:T.muted}}>{p.tipo}</div>
                     </td>
                     {meses.map(m=><td key={m} style={tdCell}><Cell list={p.recs.filter(r=>r.competencia===m)}/></td>)}
+                    <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`}}><Cell list={p.recs}/></td>
                   </tr>
                 ))}
                 <tr>
                   <td style={{...tdProj,background:T.canvas,fontWeight:800,color:T.ink,fontSize:12}}>TOTAL · {cliente}</td>
                   {meses.map(m=><td key={m} style={{...tdCell,background:T.canvas}}><Cell list={recs.filter(r=>r.competencia===m)}/></td>)}
+                  <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`}}><Cell list={recs}/></td>
                 </tr>
               </tbody>
             </table>
