@@ -18,6 +18,12 @@ const EMPRESAS = [
 
 const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 
+// PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
+// é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
+// BR02CLP00046. Use em todo agrupamento/casamento por PEP (import, Visão por
+// projeto, Minha visão, Dashboard, filtros). Não altera o dado gravado.
+const pepBase = pep => String(pep||"").split(".")[0].trim();
+
 const STEPS = [
   { id: "p1_extrair",      group: 1, label: "P1",  name: "Extrair dados (FC Team)",  type: "check" },
   { id: "p2_racional",     group: 2, label: "P2",  name: "Montar Racional",          type: "check" },
@@ -1379,7 +1385,7 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
   // Filtro composável: escolhe a dimensão (Cliente/Profissional/PEP) e o valor;
   // "+" adiciona outra dimensão. Combina em E (todas precisam bater).
   const [filtros, setFiltros]       = useState([{ dim:"cliente", val:"" }]);
-  const FDIMS = { cliente:{label:"Cliente", get:r=>r.cliente}, profissional:{label:"Profissional", get:r=>r.profissional}, pep:{label:"PEP", get:r=>r.pep} };
+  const FDIMS = { cliente:{label:"Cliente", get:r=>r.cliente}, profissional:{label:"Profissional", get:r=>r.profissional}, pep:{label:"PEP", get:r=>pepBase(r.pep)} };
   const updF = (i,patch)=> setFiltros(fs=>fs.map((f,j)=>j===i?{...f,...patch}:f));
   const rmF  = (i)=> setFiltros(fs=>fs.length>1?fs.filter((_,j)=>j!==i):fs);
   const addF = ()=> setFiltros(fs=>{ const used=new Set(fs.map(f=>f.dim)); const next=Object.keys(FDIMS).find(k=>!used.has(k)); return next?[...fs,{dim:next,val:""}]:fs; });
@@ -1411,8 +1417,8 @@ function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec=
 
   const grouped = {};
   filtered.forEach(r=>{
-    const key = r.cliente+"|"+r.pep;
-    if(!grouped[key]) grouped[key]={ cliente:r.cliente, pep:r.pep, records:[] };
+    const key = r.cliente+"|"+pepBase(r.pep);
+    if(!grouped[key]) grouped[key]={ cliente:r.cliente, pep:pepBase(r.pep), records:[] };
     grouped[key].records.push(r);
   });
   const groups = Object.values(grouped);
@@ -1693,8 +1699,8 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
   const naoFatByCliente = {};
   naoFat.forEach(r=>{
-    const key=r.cliente+"|"+r.pep;
-    if(!naoFatByCliente[key]) naoFatByCliente[key]={ cliente:r.cliente, pep:r.pep, responsavel:r.responsavel, count:0, valor:0, status:recStatus(r, fatByRec[r.id], billOf(r)), color:recStatusColor(r, fatByRec[r.id], billOf(r)) };
+    const key=r.cliente+"|"+pepBase(r.pep);
+    if(!naoFatByCliente[key]) naoFatByCliente[key]={ cliente:r.cliente, pep:pepBase(r.pep), responsavel:r.responsavel, count:0, valor:0, status:recStatus(r, fatByRec[r.id], billOf(r)), color:recStatusColor(r, fatByRec[r.id], billOf(r)) };
     naoFatByCliente[key].count++; naoFatByCliente[key].valor+=saldo(r);
   });
 
@@ -2919,7 +2925,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
   const meses = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   const projMap = {};
-  recs.forEach(r=>{ const k=`${r.tipo}||${r.pep}`; (projMap[k]=projMap[k]||{tipo:r.tipo,pep:r.pep,recs:[]}).recs.push(r); });
+  recs.forEach(r=>{ const pb=pepBase(r.pep); const k=`${r.tipo}||${pb}`; (projMap[k]=projMap[k]||{tipo:r.tipo,pep:pb,recs:[]}).recs.push(r); });
   const projetos = Object.values(projMap).map(p=>({...p, tot:p.recs.reduce((s,r)=>s+bill(r),0)})).sort((a,b)=>b.tot-a.tot);
 
   const SEG = [
@@ -4411,11 +4417,11 @@ function AppInner() {
         // (mês cheio) tem período fixo, então nada muda pra ele.
         const norm = s => (s||"").toString().trim().toLowerCase();
         const dnorm = s => String(s||"").replace(/\D/g,"");   // data: só dígitos (tolera separador)
-        const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
+        const keyOf = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(pepBase(r.pep))}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
         // Chave SEM empresa: identifica a mesma receita quando só o código da
         // empresa mudou (correção de digitação). O PEP já é específico de empresa
         // (BR02CLP…), então colisão entre empresas diferentes não acontece.
-        const keyNoEmp = r => `${norm(r.tipo)}|${norm(r.pep)}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
+        const keyNoEmp = r => `${norm(r.tipo)}|${norm(pepBase(r.pep))}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
         const combos = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
         const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
         // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
