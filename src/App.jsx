@@ -1239,8 +1239,13 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
   const [filterComp, setFilterComp] = useState(competenciaAtual);
   const [filterAnalista, setFA]     = useState("todos");
   const [filterEtapa, setFEt]       = useState("todas");
-  const [searchCliente, setSC]      = useState("");
-  const [searchProf, setSP]         = useState("");
+  // Filtro composável: escolhe a dimensão (Cliente/Profissional/PEP) e o valor;
+  // "+" adiciona outra dimensão. Combina em E (todas precisam bater).
+  const [filtros, setFiltros]       = useState([{ dim:"cliente", val:"" }]);
+  const FDIMS = { cliente:{label:"Cliente", get:r=>r.cliente}, profissional:{label:"Profissional", get:r=>r.profissional}, pep:{label:"PEP", get:r=>r.pep} };
+  const updF = (i,patch)=> setFiltros(fs=>fs.map((f,j)=>j===i?{...f,...patch}:f));
+  const rmF  = (i)=> setFiltros(fs=>fs.length>1?fs.filter((_,j)=>j!==i):fs);
+  const addF = ()=> setFiltros(fs=>{ const used=new Set(fs.map(f=>f.dim)); const next=Object.keys(FDIMS).find(k=>!used.has(k)); return next?[...fs,{dim:next,val:""}]:fs; });
   const [expandedCliente, setExp]   = useState(null);
   const [bulkTarget, setBulk]       = useState(null);
   const [nfTarget, setNf]           = useState(null);
@@ -1260,8 +1265,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
   if (isAdmin && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa==="_faltam_datas") filtered = filtered.filter(faltaDatas);
   else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id], bill(r))===filterEtapa);
-  if (searchCliente) filtered = filtered.filter(r=>r.cliente.toLowerCase().includes(searchCliente.toLowerCase()));
-  if (searchProf)    filtered = filtered.filter(r=>r.profissional.toLowerCase().includes(searchProf.toLowerCase()));
+  filtros.forEach(f=>{ const v=(f.val||"").trim().toLowerCase(); const g=FDIMS[f.dim]?.get; if(v&&g) filtered = filtered.filter(r=>String(g(r)||"").toLowerCase().includes(v)); });
 
   // Resumo por tipo de contrato
   const porTipo = {};
@@ -1332,8 +1336,17 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
             {STATUS_ORDER.map(s=><option key={s}>{s}</option>)}
             <option value="_faltam_datas">Faltam datas</option>
           </select>
-          <input style={{...inp,width:isMobile?"100%":160}} placeholder="Cliente..." value={searchCliente} onChange={e=>setSC(e.target.value)}/>
-          <input style={{...inp,width:isMobile?"100%":160}} placeholder="Profissional..." value={searchProf} onChange={e=>setSP(e.target.value)}/>
+          {filtros.map((f,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"stretch"}}>
+              <select value={f.dim} onChange={e=>updF(i,{dim:e.target.value})} aria-label="Tipo de filtro"
+                style={{...inp,width:"auto",borderRadius:`${T.rMd} 0 0 ${T.rMd}`,borderRight:"none",background:T.canvas,fontWeight:600,color:T.inkSoft,paddingRight:6}}>
+                {Object.entries(FDIMS).map(([k,d])=><option key={k} value={k}>{d.label}</option>)}
+              </select>
+              <input style={{...inp,width:isMobile?130:150,borderRadius:filtros.length>1?0:`0 ${T.rMd} ${T.rMd} 0`}} placeholder={`Filtrar por ${FDIMS[f.dim].label.toLowerCase()}…`} value={f.val} onChange={e=>updF(i,{val:e.target.value})}/>
+              {filtros.length>1 && <button onClick={()=>rmF(i)} title="Remover filtro" style={{border:`1px solid ${T.line}`,borderLeft:"none",borderRadius:`0 ${T.rMd} ${T.rMd} 0`,background:"#fff",color:T.muted,cursor:"pointer",padding:"0 9px",fontSize:15,lineHeight:1}}>×</button>}
+            </div>
+          ))}
+          {filtros.length < Object.keys(FDIMS).length && <button onClick={addF} title="Adicionar filtro" style={{border:`1px dashed ${T.line}`,borderRadius:T.rMd,background:T.canvas,color:T.brand,cursor:"pointer",padding:"0 12px",fontSize:13,fontWeight:700}}>+ filtro</button>}
         </div>
       </Card>
 
