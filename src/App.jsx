@@ -2899,13 +2899,14 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const represSaldo = (list) => list.reduce((s,r)=>{ const saldo=bill(r)-fat(r); return s + ((saldo>0.01 && categoriaOf(r,clients).cat==="represado") ? saldo : 0); }, 0);
   const empNome = (cod) => EMPRESAS.find(e=>e.cod===cod)?.nome || "";
 
-  const clientesList = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const empresasAll = [...new Set(records.map(r=>r.empresa).filter(Boolean))].sort();
+  // Empresa é um filtro de topo (sempre visível): restringe a lista de clientes
+  // e o mapa. "todas" = grupo inteiro.
+  const recsEmp = empF==="todas" ? records : records.filter(r=>r.empresa===empF);
+  const clientesList = [...new Set(recsEmp.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 
-  const recsCli = cliente ? records.filter(r=>r.cliente===cliente) : [];
-  const tiposCli = [...new Set(recsCli.map(r=>r.tipo).filter(Boolean))].sort();
-  const empresasCli = [...new Set(recsCli.map(r=>r.empresa).filter(Boolean))].sort();
-  let recs = recsCli;
-  if (empF!=="todas") recs = recs.filter(r=>r.empresa===empF);
+  let recs = cliente ? recsEmp.filter(r=>r.cliente===cliente) : [];
+  const tiposCli = [...new Set(recs.map(r=>r.tipo).filter(Boolean))].sort();
   if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
   if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recs = recs.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
 
@@ -2967,12 +2968,15 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
       <Card style={{padding:"12px 14px",marginBottom:16}}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");setEmpF("todas");}}>
+          {empresasAll.length>1 && <select style={{...inp,width:"auto",minWidth:170}} value={empF} onChange={e=>{setEmpF(e.target.value);setCliente("");setTipoF("todos");}}>
+            <option value="todas">Todas as empresas</option>
+            {empresasAll.map(cod=><option key={cod} value={cod}>{cod}{empNome(cod)?` — ${empNome(cod)}`:""}</option>)}
+          </select>}
+          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");}}>
             <option value="">— Selecione um cliente —</option>
             {clientesList.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
           {cliente && <>
-            {empresasCli.length>1 && <select style={{...inp,width:"auto"}} value={empF} onChange={e=>setEmpF(e.target.value)}><option value="todas">Todas as empresas</option>{empresasCli.map(cod=><option key={cod} value={cod}>{cod}{empNome(cod)?` — ${empNome(cod)}`:""}</option>)}</select>}
             <select style={{...inp,width:"auto"}} value={tipoF} onChange={e=>setTipoF(e.target.value)}><option value="todos">Todos os contratos</option>{tiposCli.map(t=><option key={t} value={t}>{t}</option>)}</select>
             <input style={{...inp,width:"auto",minWidth:180,flex:"1 1 180px"}} placeholder="Profissional dentro do cliente…" value={qProf} onChange={e=>setQProf(e.target.value)}/>
           </>}
