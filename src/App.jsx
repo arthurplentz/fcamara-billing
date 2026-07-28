@@ -289,6 +289,7 @@ const T = {
   danger:  "#dc2626", dangerBg:"#fef2f2", dangerLine:"#fca5a5",
   rSm:8, rMd:10, rLg:14, rXl:18, rPill:999,
   shSm:"0 1px 2px rgba(28,25,23,.05)",
+  shCard:"0 1px 2px rgba(28,25,23,.04), 0 8px 22px rgba(28,25,23,.05)",
   shMd:"0 6px 20px rgba(28,25,23,.07)",
   shLg:"0 20px 50px rgba(28,25,23,.16)",
 };
@@ -314,6 +315,53 @@ const C = {
 };
 
 const inp = { padding:"8px 11px", borderRadius:T.rMd, border:`1px solid ${T.line}`, fontSize:13, fontFamily:"inherit", background:"#fff", color:T.ink, width:"100%", boxSizing:"border-box", outline:"none" };
+
+// ─── Período quebrado + classificação do não-faturado ────────────────────────
+// Dia de corte do cliente → "competência de faturamento" (visão cliente). Peça
+// cujo dia de início é >= dia de corte fatura no mês seguinte. Sem corte = mês
+// de serviço (01–31). Helpers no módulo p/ reuso entre as telas.
+const _normCliNome = s => (s||"").toString().trim().toLowerCase();
+function diaCorteOf(record, clients=[]) {
+  const rc = _normCliNome(record.cliente);
+  const c = (clients||[]).find(cl => { const cn=_normCliNome(cl.nome); return cn && (rc===cn || (cn.length>4 && rc.includes(cn))); });
+  const d = parseInt(c?.diaCorte, 10);
+  return (d>=1 && d<=28) ? d : 0;
+}
+function compFatOf(record, clients=[]) {
+  const D = diaCorteOf(record, clients);
+  if (!D) return record.competencia || "";
+  const p = String(record.inicio||"").split("/");   // dd/mm/yyyy
+  let day=+p[0], m=+p[1], y=+p[2];
+  if (!m||!y){ const cp=String(record.competencia||"").split("/"); m=+cp[0]; y=+cp[1]; day=1; }
+  if (!m||!y) return record.competencia || "";
+  if (day>=D){ m+=1; if(m>12){m=1;y+=1;} }
+  return `${String(m).padStart(2,"0")}/${y}`;
+}
+const _compIdx = mmYYYY => { const [m,y]=String(mmYYYY||"").split("/").map(Number); return (y&&m)?(y*12+(m-1)):null; };
+// Categoria automática do não-faturado: dentro do ciclo enquanto o mês atual for
+// <= compFat+1 (1 mês de folga p/ fechar/conciliar); de compFat+2 em diante vira
+// represado. hoje é injetável só para teste.
+function categoriaOf(record, clients=[], hoje) {
+  const cf = compFatOf(record, clients);
+  const ci = _compIdx(cf);
+  if (ci==null) return { cat:"ciclo", compFat:cf };
+  const d = hoje || new Date();
+  const now = d.getFullYear()*12 + d.getMonth();
+  return { cat: now >= ci+2 ? "represado" : "ciclo", compFat:cf };
+}
+// Motivos padrão do não-faturado (dropdown). "Outro" → detalhar no texto livre.
+const CLASS_MOTIVOS = [
+  "Aguardando aprovação do cliente",
+  "Aguardando nota/PO do cliente",
+  "Pendência de medição/timesheet",
+  "Divergência de valor",
+  "Contrato/aditivo em andamento",
+  "Bloqueio interno FCamara",
+  "Faturamento postergado (acordo comercial)",
+  "Glosa / não faturável",
+  "Erro de lançamento",
+  "Outro",
+];
 
 // ─── GLOBAL STYLES (foco, hover, animações, scrollbar) ───────────────────────
 
@@ -467,7 +515,27 @@ function FcamaraLogo({ size = 22, onDark }) {
 }
 
 function Card({ children, style:s={}, interactive, ...rest }) {
-  return <div className={interactive?"fc-card-int":undefined} style={{ background:"#fff", border:`1px solid ${T.line}`, borderRadius:T.rXl, ...s }} {...rest}>{children}</div>;
+  return <div className={interactive?"fc-card-int":undefined} style={{ background:"#fff", border:`1px solid ${T.line}`, borderRadius:T.rXl, boxShadow:T.shCard, ...s }} {...rest}>{children}</div>;
+}
+
+// Chip laranja com ícone — usado no cabeçalho de página (mesmo capricho do Início).
+function HeadChip({ icon }) {
+  return <div style={{width:40,height:40,borderRadius:12,background:T.brandBg,color:T.brand,display:"grid",placeItems:"center",flexShrink:0}}><Icon name={icon} size={20}/></div>;
+}
+
+// Cabeçalho de página padrão — ícone (chip laranja) + título (display) + subtítulo.
+// Dá o mesmo capricho do Início nas demais telas.
+function PageHead({ icon, title, sub, right }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
+      {icon && <HeadChip icon={icon}/>}
+      <div style={{flex:1,minWidth:180}}>
+        <h1 style={{...Ty.h1,fontSize:22}}>{title}</h1>
+        {sub && <div style={{...Ty.small,marginTop:2}}>{sub}</div>}
+      </div>
+      {right}
+    </div>
+  );
 }
 
 function Field({ label, hint, children }) {
@@ -1226,9 +1294,66 @@ function VariacaoModal({ record, lancamentos, onAdd, onDelete, onClose }) {
   );
 }
 
+// Classificar não-faturado — categoria automática (dentro do ciclo × represado,
+// derivada da data) + motivo padrão + observação livre. Reutilizada na Minha
+// visão, na Visão por projeto e na Conciliação. onSave(id,{motivo,obs}).
+function ClassifyModal({ record:r, clients=[], fatByRec={}, varByRec={}, onSave, onClose }) {
+  const [motivo, setMotivo] = useState(r.classMotivo||"");
+  const [obs, setObs]       = useState(r.classObs||"");
+  const { cat, compFat }    = categoriaOf(r, clients);
+  const repres = cat==="represado";
+  const bill = (r.valorTotal||0) + (varByRec[r.id]||0);
+  const fat  = fatByRec[r.id]||0;
+  const save = () => { onSave(r.id, { motivo, obs }); onClose(); };
+  return (
+    <Modal title="Classificar não-faturado" subtitle={`${r.profissional||r.pep||r.cliente} · ${r.cliente}`} onClose={onClose}
+      footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn primary onClick={save}>Salvar</Btn></>}>
+      <div style={{display:"flex",gap:9,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
+        <Badge label={repres?"Represado":"Dentro do ciclo"} color={repres?"red":"teal"} dot/>
+        <span style={{fontSize:12,color:T.muted}}>competência de faturamento <b style={{color:T.inkSoft}}>{compFat||"—"}</b> · categoria automática pela data</span>
+      </div>
+      <div style={{fontSize:11.5,color:T.muted,marginBottom:16}}>{r.pep} · {r.tipo} · {r.inicio||"—"}–{r.fim||"—"} · faturável {brl(bill)}{fat>0.01?` · faturado ${brl(fat)}`:""}</div>
+      <div style={{marginBottom:16}}>
+        <div style={Ty.label}>Status por etapa</div>
+        <PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} showLabels/>
+      </div>
+      <div style={{marginBottom:14}}><Field label="Motivo do não-faturamento">
+        <select style={inp} value={motivo} onChange={e=>setMotivo(e.target.value)}>
+          <option value="">Selecione um motivo…</option>
+          {CLASS_MOTIVOS.map(m=><option key={m}>{m}</option>)}
+        </select>
+      </Field></div>
+      <Field label={repres?"Motivo do represamento (texto livre)":"Observação (texto livre)"}>
+        <textarea style={{...inp,minHeight:70,resize:"vertical"}} value={obs} onChange={e=>setObs(e.target.value)} placeholder={repres?"Explique por que represou…":"Detalhe, se necessário…"}/>
+      </Field>
+    </Modal>
+  );
+}
+
+// Chip clicável de classificação — mostra o motivo/categoria de um não-faturado.
+// Vermelho quando represado; tracejado "+ classificar" quando ainda sem motivo.
+function ClassifyChip({ record:r, clients=[], onClick, style:s={} }) {
+  const { cat } = categoriaOf(r, clients);
+  const repres = cat==="represado";
+  const has = !!(r.classMotivo || r.classObs);
+  const base = { marginLeft:6, cursor:"pointer", borderRadius:T.rPill, padding:"2px 8px", fontSize:10, fontWeight:600, verticalAlign:"middle", ...s };
+  if (has) return (
+    <button onClick={onClick} title={`${r.classMotivo||"—"}${r.classObs?` — ${r.classObs}`:""} (clique p/ editar)`}
+      style={{...base, border:`1px solid ${repres?C.red.border:C.gray.border}`, background:repres?C.red.bg:C.gray.bg, color:repres?C.red.text:C.gray.text}}>
+      {repres?"⚠ ":""}{r.classMotivo||"obs"}
+    </button>
+  );
+  return (
+    <button onClick={onClick} title="Classificar não-faturado (motivo / observação)"
+      style={{...base, border:`1px dashed ${repres?C.red.border:T.line}`, background:"#fff", color:repres?C.red.solid:T.muted}}>
+      {repres?"⚠ classificar":"+ classificar"}
+    </button>
+  );
+}
+
 // ─── MY VIEW (team) ──────────────────────────────────────────────────────────
 
-function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRec={}, aceitaVar=()=>false, onAddVariacao, onDelVariacao, onUpdateBulk, onDeleteRecord, onClearAlert, competenciaAtual, onCompetenciaChange }) {
+function MyView({ records, clients=[], analista, isAdmin, fatByRec={}, varByRec={}, varsByRec={}, aceitaVar=()=>false, onAddVariacao, onDelVariacao, onUpdateBulk, onDeleteRecord, onClearAlert, onSaveClass, competenciaAtual, onCompetenciaChange }) {
   const isMobile = useIsMobile();
   const [varTarget, setVarTarget] = useState(null);   // registro para lançar variação
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);   // faturável (receita + variação)
@@ -1239,11 +1364,17 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
   const [filterComp, setFilterComp] = useState(competenciaAtual);
   const [filterAnalista, setFA]     = useState("todos");
   const [filterEtapa, setFEt]       = useState("todas");
-  const [searchCliente, setSC]      = useState("");
-  const [searchProf, setSP]         = useState("");
+  // Filtro composável: escolhe a dimensão (Cliente/Profissional/PEP) e o valor;
+  // "+" adiciona outra dimensão. Combina em E (todas precisam bater).
+  const [filtros, setFiltros]       = useState([{ dim:"cliente", val:"" }]);
+  const FDIMS = { cliente:{label:"Cliente", get:r=>r.cliente}, profissional:{label:"Profissional", get:r=>r.profissional}, pep:{label:"PEP", get:r=>r.pep} };
+  const updF = (i,patch)=> setFiltros(fs=>fs.map((f,j)=>j===i?{...f,...patch}:f));
+  const rmF  = (i)=> setFiltros(fs=>fs.length>1?fs.filter((_,j)=>j!==i):fs);
+  const addF = ()=> setFiltros(fs=>{ const used=new Set(fs.map(f=>f.dim)); const next=Object.keys(FDIMS).find(k=>!used.has(k)); return next?[...fs,{dim:next,val:""}]:fs; });
   const [expandedCliente, setExp]   = useState(null);
   const [bulkTarget, setBulk]       = useState(null);
   const [nfTarget, setNf]           = useState(null);
+  const [classTarget, setClass]     = useState(null);   // registro para classificar
 
   // O banco (RLS) já entrega apenas os registros do analista, vinculados pelo
   // "Responsável na base". Não refiltramos pelo nome de exibição.
@@ -1260,8 +1391,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
   if (isAdmin && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa==="_faltam_datas") filtered = filtered.filter(faltaDatas);
   else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id], bill(r))===filterEtapa);
-  if (searchCliente) filtered = filtered.filter(r=>r.cliente.toLowerCase().includes(searchCliente.toLowerCase()));
-  if (searchProf)    filtered = filtered.filter(r=>r.profissional.toLowerCase().includes(searchProf.toLowerCase()));
+  filtros.forEach(f=>{ const v=(f.val||"").trim().toLowerCase(); const g=FDIMS[f.dim]?.get; if(v&&g) filtered = filtered.filter(r=>String(g(r)||"").toLowerCase().includes(v)); });
 
   // Resumo por tipo de contrato
   const porTipo = {};
@@ -1285,11 +1415,9 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
         message={`Excluir o registro de "${recordDel.profissional}" (${recordDel.cliente})? Esta ação não pode ser desfeita.${(fatByRec[recordDel.id]||0)>0.001?" ⚠️ Este registro está CONCILIADO — a(s) nota(s) do lote serão reabertas na conciliação." : ""}`}
         onConfirm={()=>onDeleteRecord(recordDel.id)} onClose={()=>setRecDel(null)}/>}
       {varTarget&&<VariacaoModal record={varTarget} lancamentos={(varsByRec[varTarget.id]||[])} onAdd={(valor,motivo)=>onAddVariacao(varTarget.id,valor,motivo)} onDelete={onDelVariacao} onClose={()=>setVarTarget(null)}/>}
+      {classTarget&&<ClassifyModal record={classTarget} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSave={onSaveClass} onClose={()=>setClass(null)}/>}
 
-      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-        <h1 style={Ty.h1}>Minha visão</h1>
-        <span style={Ty.small}>{groups.length} cliente(s) · {filtered.length} registro(s)</span>
-      </div>
+      <PageHead icon="list" title="Minha visão" sub={`${groups.length} cliente(s) · ${filtered.length} registro(s)`}/>
 
       {/* Resumo por tipo de contrato */}
       {Object.keys(porTipo).length>0 && <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
@@ -1332,8 +1460,17 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
             {STATUS_ORDER.map(s=><option key={s}>{s}</option>)}
             <option value="_faltam_datas">Faltam datas</option>
           </select>
-          <input style={{...inp,width:isMobile?"100%":160}} placeholder="Cliente..." value={searchCliente} onChange={e=>setSC(e.target.value)}/>
-          <input style={{...inp,width:isMobile?"100%":160}} placeholder="Profissional..." value={searchProf} onChange={e=>setSP(e.target.value)}/>
+          {filtros.map((f,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"stretch"}}>
+              <select value={f.dim} onChange={e=>updF(i,{dim:e.target.value})} aria-label="Tipo de filtro"
+                style={{...inp,width:"auto",borderRadius:`${T.rMd} 0 0 ${T.rMd}`,borderRight:"none",background:T.canvas,fontWeight:600,color:T.inkSoft,paddingRight:6}}>
+                {Object.entries(FDIMS).map(([k,d])=><option key={k} value={k}>{d.label}</option>)}
+              </select>
+              <input style={{...inp,width:isMobile?130:150,borderRadius:filtros.length>1?0:`0 ${T.rMd} ${T.rMd} 0`}} placeholder={`Filtrar por ${FDIMS[f.dim].label.toLowerCase()}…`} value={f.val} onChange={e=>updF(i,{val:e.target.value})}/>
+              {filtros.length>1 && <button onClick={()=>rmF(i)} title="Remover filtro" style={{border:`1px solid ${T.line}`,borderLeft:"none",borderRadius:`0 ${T.rMd} ${T.rMd} 0`,background:"#fff",color:T.muted,cursor:"pointer",padding:"0 9px",fontSize:15,lineHeight:1}}>×</button>}
+            </div>
+          ))}
+          {filtros.length < Object.keys(FDIMS).length && <button onClick={addF} title="Adicionar filtro" style={{border:`1px dashed ${T.line}`,borderRadius:T.rMd,background:T.canvas,color:T.brand,cursor:"pointer",padding:"0 12px",fontSize:13,fontWeight:700}}>+ filtro</button>}
         </div>
       </Card>
 
@@ -1432,6 +1569,7 @@ function MyView({ records, analista, isAdmin, fatByRec={}, varByRec={}, varsByRe
                       <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
                         <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color={recStatusColor(r, fatByRec[r.id], bill(r))} small dot/>
                         {aceitaVar(r) && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"#fff",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
+                        {fatR<0.01 && <ClassifyChip record={r} clients={clients} onClick={()=>setClass(r)}/>}
                       </td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
                         <button title="Editar registro" onClick={()=>setRecEdit(r)} style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:14,padding:"0 4px"}}><Icon name="pencil" size={14}/></button>
@@ -1561,7 +1699,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
   return (
     <div>
-      <h1 style={{...Ty.h1, marginBottom:14}}>Dashboard</h1>
+      <PageHead icon="chart" title="Dashboard" sub="Visão geral do reconhecimento e do faturamento"/>
 
       {/* Filtros */}
       <Card style={{ padding:"12px 14px", marginBottom:18 }}>
@@ -1675,7 +1813,7 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
 
 const NAV_SECTIONS = [
   { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
-  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"valida",icon:"check",label:"Validações"} ] },
+  { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"valida",icon:"check",label:"Validações"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
@@ -1988,9 +2126,10 @@ function Kanban({ tasks, responsaveis, isAdmin, competenciaAtual, templates, del
       {showDeliv && <DeliveryManager templates={templates} responsaveis={responsaveis} competenciaAtual={competenciaAtual}
         onTemplateSave={onTemplateSave} onTemplateDelete={onTemplateDelete} onGenerate={onGenerate} onClose={()=>setShowDeliv(false)}/>}
 
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
+        <HeadChip icon="task"/>
         <div style={{flex:1,minWidth:180}}>
-          <h1 style={Ty.h1}>Tarefas do time</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Tarefas do time</h1>
           <div style={{...Ty.small, marginTop:3}}>{tasks.length} tarefa(s) · arraste os cards entre as colunas ou use as setas</div>
         </div>
         <select style={{...inp,width:"auto"}} value={filterTipo} onChange={e=>setFilterTipo(e.target.value)} aria-label="Tipo de tarefa">
@@ -2102,9 +2241,10 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
         message={`Remover o acesso de "${confirmDel.name}"? A pessoa deixa de ver os dados na plataforma. Os registros já lançados são mantidos. (Para apagar o login por completo, use o painel do Supabase.)`}
         onConfirm={()=>onRemove(confirmDel)} onClose={()=>setConfirm(null)}/>}
 
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:18,flexWrap:"wrap"}}>
+        <HeadChip icon="lock"/>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>Gestão de acessos</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Gestão de acessos</h1>
           <div style={{...Ty.small, marginTop:3}}>{profiles.length} usuário(s) · {adminCount} administrador(es). Ajuste papéis e remova acessos.</div>
         </div>
         <Btn onClick={onRefresh}>Atualizar lista</Btn>
@@ -2686,10 +2826,7 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
 
   return (
     <div>
-      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6,flexWrap:"wrap"}}>
-        <h1 style={Ty.h1}>Validações do sistema</h1>
-        <span style={Ty.small}>confere se o faturamento está batendo</span>
-      </div>
+      <PageHead icon="check" title="Validações do sistema" sub="confere se o faturamento está batendo"/>
       <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Rodam sobre todos os dados carregados. Verde = ok; laranja = clique para ver o que revisar.</div>
 
       <Result id="lotes" titulo="Conciliado da prefeitura × receita conciliada (regra de R$ 1,00)"
@@ -2733,6 +2870,167 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
           </Row>
         ))}
       </Result>
+    </div>
+  );
+}
+
+// Visão por projeto — linha do tempo. Escolhe um cliente e vê cada PEP mês a mês,
+// com o faturável e a distribuição por etapa (faturado / liberado / em andamento /
+// não iniciado). Só renderiza ao escolher o cliente — mapa focado.
+function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={}, onSaveClass }) {
+  const [cliente, setCliente] = useState("");
+  const [qProf, setQProf] = useState("");
+  const [tipoF, setTipoF] = useState("todos");
+  const [detail, setDetail] = useState(null);       // {label, ids:Set} da célula clicada
+  const [classTarget, setClass] = useState(null);   // registro sendo classificado
+  const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
+  const fat  = (r) => fatByRec[r.id]||0;
+
+  const clientesList = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+
+  let recs = cliente ? records.filter(r=>r.cliente===cliente) : [];
+  const tiposCli = [...new Set((cliente?records.filter(r=>r.cliente===cliente):[]).map(r=>r.tipo).filter(Boolean))].sort();
+  if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
+  if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recs = recs.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
+
+  const meses = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  const projMap = {};
+  recs.forEach(r=>{ const k=`${r.tipo}||${r.pep}`; (projMap[k]=projMap[k]||{tipo:r.tipo,pep:r.pep,recs:[]}).recs.push(r); });
+  const projetos = Object.values(projMap).map(p=>({...p, tot:p.recs.reduce((s,r)=>s+bill(r),0)})).sort((a,b)=>b.tot-a.tot);
+
+  const SEG = [
+    { key:"faturado",  label:"Faturado",     color:C.green.solid },
+    { key:"liberado",  label:"Liberado",     color:C.teal.solid },
+    { key:"andamento", label:"Em andamento", color:C.orange.solid },
+    { key:"pendente",  label:"Não iniciado", color:C.gray.solid },
+  ];
+  const segsOf = (list) => {
+    let faturado=0, liberado=0, andamento=0, pendente=0;
+    list.forEach(r=>{
+      const f=fat(r), saldo=bill(r)-f;
+      faturado += Math.max(0,f);
+      if (saldo>0.01){ const p=r.progress||{};
+        if (p.p5_liberado) liberado+=saldo;
+        else if (calcStatus(p)==="Não iniciado") pendente+=saldo;
+        else andamento+=saldo;
+      }
+    });
+    return { faturado, liberado, andamento, pendente, total:faturado+liberado+andamento+pendente };
+  };
+
+  const Cell = ({ list, label }) => {
+    const s = list.length ? segsOf(list) : null;
+    if (!s || s.total<=0.01) return <div style={{color:T.faint,fontSize:11,textAlign:"center"}}>—</div>;
+    const pctFat = Math.round(s.faturado/s.total*100);
+    const repres = list.filter(r=>bill(r)-fat(r)>0.01 && categoriaOf(r,clients).cat==="represado").length;
+    return (
+      <div onClick={()=>setDetail({label, ids:new Set(list.map(r=>r.id))})} style={{cursor:"pointer"}} title="Ver detalhe / classificar">
+        <div style={{display:"flex",alignItems:"center",gap:5,lineHeight:1}}>
+          <div style={{fontSize:11.5,fontWeight:700,color:T.ink,fontVariantNumeric:"tabular-nums"}}>{fmtShort(s.total)}</div>
+          {repres>0 && <span title={`${repres} represado(s)`} style={{fontSize:9,fontWeight:700,color:C.red.solid}}>⚠{repres}</span>}
+        </div>
+        <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",margin:"5px 0 3px",background:T.lineSoft}}>
+          {SEG.map(g=> s[g.key]>0.01 ? <div key={g.key} title={`${g.label}: ${brl(s[g.key])}`} style={{width:`${s[g.key]/s.total*100}%`,background:g.color}}/> : null)}
+        </div>
+        <div style={{fontSize:10,fontWeight:600}}><span style={{color:pctFat>=100?C.green.solid:T.muted}}>{pctFat}% fat</span> · <span style={{color:C.orange.solid}}>{100-pctFat}% aberto</span></div>
+      </div>
+    );
+  };
+
+  const detailList = detail ? recs.filter(r=>detail.ids.has(r.id)).sort((a,b)=>bill(b)-bill(a)) : [];
+
+  const thProj = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"10px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".05em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:190 };
+  const thMes  = { padding:"10px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:100 };
+  const tdProj = { position:"sticky", left:0, zIndex:1, background:"#fff", padding:"8px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:190 };
+  const tdCell = { padding:"8px 10px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, verticalAlign:"top" };
+
+  return (
+    <div>
+      <PageHead icon="chart" title="Visão por projeto" sub="linha do tempo — faturável por PEP, mês a mês"/>
+      <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Escolha um cliente para desenhar o mapa. Cada célula mostra o faturável do mês e a distribuição por etapa.</div>
+
+      <Card style={{padding:"12px 14px",marginBottom:16}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cliente} onChange={e=>{setCliente(e.target.value);setTipoF("todos");}}>
+            <option value="">— Selecione um cliente —</option>
+            {clientesList.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          {cliente && <>
+            <select style={{...inp,width:"auto"}} value={tipoF} onChange={e=>setTipoF(e.target.value)}><option value="todos">Todos os contratos</option>{tiposCli.map(t=><option key={t} value={t}>{t}</option>)}</select>
+            <input style={{...inp,width:"auto",minWidth:180,flex:"1 1 180px"}} placeholder="Profissional dentro do cliente…" value={qProf} onChange={e=>setQProf(e.target.value)}/>
+          </>}
+        </div>
+      </Card>
+
+      {!cliente ? (
+        <Card style={{textAlign:"center",padding:"3rem"}}>
+          <div style={{fontSize:14,color:T.muted}}>Escolha um cliente acima para ver o mapa de faturamento por projeto.</div>
+        </Card>
+      ) : projetos.length===0 ? (
+        <Card style={{textAlign:"center",padding:"2rem"}}><div style={{fontSize:13,color:T.muted}}>Nenhum registro para este filtro.</div></Card>
+      ) : (
+        <>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:12,fontSize:11.5,color:T.muted}}>
+            {SEG.map(g=><span key={g.key} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:13,height:13,borderRadius:3,background:g.color}}/>{g.label}</span>)}
+          </div>
+          <div style={{overflowX:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg,background:"#fff"}}>
+            <table style={{borderCollapse:"collapse",width:"100%"}}>
+              <thead><tr>
+                <th style={thProj}>Projeto (tipo · PEP)</th>
+                {meses.map(m=><th key={m} style={thMes}>{m}</th>)}
+                <th style={{...thMes,background:T.canvas,borderLeft:`2px solid ${T.line}`}}>Total projeto</th>
+              </tr></thead>
+              <tbody>
+                {projetos.map(p=>(
+                  <tr key={p.tipo+"|"+p.pep}>
+                    <td style={tdProj}>
+                      <div style={{fontWeight:700,fontSize:12,color:T.ink}}>{p.pep||"—"}</div>
+                      <div style={{fontSize:10.5,color:T.muted}}>{p.tipo}</div>
+                    </td>
+                    {meses.map(m=><td key={m} style={tdCell}><Cell list={p.recs.filter(r=>r.competencia===m)} label={`${p.pep||p.tipo} · ${m}`}/></td>)}
+                    <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`}}><Cell list={p.recs} label={`${p.pep||p.tipo} · Total`}/></td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{...tdProj,background:T.canvas,fontWeight:800,color:T.ink,fontSize:12}}>TOTAL · {cliente}</td>
+                  {meses.map(m=><td key={m} style={{...tdCell,background:T.canvas}}><Cell list={recs.filter(r=>r.competencia===m)} label={`${cliente} · ${m}`}/></td>)}
+                  <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`}}><Cell list={recs} label={`${cliente} · Total`}/></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {detail && <Modal title={`Detalhe — ${detail.label}`} subtitle={`${detailList.length} registro(s) · clique em "classificar" p/ registrar o motivo do não-faturamento`} wide onClose={()=>setDetail(null)}>
+        <div className="fc-scroll" style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead><tr style={{background:T.canvas}}>
+              {["Profissional","Período","Faturável","Faturado","Status","Classificação"].map(h=>
+                <th key={h} style={{padding:"7px 10px",textAlign:"left",borderBottom:`1px solid ${T.line}`,fontWeight:600,color:T.muted,whiteSpace:"nowrap"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {detailList.map(r=>{
+                const f=fat(r), saldo=bill(r)-f, aberto=saldo>0.01;
+                return (
+                  <tr key={r.id} style={{borderBottom:`1px solid ${T.lineSoft}`}}>
+                    <td style={{padding:"7px 10px",fontWeight:500,color:T.ink}}>{r.profissional||r.pep||"—"}</td>
+                    <td style={{padding:"7px 10px",color:T.muted,whiteSpace:"nowrap"}}>{r.inicio||"—"} → {r.fim||"—"}</td>
+                    <td style={{padding:"7px 10px",fontWeight:500,whiteSpace:"nowrap"}}>{fmtShort(bill(r))}</td>
+                    <td style={{padding:"7px 10px",whiteSpace:"nowrap",color:f>0.01?C.green.solid:T.faint}}>{f>0.01?fmtShort(f):"—"}</td>
+                    <td style={{padding:"7px 10px"}}><PipelineStepper states={recordStates(r.progress, r.tipo)} groups={funnelGroups(r.tipo)} size="sm"/></td>
+                    <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
+                      {aberto ? <ClassifyChip record={r} clients={clients} onClick={()=>setClass(r)} style={{marginLeft:0}}/>
+                              : <span style={{fontSize:11,color:T.faint}}>faturado</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Modal>}
+      {classTarget && <ClassifyModal record={classTarget} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSave={onSaveClass} onClose={()=>setClass(null)}/>}
     </div>
   );
 }
@@ -2808,23 +3106,8 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
   // Período quebrado: dia de corte do cliente → "competência de faturamento" (ciclo).
   // Para cliente com corte D, uma peça cujo dia de início é >= D fatura no mês
   // seguinte (a nota fecha em D do próximo mês); antes de D, fatura no mês atual.
-  const normCli = s => (s||"").toString().trim().toLowerCase();
-  const diaCorteDe = (r) => {
-    const rc = normCli(r.cliente);
-    const c = clients.find(cl => { const cn = normCli(cl.nome); return cn && (rc===cn || (cn.length>4 && rc.includes(cn))); });
-    const d = parseInt(c?.diaCorte, 10);
-    return (d>=1 && d<=28) ? d : 0;
-  };
-  const compFat = (r) => {
-    const D = diaCorteDe(r);
-    if (!D) return r.competencia || "";
-    const p = String(r.inicio||"").split("/");   // dd/mm/yyyy
-    let day = +p[0], m = +p[1], y = +p[2];
-    if (!m || !y) { const cp = String(r.competencia||"").split("/"); m = +cp[0]; y = +cp[1]; day = 1; }
-    if (!m || !y) return r.competencia || "";
-    if (day >= D) { m += 1; if (m>12){ m=1; y+=1; } }
-    return `${String(m).padStart(2,"0")}/${y}`;
-  };
+  const diaCorteDe = (r) => diaCorteOf(r, clients);
+  const compFat = (r) => compFatOf(r, clients);
   const compValue = (r) => recDim==="ciclo" ? compFat(r) : (r.competencia || "");
 
   const compsUsadas = [...new Set(empRecs.map(compValue).filter(Boolean))].sort((a,b)=>compKey(b).localeCompare(compKey(a)));
@@ -2927,9 +3210,10 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
 
       {/* Cabeçalho congelado: título + empresa + cards ficam fixos ao rolar. */}
       <div style={{position:"sticky",top:0,zIndex:15,background:T.canvas,paddingTop:8,marginTop:-8}}>
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14,flexWrap:"wrap"}}>
+        <HeadChip icon="receipt"/>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>Conciliação de notas</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Conciliação de notas</h1>
           <div style={{...Ty.small,marginTop:3}}>{notes.length} nota(s) importada(s) · conciliação por empresa do grupo</div>
         </div>
         {isAdmin && orfas>0 && <Btn icon="undo" onClick={onReopenOrphans}>Reabrir notas órfãs ({orfas})</Btn>}
@@ -3100,14 +3384,16 @@ function ConciliationView({ records, clients, notes, isAdmin, fatByRec={}, varBy
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
                       const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r), dc=diaCorteDe(r);
+                      const temCls=hasSaldo(r)&&(r.classMotivo||r.classObs), clsRepres=temCls&&categoriaOf(r,clients).cat==="represado";
                       return (
                         <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"#fff")}}>
                           {full
                             ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>} {dc>0&&<Badge label={`ciclo ${compFat(r)}`} color="teal" small/>}</div>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>} {dc>0&&<Badge label={`ciclo ${compFat(r)}`} color="teal" small/>} {temCls&&<Badge label={(clsRepres?"⚠ ":"")+(r.classMotivo||"obs")} color={clsRepres?"red":"gray"} small/>}</div>
                             <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{dc>0?` · fatura ${compFat(r)} · ${r.inicio}–${r.fim}`:""}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
+                            {temCls&&r.classObs&&<div style={{fontSize:11,color:clsRepres?C.red.solid:T.inkSoft,marginTop:2,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {r.classObs}</div>}
                           </div>
                           {on && hasSaldo(r)
                             ? <input style={{...inp,width:110,fontSize:12,padding:"4px 7px",textAlign:"right"}} title="Valor a faturar (parcial)" value={valores[r.id] ?? saldoR(r).toFixed(2)} onChange={e=>setValor(r.id,e.target.value)} onClick={e=>e.stopPropagation()}/>
@@ -3235,9 +3521,10 @@ function ClientsView({ clients, isAdmin, onSave, onDelete, onBulkImport, onMerge
         </Modal>
       )}
 
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14,flexWrap:"wrap"}}>
+        <HeadChip icon="building"/>
         <div style={{flex:1,minWidth:200}}>
-          <h1 style={Ty.h1}>Clientes</h1>
+          <h1 style={{...Ty.h1,fontSize:22}}>Clientes</h1>
           <div style={{...Ty.small, marginTop:3}}>{clients.length} cliente(s){incompletos>0 && <> · <b style={{color:T.warn}}>{incompletos} incompleto(s)</b></>}</div>
         </div>
         {isAdmin && <Btn icon="upload" onClick={()=>setImporting(true)}>Importar clientes</Btn>}
@@ -3563,23 +3850,8 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   // Período quebrado: deriva a competência de faturamento (ciclo) do dia de corte
   // do cliente + a data de início da receita (peça >= dia de corte fatura no mês
   // seguinte). Cliente sem corte = mês de serviço.
-  const normCli = s => (s||"").toString().trim().toLowerCase();
-  const diaCorteDe = (r) => {
-    const rc = normCli(r.cliente);
-    const c = clients.find(cl => { const cn = normCli(cl.nome); return cn && (rc===cn || (cn.length>4 && rc.includes(cn))); });
-    const d = parseInt(c?.diaCorte, 10);
-    return (d>=1 && d<=28) ? d : 0;
-  };
-  const compFat = (r) => {
-    const D = diaCorteDe(r);
-    if (!D) return r.competencia || "";
-    const p = String(r.inicio||"").split("/");
-    let day = +p[0], m = +p[1], y = +p[2];
-    if (!m || !y) { const cp = String(r.competencia||"").split("/"); m = +cp[0]; y = +cp[1]; day = 1; }
-    if (!m || !y) return r.competencia || "";
-    if (day >= D) { m += 1; if (m>12){ m=1; y+=1; } }
-    return `${String(m).padStart(2,"0")}/${y}`;
-  };
+  const diaCorteDe = (r) => diaCorteOf(r, clients);
+  const compFat = (r) => compFatOf(r, clients);
   const compValue = (r) => dim==="ciclo" ? compFat(r) : (r.competencia || "");
 
   const comps = [...new Set(records.map(compValue).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
@@ -3663,8 +3935,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
 
   return (
     <div>
-      <h1 style={{...Ty.h1,marginBottom:6}}>Relatórios</h1>
-      <div style={{...Ty.small,marginBottom:16}}>Extraia relatórios em Excel (.xlsx) já formatados — números como número e datas em dd/mm/aaaa.</div>
+      <PageHead icon="file" title="Relatórios" sub="Extraia relatórios em Excel (.xlsx) já formatados — números como número e datas em dd/mm/aaaa."/>
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
         {[["receitas","Receitas"],["clientes","Clientes"]].map(([id,label])=>(
@@ -3727,8 +3998,7 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
   );
   return (
     <div>
-      <h1 style={{ ...Ty.h1, marginBottom:6 }}>Importar documentos</h1>
-      <div style={{ ...Ty.small, marginBottom:18 }}>Carga de dados de reconhecimento. As exportações agora ficam na aba <b>Relatórios</b>.</div>
+      <PageHead icon="import" title="Importar documentos" sub={<>Carga de dados de reconhecimento. As exportações agora ficam na aba <b>Relatórios</b>.</>}/>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
         <Tile icon="" title="Importar receitas" primary desc={`Carregar a planilha de T&E / Fee-WIP / Usage (.xlsm/.xlsx). ${recordsCount} registro(s) hoje.`} btn="Importar planilha" onClick={onImport}/>
         <Tile icon="" title="Histórico de importações" desc="Ver o log de todas as importações realizadas." btn="Ver histórico" onClick={onHistory}/>
@@ -3961,6 +4231,14 @@ function AppInner() {
       await reloadRecords();
       toast(`Passos atualizados — ${updatedList.length} profissional(is)`);
     } catch(e) { toast("Erro ao salvar os passos: "+e.message, "error"); }
+  }
+
+  async function handleSaveClass(id, { motivo, obs }) {
+    try {
+      await db.updateRecordClass(id, { motivo, obs });
+      setRecords(rs => rs.map(r => r.id===id ? { ...r, classMotivo:motivo||"", classObs:obs||"" } : r));
+      toast("Classificação salva");
+    } catch(e) { toast("Erro ao salvar classificação: "+e.message, "error"); }
   }
 
   async function handleImport({ records:newRecs, competencia, empresa, tipo, mode, note }) {
@@ -4389,7 +4667,7 @@ function AppInner() {
           )}
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              {page==="time"&&<MyView records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
+              {page==="time"&&<MyView records={records} clients={clients} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} onSaveClass={handleSaveClass} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
               {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec}/>}
             </div>
           )}
@@ -4416,6 +4694,11 @@ function AppInner() {
           {page==="valida"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ValidatorsView records={records} notes={notes} faturamentos={faturamentos} fatByRec={fatByRec} varByRec={varByRec}/>
+            </div>
+          )}
+          {page==="projeto"&&(
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ProjectTimelineView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass}/>
             </div>
           )}
           {page==="clients"&&(
