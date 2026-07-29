@@ -1413,7 +1413,8 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
 
   // Resumo por tipo de contrato
   const porTipo = {};
-  filtered.forEach(r=>{ const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=bill(r); porTipo[t].fat+=(fatByRec[r.id]||0); });
+  // "Fora do relatório" (ausente) não conta nos totais — só aparece sinalizado.
+  filtered.forEach(r=>{ if(r.ausenteRelatorio) return; const t=r.tipo||"—"; if(!porTipo[t]) porTipo[t]={count:0,total:0,fat:0}; porTipo[t].count++; porTipo[t].total+=bill(r); porTipo[t].fat+=(fatByRec[r.id]||0); });
   const tipoColors = { "Time & Expenses":"blue", "Fee":"purple", "WIP":"teal", "Usage Based":"orange" };
 
   const grouped = {};
@@ -1507,10 +1508,11 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
 
       {/* Cards de clientes */}
       {groups.map(g=>{
-        const total   = g.records.reduce((a,r)=>a+(r.valorTotal||0),0);
-        const varG    = g.records.reduce((a,r)=>a+(varByRec[r.id]||0),0);
-        const totalG  = g.records.reduce((a,r)=>a+bill(r),0);   // faturável (com variação)
-        const fatG    = g.records.reduce((a,r)=>a+(fatByRec[r.id]||0),0);
+        const ativos  = g.records.filter(r=>!r.ausenteRelatorio);   // fora do relatório não soma
+        const total   = ativos.reduce((a,r)=>a+(r.valorTotal||0),0);
+        const varG    = ativos.reduce((a,r)=>a+(varByRec[r.id]||0),0);
+        const totalG  = ativos.reduce((a,r)=>a+bill(r),0);   // faturável (com variação)
+        const fatG    = ativos.reduce((a,r)=>a+(fatByRec[r.id]||0),0);
         const pct     = totalG>0 ? Math.round(fatG/totalG*100) : 0;
         const isOpen  = expandedCliente===(g.cliente+g.pep);
         const fullG = g.records.filter(r=>{const t=bill(r);return Math.abs(t)>0.01 && Math.abs(t-(fatByRec[r.id]||0))<0.01;}).length;
@@ -4432,6 +4434,10 @@ function AppInner() {
 
   const isAdmin = user?.isAdmin || false;
   const isViewer = user?.isViewer || false;   // somente-visualização: lê tudo, não escreve
+  // Receitas "ativas" = fora as sinalizadas "fora do relatório" (ausenteRelatorio).
+  // Telas de RESUMO de receita usam esta lista para não somar o que saiu do
+  // relatório. Conciliação e Minha visão (revisão) continuam vendo tudo.
+  const recordsAtivos = records.filter(r => !r.ausenteRelatorio);
   // Trava de UX para o viewer (a trava real é o RLS). Retorna true se bloqueou.
   const blockIfViewer = () => { if (isViewer) { toast("Acesso somente visualização — ação não permitida.", "info"); return true; } return false; };
 
@@ -4469,6 +4475,9 @@ function AppInner() {
         // empresa mudou (correção de digitação). O PEP já é específico de empresa
         // (BR02CLP…), então colisão entre empresas diferentes não acontece.
         const keyNoEmp = r => `${norm(r.tipo)}|${norm(pepBase(r.pep))}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
+        // Chave SEM PEP (mantém empresa+cliente): identifica a mesma receita quando
+        // só o PEP mudou. O cliente entra pra nunca confundir clientes diferentes.
+        const keyNoPep = r => `${norm(r.empresa)}|${norm(r.tipo)}|${norm(r.cliente)}|${norm(r.profissional)}|${(r.competencia||"").trim()}|${dnorm(r.inicio)}|${dnorm(r.fim)}`;
         const combos = new Set(newRecs.map(r=>`${r.competencia}|${r.empresa}|${r.tipo}`));
         const escopo = records.filter(r => combos.has(`${r.competencia}|${r.empresa}|${r.tipo}`));
         // A chave pode repetir (mesmo profissional/PEP com 2+ linhas). Guardamos
@@ -4481,7 +4490,7 @@ function AppInner() {
         const consumidos = new Set();
         const upserts = []; const inserts = []; const snapshot = [];
         const importId = uuid();
-        let novos=0, mudados=0, congelados=0, movidos=0;
+        let novos=0, mudados=0, congelados=0, movidos=0, movidosPep=0;
         const casar = (nr, ex) => {
           consumidos.add(ex.id);
           snapshot.push(ex);   // guarda o estado ANTERIOR para permitir desfazer
@@ -4502,6 +4511,7 @@ function AppInner() {
           // de empresa, é o que de fato transfere a receita para o código certo.
           const merged = { ...ex,
             empresa: nr.empresa||ex.empresa,
+            pep: nr.pep||ex.pep,   // sincroniza o PEP do relatório; num MOVE por correção de PEP, é o que transfere a receita
             cliente: nr.cliente||ex.cliente, codCliente: nr.codCliente||ex.codCliente,
             inicio: nr.inicio||ex.inicio, fim: nr.fim||ex.fim,
             valorVenda: nr.valorVenda, hrsAprovadas: nr.hrsAprovadas,
@@ -4530,6 +4540,26 @@ function AppInner() {
           casar(nr, q.splice(idx,1)[0]);   // casar já seta empresa ← nr.empresa
           return true;
         };
+        // Índice por identidade SEM PEP (mesma empresa+CLIENTE+tipo+profissional+
+        // período) para detectar receita que só mudou de PEP (ex.: fee que trocou
+        // de código). Inclui o CLIENTE para nunca colidir entre clientes.
+        const byNoPep = {};
+        records.forEach(r => { if (!compsNew.has((r.competencia||"").trim())) return; const k=keyNoPep(r); (byNoPep[k]=byNoPep[k]||[]).push(r); });
+        // Move um registro de OUTRO PEP para o PEP novo — só quando é INEQUÍVOCO:
+        // candidato ÚNICO, PEP diferente, MESMO valor e NÃO conciliado. Se houver
+        // 0 ou vários candidatos, não move (cria novo), pra não juntar errado.
+        const tentarMoverPep = (nr) => {
+          const q = byNoPep[keyNoPep(nr)];
+          if (!q || !q.length) return false;
+          const cand = q.filter(ex => !consumidos.has(ex.id)
+            && norm(pepBase(ex.pep)) !== norm(pepBase(nr.pep))
+            && (fatByRec[ex.id]||0) <= 0.001
+            && Math.abs((ex.valorTotal||0)-(nr.valorTotal||0)) < 0.01);
+          if (cand.length !== 1) return false;
+          const ex = cand[0]; const i = q.indexOf(ex); if (i>=0) q.splice(i,1);
+          casar(nr, ex);   // casar seta pep ← nr.pep (move o PEP)
+          return true;
+        };
         Object.entries(newByKey).forEach(([k, news]) => {
           const bucket = (byKey[k]||[]).slice();
           const pend = [];
@@ -4549,6 +4579,8 @@ function AppInner() {
               casar(nr, bucket.splice(bi,1)[0]);
             } else if (tentarMover(nr)) {
               movidos++;
+            } else if (tentarMoverPep(nr)) {
+              movidosPep++;
             } else {
               inserts.push({ ...nr, importId }); novos++;
             }
@@ -4559,7 +4591,7 @@ function AppInner() {
         try { await db.insertHistory({ competencia, empresa, tipo:[...new Set(newRecs.map(r=>r.tipo))].join("/")||tipo, mode, count:newRecs.length, user:user.name, note, importId, snapshot }); } catch {}
         await Promise.all([reloadRecords(), reloadFaturamentos(), reloadHistory()]);
         setState(s=>({...s, competenciaAtual:competencia}));
-        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${movidos?` · ${movidos} com empresa corrigida`:""}${congelados?` · ${congelados} conciliado(s) divergindo (reabra p/ atualizar)`:""}, ${absentIds.length} fora do relatório`);
+        toast(`Mês atualizado — ${novos} novo(s), ${mudados} com valor alterado${movidos?` · ${movidos} com empresa corrigida`:""}${movidosPep?` · ${movidosPep} com PEP corrigido`:""}${congelados?` · ${congelados} conciliado(s) divergindo (reabra p/ atualizar)`:""}, ${absentIds.length} fora do relatório`);
         return;
       }
       if (mode==="replace") {
@@ -4924,7 +4956,7 @@ function AppInner() {
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               {page==="time"&&<MyView records={records} clients={clients} analista={user.name} isAdmin={isAdmin} isViewer={isViewer} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} onSaveClass={handleSaveClass} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
-              {page==="dash"&&<Dashboard records={records} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec}/>}
+              {page==="dash"&&<Dashboard records={recordsAtivos} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec}/>}
             </div>
           )}
           {page==="dados"&&isAdmin&&(
@@ -4954,12 +4986,12 @@ function AppInner() {
           )}
           {page==="projeto"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ProjectTimelineView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
+              <ProjectTimelineView records={recordsAtivos} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
             </div>
           )}
           {page==="represados"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <RepresadosView records={records} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass} isViewer={isViewer}/>
+              <RepresadosView records={recordsAtivos} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass} isViewer={isViewer}/>
             </div>
           )}
           {page==="clients"&&(
