@@ -3257,7 +3257,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   const [confSoDif, setConfSoDif] = useState(true);  // só lotes que não batem
   const toast = useToast();
   // filtros e ordenação — lado esquerdo (notas)
-  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDia, setNoteDia] = useState(""); const [noteCli, setNoteCli] = useState("todos");
+  const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDe, setNoteDe] = useState(""); const [noteAte, setNoteAte] = useState(""); const [noteCli, setNoteCli] = useState("todos");
   // filtros e ordenação — lado direito (receitas)
   const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
   const [recDim, setRecDim] = useState("servico");   // competência: mês de serviço × ciclo de faturamento
@@ -3301,7 +3301,10 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   let leftNotes = empNotes.slice();
   if (noteStat==="pendentes") leftNotes = leftNotes.filter(n=>!notaConc(n));
   if (noteStat==="conciliadas") leftNotes = leftNotes.filter(n=>notaConc(n));
-  if (noteDia) leftNotes = leftNotes.filter(n=>String(n.emitidaEm||"").slice(0,10)===noteDia);
+  // Intervalo de data de emissão (de/até) — emitidaEm é ISO (aaaa-mm-dd), então
+  // a comparação de string já ordena por data. Cada limite é opcional.
+  if (noteDe)  leftNotes = leftNotes.filter(n=>{ const d=String(n.emitidaEm||"").slice(0,10); return d && d>=noteDe; });
+  if (noteAte) leftNotes = leftNotes.filter(n=>{ const d=String(n.emitidaEm||"").slice(0,10); return d && d<=noteAte; });
   // Opções do seletor de cliente = tomadores das notas já filtradas por status/dia
   // (pendentes mostra só clientes com nota pendente; conciliadas idem).
   const tomadoresUsados = [...new Set(leftNotes.map(n=>n.tomadorNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -3526,8 +3529,12 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="nº, tomador, pedido" value={qNote} onChange={e=>setQNote(e.target.value)}/>
                   <SortSel value={noteCli} onChange={setNoteCli} opts={[["todos","Todos os clientes"],...(tomadoresUsados.includes(noteCli)||noteCli==="todos"?[]:[[noteCli,noteCli]]),...tomadoresUsados.map(c=>[c,c])]}/>
-                  <input type="date" title="Dia de emissão" style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={noteDia} onChange={e=>setNoteDia(e.target.value)}/>
-                  {noteDia && <Btn small onClick={()=>setNoteDia("")}>limpar dia</Btn>}
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <input type="date" title="Emissão — de" style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={noteDe} onChange={e=>setNoteDe(e.target.value)}/>
+                    <span style={{fontSize:12,color:T.muted}}>até</span>
+                    <input type="date" title="Emissão — até" style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={noteAte} onChange={e=>setNoteAte(e.target.value)}/>
+                  </div>
+                  {(noteDe||noteAte) && <Btn small onClick={()=>{setNoteDe("");setNoteAte("");}}>limpar</Btn>}
                   <SortSel value={noteStat} onChange={setNoteStat} opts={[["pendentes","Pendentes"],["conciliadas","Conciliadas"],["todas","Todas"]]}/>
                   <SortSel value={noteSort} onChange={setNoteSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["data_desc","↓ Data"],["data_asc","↑ Data"],["tomador_az","A–Z"]]}/>
                 </div>
