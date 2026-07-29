@@ -1220,14 +1220,17 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
 }
 
 // Edição de um registro importado (somente admin).
-function RecordEditModal({ record, conciliado, onSave, onClose }) {
+function RecordEditModal({ record, conciliado, novo=false, onSave, onClose }) {
   const [f, setF] = useState(record);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const num = (k,v) => setF(p=>({...p,[k]: v===""?0:parseFloat(String(v).replace(",","."))||0}));
   const lockVal = { ...inp, background:"#f1f5f9", color:T.muted, cursor:"not-allowed" };
-  function save() { onSave({ ...record, ...f, updatedAt: nowISO() }); onClose(); }
+  // No modo "novo" exige os campos de identidade antes de deixar salvar.
+  const faltando = [ !(f.cliente||"").trim()&&"Cliente", !(f.pep||"").trim()&&"PEP", !(f.competencia||"").trim()&&"Competência" ].filter(Boolean);
+  const podeSalvar = !novo || faltando.length===0;
+  function save() { if(!podeSalvar) return; onSave({ ...record, ...f, updatedAt: nowISO() }); onClose(); }
   return (
-    <Modal title="Editar registro" subtitle={`${record.cliente} · ${record.profissional}`} onClose={onClose} wide>
+    <Modal title={novo?"Incluir registro":"Editar registro"} subtitle={novo?"Lançamento que o time esqueceu — preencha os dados":`${record.cliente} · ${record.profissional}`} onClose={onClose} wide>
       {conciliado && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"9px 12px",borderRadius:T.rMd,background:"#fef2f2",border:"1px solid #fecaca",color:"#991b1b",fontWeight:600,marginBottom:14}}>
         <Icon name="lock" size={14}/> Registro <b>conciliado</b> — a NF é a verdade final. Os valores estão bloqueados. Reabra a conciliação para alterar.
       </div>}
@@ -1235,7 +1238,7 @@ function RecordEditModal({ record, conciliado, onSave, onClose }) {
         <Field label="Responsável"><input style={inp} value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)}/></Field>
         <Field label="Empresa"><select style={inp} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
         <Field label="Tipo"><select style={inp} value={f.tipo||""} onChange={e=>set("tipo",e.target.value)}>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>
-        <Field label="Competência"><input style={inp} value={f.competencia||""} onChange={e=>set("competencia",e.target.value)}/></Field>
+        <Field label="Competência"><input style={inp} placeholder="MM/AAAA" value={f.competencia||""} onChange={e=>set("competencia",e.target.value)}/></Field>
         <Field label="Cód. Cliente"><input style={inp} value={f.codCliente||""} onChange={e=>set("codCliente",e.target.value)}/></Field>
         <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
         <Field label="PEP"><input style={inp} value={f.pep||""} onChange={e=>set("pep",e.target.value)}/></Field>
@@ -1248,9 +1251,10 @@ function RecordEditModal({ record, conciliado, onSave, onClose }) {
         <Field label="Valor líquido"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorLiquido} onChange={e=>num("valorLiquido",e.target.value)}/></Field>
       </div>
       <div style={{marginBottom:16}}><Field label="Observações"><textarea style={{...inp,minHeight:54,resize:"vertical"}} value={f.obs||""} onChange={e=>set("obs",e.target.value)}/></Field></div>
+      {novo && faltando.length>0 && <div style={{fontSize:12,color:T.warn,marginBottom:10}}>Preencha para incluir: <b>{faltando.join(", ")}</b>.</div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary onClick={save}>Salvar registro</Btn>
+        <Btn primary disabled={!podeSalvar} onClick={save}>{novo?"Incluir registro":"Salvar registro"}</Btn>
       </div>
     </Modal>
   );
@@ -4396,7 +4400,7 @@ function MergeModal({ source, records, fatByRec={}, onConfirm, onClose }) {
   );
 }
 
-function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, lastCorr, onUndo }) {
+function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onInsert, lastCorr, onUndo }) {
   const [q,setQ]=useState("");
   const [comp,setComp]=useState("todas");
   const [emp,setEmp]=useState("todas");
@@ -4405,11 +4409,16 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, last
   const [editT,setEditT]=useState(null);
   const [delT,setDelT]=useState(null);
   const [mergeT,setMergeT]=useState(null);
+  const [incT,setIncT]=useState(null);
 
   const nrm = s => (s||"").toString().toLowerCase();
   const isConc = r => (fatByRec[r.id]||0)>0.001;
   const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))]
     .sort((a,b)=>{ const [ma,ya]=String(a).split("/"), [mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
+  // Registro em branco para "Incluir" — prefila competência/empresa pelos filtros ativos.
+  const blankRec = () => ({ responsavel:"", empresa: emp!=="todas"?emp:"BR02", tipo: tipo!=="todos"?tipo:"Time & Expenses",
+    competencia: comp!=="todas"?comp:(comps[0]||""), codCliente:"", cliente:"", pep:"", profissional:"",
+    inicio:"", fim:"", valorVenda:0, hrsAprovadas:0, valorTotal:0, valorLiquido:0, obs:"", progress:{}, ausenteRelatorio:false });
 
   let list = records;
   if (comp!=="todas") list=list.filter(r=>r.competencia===comp);
@@ -4439,10 +4448,12 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, last
   return (
     <div>
       {editT && <RecordEditModal record={editT} conciliado={isConc(editT)} onClose={()=>setEditT(null)} onSave={r=>{onEdit(r);setEditT(null);}}/>}
+      {incT && <RecordEditModal record={incT} novo conciliado={false} onClose={()=>setIncT(null)} onSave={r=>{onInsert(r);setIncT(null);}}/>}
       {mergeT && <MergeModal source={mergeT} records={records} fatByRec={fatByRec} onClose={()=>setMergeT(null)} onConfirm={id=>{onMerge(id);setMergeT(null);}}/>}
       {delT && <ConfirmDialog title="Apagar registro" danger confirmLabel="Apagar" message={delMsg(delT)} onConfirm={()=>onDelete(delT.id)} onClose={()=>setDelT(null)}/>}
 
-      <PageHead icon="pencil" title="Correções" sub="Ajuste a base direto no app — mover PEP, corrigir empresa, apagar e mesclar. Com prévia e desfazer."/>
+      <PageHead icon="pencil" title="Correções" sub="Ajuste a base direto no app — incluir, mover PEP, corrigir empresa, apagar e mesclar. Com prévia e desfazer."
+        right={<Btn primary icon="plus" onClick={()=>setIncT(blankRec())}>Incluir registro</Btn>}/>
 
       {lastCorr && <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 13px",borderRadius:T.rMd,background:C.green.bg,border:`1px solid ${C.green.border}`,marginBottom:14}}>
         <Icon name="check" size={15}/>
@@ -4828,7 +4839,7 @@ function AppInner() {
     try {
       await db.upsertRecords([{ ...updated, updatedAt: nowISO() }]);
       await reloadRecords();
-      if (before) setLastCorr({ before, label: `edição de ${before.cliente}` });
+      if (before) setLastCorr({ kind:"edit", before, label: `edição de ${before.cliente}` });
       toast("Registro corrigido");
     } catch(e) { toast("Erro ao corrigir: "+e.message, "error"); }
   }
@@ -4840,15 +4851,27 @@ function AppInner() {
       // então não há lote/nota a reabrir — o desfazer via restoreRecords é fiel.
       await db.deleteRecord(id);
       await Promise.all([reloadRecords(), reloadFaturamentos()]);
-      if (before) setLastCorr({ before, label: `exclusão de ${before.profissional||before.pep} (${before.cliente})` });
+      if (before) setLastCorr({ kind:"delete", before, label: `exclusão de ${before.profissional||before.pep} (${before.cliente})` });
       toast("Registro apagado", "info");
     } catch(e) { toast("Erro ao apagar: "+e.message, "error"); }
+  }
+  async function handleCorrInsert(rec) {
+    if (blockIfViewer()) return;
+    // id gerado no cliente → upsert insere (id inédito). Guarda o id p/ desfazer.
+    const novo = { ...rec, id: uuid(), progress: rec.progress || {}, updatedAt: nowISO() };
+    try {
+      await db.upsertRecords([novo]);
+      await reloadRecords();
+      setLastCorr({ kind:"insert", id: novo.id, label: `inclusão de ${rec.profissional||rec.pep} (${rec.cliente})` });
+      toast("Registro incluído");
+    } catch(e) { toast("Erro ao incluir: "+e.message, "error"); }
   }
   async function handleCorrUndo() {
     if (blockIfViewer() || !lastCorr) return;
     try {
-      await db.restoreRecords([lastCorr.before]);
-      await reloadRecords();
+      if (lastCorr.kind==="insert") await db.deleteRecord(lastCorr.id);   // desfazer inclusão = apagar o que foi criado
+      else await db.restoreRecords([lastCorr.before]);                     // edição/exclusão = restaura o estado anterior
+      await Promise.all([reloadRecords(), reloadFaturamentos()]);
       setLastCorr(null);
       toast("Correção desfeita");
     } catch(e) { toast("Erro ao desfazer: "+e.message, "error"); }
@@ -5212,7 +5235,7 @@ function AppInner() {
           {page==="correcoes"&&isAdmin&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <CorrectionsView records={records} fatByRec={fatByRec}
-                onEdit={handleCorrEdit} onDelete={handleCorrDelete} onMerge={handleCorrDelete}
+                onEdit={handleCorrEdit} onDelete={handleCorrDelete} onMerge={handleCorrDelete} onInsert={handleCorrInsert}
                 lastCorr={lastCorr} onUndo={handleCorrUndo}/>
             </div>
           )}
