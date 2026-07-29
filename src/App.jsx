@@ -1837,7 +1837,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -4342,6 +4342,173 @@ function Login() {
   );
 }
 
+// ─── CORREÇÕES (admin) ───────────────────────────────────────────────────────
+// Painel único para ajustar a base sem SQL/Excel: busca qualquer registro (todos
+// os meses), move PEP / corrige empresa (edição in loco — muda o próprio registro,
+// sem gerar órfão), apaga lixo/fantasma e mescla duplicatas. Toda ação destrutiva
+// mostra a prévia antes→depois do total do recorte e permite desfazer.
+
+// Mesclar duplicata: escolhe qual linha MANTER; a outra (a de origem) é removida.
+function MergeModal({ source, records, fatByRec={}, onConfirm, onClose }) {
+  const [q, setQ] = useState("");
+  const [targetId, setTargetId] = useState(null);
+  const nrm = s => (s||"").toString().toLowerCase();
+  // Candidatos naturais: mesmo mês+empresa+tipo+cliente, id diferente.
+  const cands = records.filter(r => r.id!==source.id
+    && r.competencia===source.competencia && r.empresa===source.empresa
+    && r.tipo===source.tipo && nrm(r.cliente)===nrm(source.cliente));
+  const base = q.trim()
+    ? records.filter(r => r.id!==source.id && [r.cliente,r.pep,r.profissional,r.responsavel].some(x=>nrm(x).includes(nrm(q.trim()))))
+    : cands;
+  const lista = base.slice(0,40);
+  const target = records.find(r=>r.id===targetId);
+  const diff = target ? Math.abs((source.valorTotal||0)-(target.valorTotal||0)) : 0;
+  const linha = r => `${r.pep||"—"} · ${r.profissional||"(sem profissional)"} · ${brl(r.valorTotal)}`;
+  return (
+    <Modal title="Mesclar duplicata" subtitle="Escolha a linha que fica; a de origem é removida." onClose={onClose} wide>
+      <div style={{fontSize:12.5,color:T.inkSoft,background:C.orange.bg,border:`1px solid ${C.orange.border}`,borderRadius:T.rMd,padding:"9px 12px",marginBottom:14}}>
+        <b>Vai remover</b> (origem): {linha(source)} · {source.competencia} · {source.empresa}
+      </div>
+      <Field label="Buscar a linha que MANTÉM (cliente, PEP, profissional)">
+        <input style={inp} autoFocus placeholder={cands.length?`${cands.length} duplicata(s) provável(is) — ou busque`:"Digite para buscar"} value={q} onChange={e=>setQ(e.target.value)}/>
+      </Field>
+      <div style={{maxHeight:230,overflowY:"auto",border:`1px solid ${T.line}`,borderRadius:T.rMd,marginTop:10}}>
+        {lista.length===0 && <div style={{padding:"14px",fontSize:12.5,color:T.muted,textAlign:"center"}}>Nenhum candidato. Ajuste a busca.</div>}
+        {lista.map(r=>(
+          <label key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.line}`,cursor:"pointer",background:targetId===r.id?T.brandBg:"#fff"}}>
+            <input type="radio" name="mergeTarget" checked={targetId===r.id} onChange={()=>setTargetId(r.id)}/>
+            <span style={{flex:1,fontSize:12.5}}><b>{r.pep||"—"}</b> · {r.profissional||"(sem profissional)"} · {r.tipo} · {r.competencia}</span>
+            <span style={{fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>{brl(r.valorTotal)}</span>
+          </label>
+        ))}
+      </div>
+      {target && diff>0.01 && <div style={{marginTop:12,fontSize:12,color:C.red.text,background:C.red.bg,border:`1px solid ${C.red.border}`,borderRadius:T.rMd,padding:"9px 12px"}}>
+        ⚠️ Os valores diferem ({brl(source.valorTotal)} × {brl(target.valorTotal)}). Ao mesclar, o total do recorte cai <b>{brl(source.valorTotal)}</b> (o valor da origem removida). Confirme que é mesmo duplicata.
+      </div>}
+      {target && diff<=0.01 && <div style={{marginTop:12,fontSize:12,color:C.green.text,background:C.green.bg,border:`1px solid ${C.green.border}`,borderRadius:T.rMd,padding:"9px 12px"}}>
+        ✓ Duplicata exata — mantém {linha(target)} e remove a origem. Total do recorte cai {brl(source.valorTotal)}.
+      </div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn danger disabled={!target} onClick={()=>{ onConfirm(source.id); onClose(); }}>Mesclar (remover origem)</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, lastCorr, onUndo }) {
+  const [q,setQ]=useState("");
+  const [comp,setComp]=useState("todas");
+  const [emp,setEmp]=useState("todas");
+  const [tipo,setTipo]=useState("todos");
+  const [status,setStatus]=useState("todos");
+  const [editT,setEditT]=useState(null);
+  const [delT,setDelT]=useState(null);
+  const [mergeT,setMergeT]=useState(null);
+
+  const nrm = s => (s||"").toString().toLowerCase();
+  const isConc = r => (fatByRec[r.id]||0)>0.001;
+  const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))]
+    .sort((a,b)=>{ const [ma,ya]=String(a).split("/"), [mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
+
+  let list = records;
+  if (comp!=="todas") list=list.filter(r=>r.competencia===comp);
+  if (emp!=="todas")  list=list.filter(r=>r.empresa===emp);
+  if (tipo!=="todos") list=list.filter(r=>r.tipo===tipo);
+  if (status==="conciliado") list=list.filter(isConc);
+  else if (status==="ausente") list=list.filter(r=>r.ausenteRelatorio);
+  else if (status==="normal")  list=list.filter(r=>!isConc(r)&&!r.ausenteRelatorio);
+  const term = q.trim();
+  if (term) list=list.filter(r=>[r.cliente,r.pep,r.profissional,r.responsavel,r.codCliente].some(x=>nrm(x).includes(nrm(term))));
+  const total = list.length;
+  const shown = list.slice(0,200);
+  const somaShown = shown.reduce((s,r)=>s+(r.valorTotal||0),0);
+
+  // Total do recorte competência+empresa (espelha o soma_total do fingerprint).
+  const compTotal = (c,e) => records.filter(r=>r.competencia===c&&r.empresa===e).reduce((s,r)=>s+(r.valorTotal||0),0);
+  const delMsg = (r) => {
+    const antes = compTotal(r.competencia,r.empresa), depois = antes-(r.valorTotal||0);
+    return `Apagar "${r.profissional||r.pep||"registro"}" (${r.cliente}) — ${brl(r.valorTotal)}.\n\n`
+      + `Total de ${r.competencia} · ${r.empresa}: ${brl(antes)} → ${brl(depois)}.`
+      + (r.ausenteRelatorio ? "\n\n(Está marcado como 'fora do relatório'.)" : "");
+  };
+
+  const th = { padding:"7px 10px", textAlign:"left", fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:".3px", whiteSpace:"nowrap", borderBottom:`1px solid ${T.line}` };
+  const td = { padding:"7px 10px", fontSize:12.5, borderBottom:`1px solid ${T.line}`, verticalAlign:"middle" };
+
+  return (
+    <div>
+      {editT && <RecordEditModal record={editT} conciliado={isConc(editT)} onClose={()=>setEditT(null)} onSave={r=>{onEdit(r);setEditT(null);}}/>}
+      {mergeT && <MergeModal source={mergeT} records={records} fatByRec={fatByRec} onClose={()=>setMergeT(null)} onConfirm={id=>{onMerge(id);setMergeT(null);}}/>}
+      {delT && <ConfirmDialog title="Apagar registro" danger confirmLabel="Apagar" message={delMsg(delT)} onConfirm={()=>onDelete(delT.id)} onClose={()=>setDelT(null)}/>}
+
+      <PageHead icon="pencil" title="Correções" sub="Ajuste a base direto no app — mover PEP, corrigir empresa, apagar e mesclar. Com prévia e desfazer."/>
+
+      {lastCorr && <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 13px",borderRadius:T.rMd,background:C.green.bg,border:`1px solid ${C.green.border}`,marginBottom:14}}>
+        <Icon name="check" size={15}/>
+        <span style={{flex:1,fontSize:12.5,color:C.green.text}}>Correção aplicada — <b>{lastCorr.label}</b>.</span>
+        <Btn small onClick={onUndo}>↶ Desfazer</Btn>
+      </div>}
+
+      <Card style={{padding:14,marginBottom:14}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <Field label="Buscar (cliente, PEP, profissional, responsável, cód.)">
+            <input style={{...inp,minWidth:280}} placeholder="Ex.: RUMO, BR02CLP00128, valor fixo…" value={q} onChange={e=>setQ(e.target.value)}/>
+          </Field>
+          <Field label="Competência"><select style={{...inp,width:"auto"}} value={comp} onChange={e=>setComp(e.target.value)}><option value="todas">Todas</option>{comps.map(c=><option key={c}>{c}</option>)}</select></Field>
+          <Field label="Empresa"><select style={{...inp,width:"auto"}} value={emp} onChange={e=>setEmp(e.target.value)}><option value="todas">Todas</option>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod}</option>)}</select></Field>
+          <Field label="Tipo"><select style={{...inp,width:"auto"}} value={tipo} onChange={e=>setTipo(e.target.value)}><option value="todos">Todos</option>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>
+          <Field label="Status"><select style={{...inp,width:"auto"}} value={status} onChange={e=>setStatus(e.target.value)}><option value="todos">Todos</option><option value="normal">Normal</option><option value="conciliado">Conciliado</option><option value="ausente">Fora do relatório</option></select></Field>
+        </div>
+      </Card>
+
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"9px 12px",fontSize:12,color:T.muted,borderBottom:`1px solid ${T.line}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <span><b style={{color:T.ink}}>{total}</b> registro(s){total>200?" · mostrando os 200 primeiros":""}</span>
+          <span>Soma exibida: <b style={{color:T.ink}}>{brl(somaShown)}</b></span>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr>{["Comp.","Empr.","Cliente","Tipo","PEP","Profissional","Valor","Status","Ações"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><td colSpan={9} style={{padding:"22px 12px",textAlign:"center",color:T.muted,fontSize:13}}>Nenhum registro. Ajuste a busca ou os filtros.</td></tr>}
+              {shown.map(r=>{
+                const conc = isConc(r);
+                return (
+                  <tr key={r.id}>
+                    <td style={td}>{r.competencia}</td>
+                    <td style={td}>{r.empresa}</td>
+                    <td style={{...td,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.cliente}>{r.cliente}</td>
+                    <td style={td}>{r.tipo}</td>
+                    <td style={{...td,whiteSpace:"nowrap",fontWeight:600}}>{r.pep||"—"}</td>
+                    <td style={{...td,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.profissional}>{r.profissional||"—"}</td>
+                    <td style={{...td,whiteSpace:"nowrap",fontWeight:600}}>{brl(r.valorTotal)}</td>
+                    <td style={td}>
+                      {conc ? <Badge label="Conciliado" color="blue" small/>
+                        : r.ausenteRelatorio ? <Badge label="Fora do relat." color="orange" small/>
+                        : <Badge label="Normal" color="gray" small/>}
+                    </td>
+                    <td style={{...td,whiteSpace:"nowrap"}}>
+                      <div style={{display:"flex",gap:5}}>
+                        <Btn small icon="pencil" onClick={()=>setEditT(r)}>Editar</Btn>
+                        <Btn small icon="link" disabled={conc} title={conc?"Reabra a conciliação primeiro":"Mesclar com outra linha"} onClick={()=>!conc&&setMergeT(r)}>Mesclar</Btn>
+                        <Btn small danger icon="trash" disabled={conc} title={conc?"Reabra a conciliação primeiro":"Apagar"} onClick={()=>!conc&&setDelT(r)}>Apagar</Btn>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <div style={{fontSize:11.5,color:T.faint,marginTop:10,lineHeight:1.5}}>
+        <b>Editar</b> muda o próprio registro (mover PEP, corrigir empresa) sem criar fantasma. <b>Mesclar</b> remove uma duplicata mantendo a outra. Registros <b>conciliados</b> ficam travados para apagar/mesclar — reabra a conciliação antes. Toda ação pode ser desfeita pelo botão acima.
+      </div>
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 function AppInner() {
@@ -4650,6 +4817,41 @@ function AppInner() {
     if (blockIfViewer()) return;
     try { await db.clearRecordAlert(id); await reloadRecords(); toast("Alerta baixado", "info"); }
     catch(e) { toast("Erro ao baixar alerta: "+e.message, "error"); }
+  }
+
+  // ── Correções (admin): edita/apaga/mescla um registro com desfazer (in-memory).
+  // O "before" guardado permite reverter via db.restoreRecords (upsert com id).
+  const [lastCorr, setLastCorr] = useState(null);
+  async function handleCorrEdit(updated) {
+    if (blockIfViewer()) return;
+    const before = records.find(r => r.id === updated.id);
+    try {
+      await db.upsertRecords([{ ...updated, updatedAt: nowISO() }]);
+      await reloadRecords();
+      if (before) setLastCorr({ before, label: `edição de ${before.cliente}` });
+      toast("Registro corrigido");
+    } catch(e) { toast("Erro ao corrigir: "+e.message, "error"); }
+  }
+  async function handleCorrDelete(id) {
+    if (blockIfViewer()) return;
+    const before = records.find(r => r.id === id);
+    try {
+      // Só chega aqui para registros NÃO conciliados (o painel trava conciliados),
+      // então não há lote/nota a reabrir — o desfazer via restoreRecords é fiel.
+      await db.deleteRecord(id);
+      await Promise.all([reloadRecords(), reloadFaturamentos()]);
+      if (before) setLastCorr({ before, label: `exclusão de ${before.profissional||before.pep} (${before.cliente})` });
+      toast("Registro apagado", "info");
+    } catch(e) { toast("Erro ao apagar: "+e.message, "error"); }
+  }
+  async function handleCorrUndo() {
+    if (blockIfViewer() || !lastCorr) return;
+    try {
+      await db.restoreRecords([lastCorr.before]);
+      await reloadRecords();
+      setLastCorr(null);
+      toast("Correção desfeita");
+    } catch(e) { toast("Erro ao desfazer: "+e.message, "error"); }
   }
 
   async function handleTaskAdd(t)    { if(blockIfViewer())return; try { await db.insertTask(t); await reloadTasks(); toast("Tarefa criada"); } catch(e){ toast("Erro ao criar tarefa: "+e.message,"error"); } }
@@ -5005,6 +5207,13 @@ function AppInner() {
                 templates={templates} deliveries={deliveries}
                 onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}
                 onTemplateSave={handleTemplateSave} onTemplateDelete={handleTemplateDelete} onGenerate={handleGenerateDelivery}/>
+            </div>
+          )}
+          {page==="correcoes"&&isAdmin&&(
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <CorrectionsView records={records} fatByRec={fatByRec}
+                onEdit={handleCorrEdit} onDelete={handleCorrDelete} onMerge={handleCorrDelete}
+                lastCorr={lastCorr} onUndo={handleCorrUndo}/>
             </div>
           )}
           {page==="access"&&isAdmin&&(
