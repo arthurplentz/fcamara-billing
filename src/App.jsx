@@ -3539,7 +3539,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                   <SortSel value={noteSort} onChange={setNoteSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["data_desc","↓ Data"],["data_asc","↑ Data"],["tomador_az","A–Z"]]}/>
                 </div>
               </div>
-              <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
+              <div className="fc-scroll" key={`ln-${noteStat}-${noteCli}-${noteDe}-${noteAte}-${noteSort}-${qNote}`} style={{maxHeight:480,overflowY:"auto"}}>
                 {leftShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma nota.</div>
                   : leftShown.map(n=>{
                       const conc=notaConc(n), on=selNotes.has(n.id), exp=expNote===n.id;
@@ -3593,7 +3593,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                   Incluir receitas ainda não liberadas no passo a passo <span style={{color:T.muted,fontSize:11}}>(conciliar já libera o funil)</span>
                 </label>
               </div>
-              <div className="fc-scroll" style={{maxHeight:480,overflowY:"auto"}}>
+              <div className="fc-scroll" key={`rr-${recDim}-${recComp}-${recStat}-${recSort}-${qRec}`} style={{maxHeight:480,overflowY:"auto"}}>
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
                       const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r), dc=diaCorteDe(r);
@@ -3605,7 +3605,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>} {dc>0&&<Badge label={`ciclo ${compFat(r)}`} color="teal" small/>} {temCls&&<Badge label={(clsRepres?"⚠ ":"")+(r.classMotivo||"obs")} color={clsRepres?"red":"gray"} small/>}</div>
-                            <div style={{fontSize:11,color:T.muted}}><span style={{color:"#d00",fontWeight:700}}>[dim:{recDim}·cv:{compValue(r)}·comp:{r.competencia}·rc:{recComp}]</span> {r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{dc>0?` · fatura ${compFat(r)} · ${r.inicio}–${r.fim}`:""}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
+                            <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{dc>0?` · fatura ${compFat(r)} · ${r.inicio}–${r.fim}`:""}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
                             {temCls&&r.classObs&&<div style={{fontSize:11,color:clsRepres?C.red.solid:T.inkSoft,marginTop:2,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {r.classObs}</div>}
                           </div>
                           {on && hasSaldo(r)
