@@ -3375,7 +3375,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   }
 
   const importBatches = [...new Set(notes.map(n=>n.importId).filter(Boolean))];
-  const SortSel = ({value,onChange,opts}) => <select style={{...inp,width:"auto",fontSize:12,padding:"5px 8px"}} value={value} onChange={e=>onChange(e.target.value)}>{opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>;
+  const SortSel = ({value,onChange,opts,active}) => <select style={{...inp,width:"auto",fontSize:12,padding:"5px 8px",...(active?{borderColor:T.brand,background:T.brandBg,color:T.brand,fontWeight:700}:{})}} value={value} onChange={e=>onChange(e.target.value)}>{opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>;
 
   // ── Conferência: lotes de conciliação (nota × receita) da empresa selecionada.
   // Agrupa por conciliacao_id e compara Σnotas vs Σreceitas alocadas → acha o
@@ -3583,8 +3583,8 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <input style={{...inp,flex:1,minWidth:120,fontSize:12,padding:"6px 9px"}} placeholder="cliente, profissional, PEP" value={qRec} onChange={e=>setQRec(e.target.value)}/>
-                  <SortSel value={recDim} onChange={v=>{setRecDim(v);setRecComp("todas");}} opts={[["servico","Mês de serviço"],["ciclo","Ciclo de fatur."]]}/>
-                  <SortSel value={recComp} onChange={setRecComp} opts={[["todas",recDim==="ciclo"?"Todos ciclos":"Todas comp."],...compsUsadas.map(c=>[c,c])]}/>
+                  <SortSel value={recDim} onChange={v=>{setRecDim(v);setRecComp("todas");}} opts={[["servico","Ver por: Serviço"],["ciclo","Ver por: Ciclo"]]}/>
+                  <SortSel value={recComp} onChange={setRecComp} active={recComp!=="todas"} opts={[["todas",recDim==="ciclo"?"Todos ciclos":"Todos os meses"],...compsUsadas.map(c=>[c,c])]}/>
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
                 </div>
