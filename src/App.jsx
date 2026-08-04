@@ -17,6 +17,8 @@ const EMPRESAS = [
 ];
 
 const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
+// BUs (unidades de negócio) — classificação comercial. Normalmente 1 por cliente.
+const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -710,6 +712,8 @@ function parseSheetRows(rows, empresa, tipo, competencia) {
   const headers = rows[hi].map(h=>(h||"").toString());
   const colIdx={};
   for (const [key,cands] of Object.entries(TE_COL_MAP)) { const i=findCol(headers,cands); if(i!==-1) colIdx[key]=i; }
+  // "Vertical" = BU (opcional; não conta na validação de cabeçalho).
+  const buIdx = findCol(headers, ["VERTICAL","Vertical","BU","VERTICAL/BU"]);
   const missing = Object.keys(TE_COL_MAP).filter(k=>colIdx[k]==null);
   if (missing.length>4) return { records:[], errors:[`Cabeçalhos não encontrados: ${missing.join(", ")}. Use a aba "Time & Expenses".`] };
   const records=[]; const skipped=[];
@@ -721,7 +725,7 @@ function parseSheetRows(rows, empresa, tipo, competencia) {
     const getStr=k=>String(get(k)).trim();
     const cliente=getStr("cliente"), pep=getStr("pep"), responsavel=getStr("responsavel");
     if(!cliente||!pep||!responsavel){skipped.push(i+1);continue;}
-    records.push({ id:genId(), responsavel, empresa, tipo, codCliente:getStr("codCliente"), cliente, pep, inicio:excelDateToStr(get("inicio")), fim:excelDateToStr(get("fim")), profissional:getStr("profissional"), valorVenda:getNum("valorVenda"), hrsAprovadas:getNum("hrsAprovadas"), valorTotal:getNum("valorTotal"), valorLiquido:getNum("valorLiquido"), competencia, progress:makeProgress(), nfNumero:"", obs:"", updatedAt:nowISO() });
+    records.push({ id:genId(), responsavel, empresa, tipo, codCliente:getStr("codCliente"), cliente, pep, inicio:excelDateToStr(get("inicio")), fim:excelDateToStr(get("fim")), profissional:getStr("profissional"), valorVenda:getNum("valorVenda"), hrsAprovadas:getNum("hrsAprovadas"), valorTotal:getNum("valorTotal"), valorLiquido:getNum("valorLiquido"), bu: buIdx!==-1 ? String(row[buIdx]??"").trim() : "", competencia, progress:makeProgress(), nfNumero:"", obs:"", updatedAt:nowISO() });
   }
   const errors=[];
   if(skipped.length) errors.push(`${skipped.length} linhas ignoradas por falta de dados (linhas: ${skipped.slice(0,5).join(", ")}${skipped.length>5?"...":""}).`);
@@ -1271,6 +1275,7 @@ function RecordEditModal({ record, conciliado, novo=false, onSave, onClose }) {
         <Field label="Responsável"><input style={inp} value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)}/></Field>
         <Field label="Empresa"><select style={inp} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}>{EMPRESAS.map(e=><option key={e.cod} value={e.cod}>{e.cod} — {e.nome}</option>)}</select></Field>
         <Field label="Tipo"><select style={inp} value={f.tipo||""} onChange={e=>set("tipo",e.target.value)}>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>
+        <Field label="BU (comercial)"><select style={inp} value={f.bu||""} onChange={e=>set("bu",e.target.value)}><option value="">— sem BU —</option>{BUS.map(b=><option key={b}>{b}</option>)}</select></Field>
         <Field label="Competência"><input style={inp} placeholder="MM/AAAA" value={f.competencia||""} onChange={e=>set("competencia",e.target.value)}/></Field>
         <Field label="Cód. Cliente"><input style={inp} value={f.codCliente||""} onChange={e=>set("codCliente",e.target.value)}/></Field>
         <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
@@ -1874,7 +1879,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -4562,6 +4567,78 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
   );
 }
 
+// ─── CLASSIFICAR BU (admin) ──────────────────────────────────────────────────
+// Etiqueta cada cliente com sua unidade de negócio. Aplica em massa em todas as
+// receitas do cliente (seguro para conciliados — só grava o campo bu). Casos
+// raros de cliente com >1 BU: ajuste fino por registro em Correções.
+function BuClassifierView({ records, onSetBu }) {
+  const [q, setQ] = useState("");
+  const [soSem, setSoSem] = useState(false);
+  const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const grupos = {};
+  records.forEach(r => {
+    const k = key(r.cliente); if(!k) return;
+    (grupos[k] = grupos[k] || { nome:r.cliente, ids:[], total:0, bus:new Set() });
+    grupos[k].ids.push(r.id); grupos[k].total += (r.valorTotal||0); grupos[k].bus.add(r.bu||"");
+  });
+  const all = Object.values(grupos).map(g => {
+    const arr=[...g.bus];
+    const buAtual = arr.filter(Boolean).length===0 ? "" : (arr.length===1 ? arr[0] : "__MISTO__");
+    return { ...g, buAtual };
+  }).sort((a,b)=>b.total-a.total);
+  const totalCli = all.length;
+  const feitos = all.filter(g=>g.buAtual && g.buAtual!=="__MISTO__").length;
+  let lista = all;
+  if (q.trim()) { const s=key(q); lista=lista.filter(g=>key(g.nome).includes(s)); }
+  if (soSem) lista=lista.filter(g=>!g.buAtual || g.buAtual==="__MISTO__");
+  const shown = lista.slice(0,400);
+  const pct = totalCli ? Math.round(feitos/totalCli*100) : 0;
+  const th={padding:"7px 10px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`};
+  const td={padding:"7px 10px",fontSize:12.5,borderBottom:`1px solid ${T.line}`};
+  return (
+    <div>
+      <PageHead icon="building" title="Classificar BU" sub="Etiquete cada cliente com sua unidade de negócio — aplica em todas as receitas do cliente de uma vez. Seguro para conciliados."/>
+      <Card style={{padding:14,marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:12}}>
+          <span style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap"}}>{feitos} de {totalCli} clientes classificados</span>
+          <div style={{flex:1,minWidth:120,height:8,background:T.lineSoft,borderRadius:999,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:T.brand,transition:"width .2s"}}/></div>
+          <span style={{fontSize:12,color:T.muted}}>{pct}%</span>
+        </div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <input style={{...inp,flex:1,minWidth:220}} placeholder="Buscar cliente…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12.5,color:T.inkSoft,cursor:"pointer",whiteSpace:"nowrap"}}><input type="checkbox" checked={soSem} onChange={e=>setSoSem(e.target.checked)}/> Só não classificados</label>
+        </div>
+      </Card>
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr>{["Cliente","Receitas","Valor total","BU"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><td colSpan={4} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Nenhum cliente.</td></tr>}
+              {shown.map(g=>(
+                <tr key={g.nome+"|"+g.ids.length}>
+                  <td style={{...td,maxWidth:340,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={g.nome}>{g.nome}</td>
+                  <td style={td}>{g.ids.length}</td>
+                  <td style={{...td,whiteSpace:"nowrap",fontWeight:600}}>{brl(g.total)}</td>
+                  <td style={{...td,whiteSpace:"nowrap"}}>
+                    <select value={g.buAtual==="__MISTO__"?"":g.buAtual} onChange={e=>onSetBu(g.ids, e.target.value)}
+                      style={{...inp,width:"auto",fontSize:12,padding:"5px 8px",...(g.buAtual&&g.buAtual!=="__MISTO__"?{borderColor:T.brand,color:T.brand,fontWeight:700}:{})}}>
+                      <option value="">{g.buAtual==="__MISTO__"?"— misto (redefinir) —":"— sem BU —"}</option>
+                      {BUS.map(b=><option key={b}>{b}</option>)}
+                    </select>
+                    {g.buAtual==="__MISTO__" && <span style={{marginLeft:8,fontSize:11,color:T.warn}}>múltiplas BUs · ajuste fino em Correções</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      {lista.length>400 && <div style={{fontSize:11.5,color:T.faint,marginTop:8}}>Mostrando 400 de {lista.length} — use a busca.</div>}
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 function AppInner() {
@@ -4893,6 +4970,16 @@ function AppInner() {
       if (before) setLastCorr({ kind:"edit", before, label: `edição de ${before.cliente}` });
       toast("Registro corrigido");
     } catch(e) { toast("Erro ao corrigir: "+e.message, "error"); }
+  }
+  // Classificar BU de todas as receitas de um cliente (bulk). Atualização otimista.
+  async function handleSetBu(ids, bu) {
+    if (blockIfViewer() || !ids || !ids.length) return;
+    try {
+      await db.setRecordsBu(ids, bu);
+      const idSet = new Set(ids);
+      setRecords(rs => rs.map(r => idSet.has(r.id) ? { ...r, bu } : r));
+      toast(`BU aplicada a ${ids.length} receita(s)`);
+    } catch(e) { toast("Erro ao classificar BU: "+e.message, "error"); }
   }
   async function handleCorrDelete(id) {
     if (blockIfViewer()) return;
@@ -5281,6 +5368,11 @@ function AppInner() {
                 templates={templates} deliveries={deliveries}
                 onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}
                 onTemplateSave={handleTemplateSave} onTemplateDelete={handleTemplateDelete} onGenerate={handleGenerateDelivery}/>
+            </div>
+          )}
+          {page==="bu"&&isAdmin&&(
+            <div style={{maxWidth:1100,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <BuClassifierView records={records} onSetBu={handleSetBu}/>
             </div>
           )}
           {page==="correcoes"&&isAdmin&&(
