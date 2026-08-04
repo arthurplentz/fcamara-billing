@@ -272,32 +272,35 @@ function saveState(s) { try { localStorage.setItem(LS_KEY, JSON.stringify({ comp
 const FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const FONT_DISPLAY = "'Poppins', 'Inter', system-ui, sans-serif";
 // Paleta Fcamara: laranja #SangueLaranja sobre muito branco + charcoal (minimalista).
+// Cores via CSS variables (definidas em GLOBAL_CSS p/ claro e escuro). Como os
+// estilos inline usam var(--x), tudo troca de tema na hora que o data-theme muda,
+// sem re-render — inclusive constantes derivadas (inp, Ty) que espelham estes valores.
 const T = {
   font: FONT, fontDisplay: FONT_DISPLAY,
-  brand:      "#f1572c", // laranja Fcamara
-  brandDark:  "#d8431b",
-  brandBg:    "#fef1ec", // tint clara
-  brandSoft:  "#f9d3c6",
-  accent:     "#f1572c",
-  accentDark: "#d8431b",
-  accentBg:   "#fef1ec",
-  dark:       "#26221f", // charcoal (rodapé/realces escuros da marca)
-  ink:     "#1c1917", // texto principal (quase preto quente)
-  inkSoft: "#44403c",
-  muted:   "#78716c",
-  faint:   "#a8a29e",
-  surface: "#ffffff",
-  canvas:  "#fafaf9", // branco quente
-  line:    "#e7e5e4",
-  lineSoft:"#f5f5f4",
-  ok:      "#15803d", okBg:"#f0fdf4", okLine:"#86efac",
-  warn:    "#b45309", warnBg:"#fffbeb", warnLine:"#fcd34d",
-  danger:  "#dc2626", dangerBg:"#fef2f2", dangerLine:"#fca5a5",
+  brand:      "var(--brand)",
+  brandDark:  "var(--brand-dark)",
+  brandBg:    "var(--brand-bg)",
+  brandSoft:  "var(--brand-soft)",
+  accent:     "var(--brand)",
+  accentDark: "var(--brand-dark)",
+  accentBg:   "var(--brand-bg)",
+  dark:       "var(--dark)",
+  ink:     "var(--ink)",
+  inkSoft: "var(--ink-soft)",
+  muted:   "var(--muted)",
+  faint:   "var(--faint)",
+  surface: "var(--surface)",
+  canvas:  "var(--canvas)",
+  line:    "var(--line)",
+  lineSoft:"var(--line-soft)",
+  ok:      "var(--ok)", okBg:"var(--ok-bg)", okLine:"var(--ok-line)",
+  warn:    "var(--warn)", warnBg:"var(--warn-bg)", warnLine:"var(--warn-line)",
+  danger:  "var(--danger)", dangerBg:"var(--danger-bg)", dangerLine:"var(--danger-line)",
   rSm:8, rMd:10, rLg:14, rXl:18, rPill:999,
-  shSm:"0 1px 2px rgba(28,25,23,.05)",
-  shCard:"0 1px 2px rgba(28,25,23,.04), 0 8px 22px rgba(28,25,23,.05)",
-  shMd:"0 6px 20px rgba(28,25,23,.07)",
-  shLg:"0 20px 50px rgba(28,25,23,.16)",
+  shSm:"var(--sh-sm)",
+  shCard:"var(--sh-card)",
+  shMd:"var(--sh-md)",
+  shLg:"var(--sh-lg)",
 };
 
 // Escala tipográfica
@@ -320,7 +323,7 @@ const C = {
   purple: { bg:"#f3e8ff", text:"#581c87", border:"#d8b4fe", solid:"#9333ea" },
 };
 
-const inp = { padding:"8px 11px", borderRadius:T.rMd, border:`1px solid ${T.line}`, fontSize:13, fontFamily:"inherit", background:"#fff", color:T.ink, width:"100%", boxSizing:"border-box", outline:"none" };
+const inp = { padding:"8px 11px", borderRadius:T.rMd, border:`1px solid ${T.line}`, fontSize:13, fontFamily:"inherit", background:"var(--surface)", color:T.ink, width:"100%", boxSizing:"border-box", outline:"none" };
 
 // ─── Período quebrado + classificação do não-faturado ────────────────────────
 // Dia de corte do cliente → "competência de faturamento" (visão cliente). Peça
@@ -372,19 +375,47 @@ const CLASS_MOTIVOS = [
 // ─── GLOBAL STYLES (foco, hover, animações, scrollbar) ───────────────────────
 
 const GLOBAL_CSS = `
+  :root{
+    --brand:#f1572c; --brand-dark:#d8431b; --brand-bg:#fef1ec; --brand-soft:#f9d3c6;
+    --dark:#26221f;
+    --ink:#1c1917; --ink-soft:#44403c; --muted:#78716c; --faint:#a8a29e;
+    --surface:#ffffff; --canvas:#fafaf9; --line:#e7e5e4; --line-soft:#f5f5f4;
+    --ok:#15803d; --ok-bg:#f0fdf4; --ok-line:#86efac;
+    --warn:#b45309; --warn-bg:#fffbeb; --warn-line:#fcd34d;
+    --danger:#dc2626; --danger-bg:#fef2f2; --danger-line:#fca5a5;
+    --sh-sm:0 1px 2px rgba(28,25,23,.05);
+    --sh-card:0 1px 2px rgba(28,25,23,.04), 0 8px 22px rgba(28,25,23,.05);
+    --sh-md:0 6px 20px rgba(28,25,23,.07);
+    --sh-lg:0 20px 50px rgba(28,25,23,.16);
+    --scrollbar:#cbd5e1; --row-hover:#fef1ec80;
+  }
+  :root[data-theme="dark"]{
+    --brand:#ff6a41; --brand-dark:#ff8a68; --brand-bg:#3a2018; --brand-soft:#5c3326;
+    --dark:#0c0a09;
+    --ink:#f4efe9; --ink-soft:#cdc5be; --muted:#968c84; --faint:#6f665f;
+    --surface:#221e1a; --canvas:#161311; --line:#38322d; --line-soft:#2a2521;
+    --ok:#4ade80; --ok-bg:#14271b; --ok-line:#2f5b46;
+    --warn:#fbbf24; --warn-bg:#2c2410; --warn-line:#5c4526;
+    --danger:#f87171; --danger-bg:#2e1a1a; --danger-line:#5e3030;
+    --sh-sm:0 1px 2px rgba(0,0,0,.4);
+    --sh-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px rgba(0,0,0,.45);
+    --sh-md:0 6px 20px rgba(0,0,0,.5);
+    --sh-lg:0 20px 50px rgba(0,0,0,.6);
+    --scrollbar:#4b4540; --row-hover:#ff6a4118;
+  }
   *{box-sizing:border-box}
-  body{margin:0;font-family:${FONT};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:${T.ink};background:${T.canvas}}
+  body{margin:0;font-family:${FONT};-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:${T.ink};background:${T.canvas};transition:background .25s ease,color .25s ease}
   button{font-family:inherit}
   :focus-visible{outline:2px solid ${T.brand};outline-offset:2px;border-radius:6px}
   input:focus,select:focus,textarea:focus{border-color:${T.brand};box-shadow:0 0 0 3px rgba(241,87,44,.15)}
   .fc-btn{transition:filter .12s,box-shadow .12s,background .12s,transform .06s}
   .fc-btn:hover:not(:disabled){filter:brightness(.97)}
   .fc-btn:active:not(:disabled){transform:translateY(1px)}
-  .fc-row:hover{background:#fef1ec80}
+  .fc-row:hover{background:var(--row-hover)}
   .fc-card-int{transition:box-shadow .15s,border-color .15s,transform .12s}
   .fc-card-int:hover{box-shadow:${T.shMd};border-color:${T.brandSoft};transform:translateY(-1px)}
   .fc-scroll::-webkit-scrollbar{height:9px;width:9px}
-  .fc-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9px}
+  .fc-scroll::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:9px}
   .fc-scroll::-webkit-scrollbar-track{background:transparent}
   @keyframes fcToastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   @keyframes fcOverlay{from{opacity:0}to{opacity:1}}
@@ -428,7 +459,7 @@ function ToastProvider({ children }) {
         {toasts.map(t => {
           const s = tc[t.type] || tc.info;
           return (
-            <div key={t.id} className="fc-toast" style={{ display:"flex", alignItems:"center", gap:10, background:"#fff", borderLeft:`4px solid ${s.bar}`, boxShadow:T.shMd, borderRadius:T.rMd, padding:"11px 16px", minWidth:240, fontSize:13, color:T.ink }}>
+            <div key={t.id} className="fc-toast" style={{ display:"flex", alignItems:"center", gap:10, background:"var(--surface)", borderLeft:`4px solid ${s.bar}`, boxShadow:T.shMd, borderRadius:T.rMd, padding:"11px 16px", minWidth:240, fontSize:13, color:T.ink }}>
               <span style={{ width:20, height:20, borderRadius:"50%", background:s.bar, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, flexShrink:0 }}>{s.ic}</span>
               <span style={{ fontWeight:500 }}>{t.text}</span>
             </div>
@@ -488,6 +519,8 @@ function Icon({ name, size=16, style }) {
     case "folder":   return <svg {...p}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>;
     case "calendar": return <svg {...p}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>;
     case "menu":     return <svg {...p}><path d="M4 7h16M4 12h16M4 17h16"/></svg>;
+    case "sun":      return <svg {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>;
+    case "moon":     return <svg {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>;
     default:         return null;
   }
 }
@@ -497,7 +530,7 @@ function Btn({ children, onClick, primary, danger, ghost, small, disabled, title
   const v = primary ? { background:T.brand, color:"#fff" }
           : danger  ? { background:T.danger, color:"#fff" }
           : ghost   ? { background:"transparent", color:T.inkSoft }
-          :           { background:"#fff", color:T.inkSoft, border:`1px solid ${T.line}` };
+          :           { background:"var(--surface)", color:T.inkSoft, border:`1px solid ${T.line}` };
   return <button className="fc-btn" title={title} aria-label={title} onClick={disabled?undefined:onClick} disabled={disabled} style={{...base,...v}}>{icon && <Icon name={icon} size={small?13:15}/>}{children}</button>;
 }
 
@@ -515,13 +548,13 @@ function FcamaraLogo({ size = 22, onDark }) {
   return (
     <span aria-label="FCamara" style={{ fontFamily:FONT_DISPLAY, fontWeight:700, fontSize:size, letterSpacing:"-.03em", lineHeight:1, whiteSpace:"nowrap", display:"inline-flex", alignItems:"baseline" }}>
       <span style={{ color:T.brand }}>FC</span>
-      <span style={{ color:onDark ? "#ffffff" : T.ink }}>amara</span>
+      <span style={{ color:onDark ? "var(--surface)" : T.ink }}>amara</span>
     </span>
   );
 }
 
 function Card({ children, style:s={}, interactive, ...rest }) {
-  return <div className={interactive?"fc-card-int":undefined} style={{ background:"#fff", border:`1px solid ${T.line}`, borderRadius:T.rXl, boxShadow:T.shCard, ...s }} {...rest}>{children}</div>;
+  return <div className={interactive?"fc-card-int":undefined} style={{ background:"var(--surface)", border:`1px solid ${T.line}`, borderRadius:T.rXl, boxShadow:T.shCard, ...s }} {...rest}>{children}</div>;
 }
 
 // Chip laranja com ícone — usado no cabeçalho de página (mesmo capricho do Início).
@@ -566,7 +599,7 @@ function SectionTitle({ children, count }) {
 function PipelineStepper({ states, groups=STEP_GROUPS, size="md", showLabels }) {
   // states: array alinhado a `groups`, com 'done' | 'partial' | 'todo'
   const dot = size==="sm" ? 14 : 18;
-  const colorFor  = (st) => st==="done" ? T.ok : st==="partial" ? C.blue.solid : "#fff";
+  const colorFor  = (st) => st==="done" ? T.ok : st==="partial" ? C.blue.solid : "var(--surface)";
   const borderFor = (st) => st==="done" ? T.ok : st==="partial" ? C.blue.solid : "#cbd2dc";
   return (
     <div style={{ display:"flex", alignItems:"flex-start" }} role="img" aria-label={"Funil: " + groups.map((g,i)=>`${g.short} ${states[i]}`).join(", ")}>
@@ -617,7 +650,7 @@ function Modal({ title, subtitle, onClose, children, footer, wide, extraWide }) 
   }, []);
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.55)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:16, animation:"fcOverlay .15s ease" }} onClick={onClose}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className="fc-scroll" style={{ background:"#fff", borderRadius:T.rXl+2, padding:"22px 26px", width:w, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", boxShadow:T.shLg, animation:"fcModalIn .18s ease" }} onClick={e=>e.stopPropagation()}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className="fc-scroll" style={{ background:"var(--surface)", borderRadius:T.rXl+2, padding:"22px 26px", width:w, maxWidth:"100%", maxHeight:"92vh", overflowY:"auto", boxShadow:T.shLg, animation:"fcModalIn .18s ease" }} onClick={e=>e.stopPropagation()}>
         <div style={{ display:"flex", alignItems:"flex-start", marginBottom:18, gap:12 }}>
           <div style={{ flex:1 }}>
             <h2 style={{ fontSize:17, fontWeight:800, color:T.ink, margin:0 }}>{title}</h2>
@@ -808,7 +841,7 @@ function ImportModal({ onImport, onClose }) {
         <label style={Ty.label}>Layout da planilha</label>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           {[{v:"te",l:"Time & Expenses",d:"Por profissional, com horas e valores."},{v:"feewip",l:"Fee / WIP",d:"Por PEP, receita planejada. Sobe Fee e WIP juntos."},{v:"usage",l:"Usage Based",d:"Por PEP, receita planejada. Tipo Usage Based."}].map(opt=>(
-            <label key={opt.v} style={{flex:"1 1 180px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${layout===opt.v?T.brand:T.line}`,cursor:"pointer",background:layout===opt.v?T.brandBg:"#fff"}}>
+            <label key={opt.v} style={{flex:"1 1 180px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${layout===opt.v?T.brand:T.line}`,cursor:"pointer",background:layout===opt.v?T.brandBg:"var(--surface)"}}>
               <input type="radio" name="layout" checked={layout===opt.v} onChange={()=>{setLayout(opt.v);reset();}} style={{marginTop:2}}/>
               <div><div style={{fontSize:13,fontWeight:700,color:layout===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
             </label>
@@ -827,7 +860,7 @@ function ImportModal({ onImport, onClose }) {
         <label style={Ty.label}>Modo de importação</label>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           {[{v:"merge",l:"Atualizar mês",d:"Reprocessa o mês: casa por PEP+profissional, atualiza valores mantendo passo a passo e conciliação, e sinaliza mudanças. Use no fechamento diário."},{v:"add",l:"Incluir novos",d:"Adiciona sem apagar nem casar. Use só na 1ª carga do mês."},{v:"replace",l:"Substituir (apagar e refazer)",d:"Remove e reimporta a competência + empresa + tipo do zero. Perde o progresso desse recorte."}].map(opt=>(
-            <label key={opt.v} style={{flex:"1 1 200px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${mode===opt.v?T.brand:T.line}`,cursor:"pointer",background:mode===opt.v?T.brandBg:"#fff"}}>
+            <label key={opt.v} style={{flex:"1 1 200px",display:"flex",gap:8,padding:"10px 12px",borderRadius:T.rMd,border:`2px solid ${mode===opt.v?T.brand:T.line}`,cursor:"pointer",background:mode===opt.v?T.brandBg:"var(--surface)"}}>
               <input type="radio" name="mode" value={opt.v} checked={mode===opt.v} onChange={()=>setMode(opt.v)} style={{marginTop:2}}/>
               <div><div style={{fontSize:13,fontWeight:700,color:mode===opt.v?T.brand:T.inkSoft}}>{opt.l}</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>{opt.d}</div></div>
             </label>
@@ -839,7 +872,7 @@ function ImportModal({ onImport, onClose }) {
       <div style={{marginBottom:14}}><Field label="Nota da importação (opcional)"><input style={inp} placeholder="Ex: Ajuste de valores de maio" value={note} onChange={e=>setNote(e.target.value)}/></Field></div>
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xlsm,.xls" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
       <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={onDrop} onClick={()=>fileRef.current.click()} role="button" tabIndex={0} aria-label="Carregar arquivo"
-        style={{border:`2px dashed ${dragOver?T.brand:fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragOver?T.brandBg:fileName?T.okBg:"#fafbfc",marginBottom:14}}>
+        style={{border:`2px dashed ${dragOver?T.brand:fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:dragOver?T.brandBg:fileName?T.okBg:"var(--canvas)",marginBottom:14}}>
         {loading?<div style={{color:T.muted,fontSize:13}}>Lendo arquivo...</div>:fileName?<><div style={{marginBottom:6,color:T.ok}}><Icon name="check" size={26}/></div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted,marginTop:4}}>Clique para trocar</div></>:<><div style={{marginBottom:8,color:T.muted}}><Icon name="upload" size={26}/></div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique ou arraste o arquivo aqui</div><div style={{fontSize:12,color:T.muted,marginTop:4}}>Aceita .xlsm e .xlsx</div></>}
       </div>
       {msgs.map((m,i)=><div key={i} style={{marginBottom:6,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>)}
@@ -989,7 +1022,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
       {/* Seleção de profissionais — recolhida por padrão, abre estilo filtro */}
       <div style={{marginBottom:20}}>
         <div style={{fontSize:13,fontWeight:700,color:T.ink,marginBottom:8}}>Aplicar a</div>
-        <button type="button" onClick={()=>setPickOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"#fff",border:`1px solid ${T.line}`,borderRadius:T.rMd,padding:"9px 12px",cursor:"pointer",fontSize:13,color:T.ink,textAlign:"left"}}>
+        <button type="button" onClick={()=>setPickOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"var(--surface)",border:`1px solid ${T.line}`,borderRadius:T.rMd,padding:"9px 12px",cursor:"pointer",fontSize:13,color:T.ink,textAlign:"left"}}>
           <Icon name="task" size={15}/>
           <span style={{flex:1}}><b>{selected.size}</b> de {records.length} profissional(is) selecionado(s){selected.size>0?` · ${brl(records.filter(r=>selected.has(r.id)).reduce((s,r)=>s+(r.valorTotal||0),0))}`:""}</span>
           <Icon name={pickOpen?"chevronUp":"chevronDown"} size={16}/>
@@ -1155,7 +1188,7 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
           ? <div style={{fontSize:12,color:T.muted,padding:"10px 12px",background:T.canvas,borderRadius:T.rMd,border:`1px dashed ${T.line}`}}>Nenhuma NF montada ainda. Selecione os profissionais abaixo, informe o número e clique em “Atribuir NF”.</div>
           : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
               {groups.map((g,i)=>(
-                <div key={g.nf} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",background:"#fff"}}>
+                <div key={g.nf} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",background:"var(--surface)"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8}}>
                     <Badge label={`NF ${g.nf}`} color={palette[i%palette.length]} small/>
                     <span style={{fontSize:15,fontWeight:800,color:T.ink}}>{fmtShort(g.total)}</span>
@@ -1181,7 +1214,7 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
             const on = selected.has(r.id);
             const cur = (r.nfNumero||"").trim();
             return (
-              <label key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13}}>
+              <label key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"var(--surface)",cursor:"pointer",fontSize:13}}>
                 <input type="checkbox" checked={on} onChange={()=>toggle(r.id)} style={{width:15,height:15}}/>
                 <span style={{fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>{r.profissional}</span>
                 <span style={{fontSize:12,color:T.muted}}>{fmtShort(r.valorTotal)}</span>
@@ -1367,7 +1400,7 @@ function ClassifyChip({ record:r, clients=[], onClick, readOnly, style:s={} }) {
   );
   return (
     <button onClick={onClick} title="Classificar não-faturado (motivo / observação)"
-      style={{...base, border:`1px dashed ${repres?C.red.border:T.line}`, background:"#fff", color:repres?C.red.solid:T.muted}}>
+      style={{...base, border:`1px dashed ${repres?C.red.border:T.line}`, background:"var(--surface)", color:repres?C.red.solid:T.muted}}>
       {repres?"⚠ classificar":"+ classificar"}
     </button>
   );
@@ -1489,7 +1522,7 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
                 {Object.entries(FDIMS).map(([k,d])=><option key={k} value={k}>{d.label}</option>)}
               </select>
               <input style={{...inp,width:isMobile?130:150,borderRadius:filtros.length>1?0:`0 ${T.rMd} ${T.rMd} 0`}} placeholder={`Filtrar por ${FDIMS[f.dim].label.toLowerCase()}…`} value={f.val} onChange={e=>updF(i,{val:e.target.value})}/>
-              {filtros.length>1 && <button onClick={()=>rmF(i)} title="Remover filtro" style={{border:`1px solid ${T.line}`,borderLeft:"none",borderRadius:`0 ${T.rMd} ${T.rMd} 0`,background:"#fff",color:T.muted,cursor:"pointer",padding:"0 9px",fontSize:15,lineHeight:1}}>×</button>}
+              {filtros.length>1 && <button onClick={()=>rmF(i)} title="Remover filtro" style={{border:`1px solid ${T.line}`,borderLeft:"none",borderRadius:`0 ${T.rMd} ${T.rMd} 0`,background:"var(--surface)",color:T.muted,cursor:"pointer",padding:"0 9px",fontSize:15,lineHeight:1}}>×</button>}
             </div>
           ))}
           {filtros.length < Object.keys(FDIMS).length && <button onClick={addF} title="Adicionar filtro" style={{border:`1px dashed ${T.line}`,borderRadius:T.rMd,background:T.canvas,color:T.brand,cursor:"pointer",padding:"0 12px",fontSize:13,fontWeight:700}}>+ filtro</button>}
@@ -1501,7 +1534,7 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
         <span style={{fontWeight:600}}>Funil:</span>
         <span style={{display:"flex",alignItems:"center",gap:5}}><i style={{width:11,height:11,borderRadius:"50%",background:T.ok}}/> concluído</span>
         <span style={{display:"flex",alignItems:"center",gap:5}}><i style={{width:11,height:11,borderRadius:"50%",background:C.blue.solid}}/> parcial</span>
-        <span style={{display:"flex",alignItems:"center",gap:5}}><i style={{width:11,height:11,borderRadius:"50%",background:"#fff",border:"2px solid #cbd2dc"}}/> pendente</span>
+        <span style={{display:"flex",alignItems:"center",gap:5}}><i style={{width:11,height:11,borderRadius:"50%",background:"var(--surface)",border:"2px solid #cbd2dc"}}/> pendente</span>
         <span style={{color:T.faint}}>· {STEP_GROUPS.map(g=>g.num+" "+g.short).join("  ·  ")}</span>
       </div>}
 
@@ -1591,7 +1624,7 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
                       <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:11}}>{r.nfNumero||"—"}</td>
                       <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
                         <Badge label={recStatus(r, fatByRec[r.id], bill(r))} color={recStatusColor(r, fatByRec[r.id], bill(r))} small dot/>
-                        {aceitaVar(r) && !isViewer && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"#fff",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
+                        {aceitaVar(r) && !isViewer && <button title="Lançar/ver variação de receita (pós-fechamento)" onClick={()=>setVarTarget(r)} style={{marginLeft:6,border:`1px solid ${C.purple.border}`,background:(varByRec[r.id]||0)>0.001?C.purple.bg:"var(--surface)",color:C.purple.solid,borderRadius:T.rSm,padding:"2px 7px",cursor:"pointer",fontSize:10.5,fontWeight:700,verticalAlign:"middle"}}>± variação</button>}
                         {fatR<0.01 && <ClassifyChip record={r} clients={clients} readOnly/>}
                       </td>
                       {isAdmin&&<td style={{padding:"7px 10px",textAlign:"right",whiteSpace:"nowrap"}}>
@@ -1609,7 +1642,7 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
                         {alertaFat
                           ? <span>Valor mudou <b>após faturamento</b>: {brl(r.valorAnterior)} → {brl(r.valorTotal)}. Já faturado {brl(fatR)}{saldoR>0.01?<> · <b>saldo a faturar {brl(saldoR)}</b></>:<> · <b>faturado a maior {brl(fatR-(r.valorTotal||0))} — NF a corrigir</b></>}. {r.nfNumero?`NF ${r.nfNumero} a revisar/cancelar.`:""}</span>
                           : <span>Valor alterado no relatório: <b>{brl(r.valorAnterior)} → {brl(r.valorTotal)}</b>.</span>}
-                        {!isViewer && <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${alertaFat?"#fca5a5":"#fcd34d"}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:alertaFat?"#991b1b":"#92400e"}}>Ciente</button>}
+                        {!isViewer && <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${alertaFat?"#fca5a5":"#fcd34d"}`,background:"var(--surface)",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:alertaFat?"#991b1b":"#92400e"}}>Ciente</button>}
                       </div>}
                       {r.valorBaseDivergente!=null && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:"#fef2f2",border:`1px solid #fecaca`,color:"#991b1b",fontWeight:600,marginTop:r.valorAnterior!=null?6:0}}>
                         <Icon name="alert" size={14}/>
@@ -1617,7 +1650,7 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
                       </div>}
                       {r.ausenteRelatorio && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"7px 11px",borderRadius:T.rMd,background:T.canvas,border:`1px solid ${T.line}`,color:T.muted,fontWeight:600,marginTop:(r.valorAnterior!=null||r.valorBaseDivergente!=null)?6:0}}>
                         <Icon name="info" size={14}/> Fora do último relatório importado — verifique se saiu do projeto.
-                        {!isViewer && <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.inkSoft}}>Ciente</button>}
+                        {!isViewer && <button onClick={()=>onClearAlert&&onClearAlert(r.id)} style={{marginLeft:"auto",border:`1px solid ${T.line}`,background:"var(--surface)",borderRadius:T.rSm,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.inkSoft}}>Ciente</button>}
                       </div>}
                     </td></tr>}
                     </Fragment>
@@ -1885,7 +1918,7 @@ function UserChip({ user, isAdmin }) {
 
 function Sidebar({ page, setPage, user, isAdmin }) {
   return (
-    <aside style={{width:212,flexShrink:0,background:"#fff",borderRight:`1px solid ${T.line}`,padding:"18px 12px",display:"flex",flexDirection:"column"}}>
+    <aside style={{width:212,flexShrink:0,background:"var(--surface)",borderRight:`1px solid ${T.line}`,padding:"18px 12px",display:"flex",flexDirection:"column"}}>
       <UserChip user={user} isAdmin={isAdmin}/>
       <NavLinks page={page} setPage={setPage} isAdmin={isAdmin}/>
     </aside>
@@ -1897,7 +1930,7 @@ function MobileDrawer({ open, onClose, page, setPage, user, isAdmin }) {
   return (
     <div style={{ position:"fixed", inset:0, zIndex:250 }}>
       <div style={{ position:"absolute", inset:0, background:"rgba(15,23,42,.5)", animation:"fcOverlay .15s ease" }} onClick={onClose}/>
-      <aside style={{ position:"absolute", top:0, left:0, bottom:0, width:240, background:"#fff", padding:"18px 12px", boxShadow:T.shLg, display:"flex", flexDirection:"column", overflowY:"auto" }}>
+      <aside style={{ position:"absolute", top:0, left:0, bottom:0, width:240, background:"var(--surface)", padding:"18px 12px", boxShadow:T.shLg, display:"flex", flexDirection:"column", overflowY:"auto" }}>
         <UserChip user={user} isAdmin={isAdmin}/>
         <NavLinks page={page} setPage={setPage} isAdmin={isAdmin} onNavigate={onClose}/>
       </aside>
@@ -1971,7 +2004,7 @@ function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd }) {
       onDragEnd={onDragEnd}
       onClick={()=>onOpen(task)}
       className="fc-card-int"
-      style={{background:"#fff",border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,cursor:"pointer",boxShadow:T.shSm}}
+      style={{background:"var(--surface)",border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,cursor:"pointer",boxShadow:T.shSm}}
     >
       <div style={{fontSize:13,fontWeight:600,color:T.ink,marginBottom:task.desc?4:8,lineHeight:1.35}}>{task.title}</div>
       {task.desc&&<div style={{fontSize:11.5,color:T.muted,marginBottom:8,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{task.desc}</div>}
@@ -2018,7 +2051,7 @@ function DeliveryTemplateModal({ template, responsaveis, onSave, onDelete, onClo
         <Btn small onClick={addItem}>+ Tarefa</Btn>
       </div>
       {items.map((it,i)=>(
-        <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff"}}>
+        <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"var(--surface)"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
             <span style={{fontSize:12,fontWeight:700,color:T.brand}}>Tarefa {i+1}</span>
             {items.length>1 && <button onClick={()=>delItem(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>}
@@ -2032,7 +2065,7 @@ function DeliveryTemplateModal({ template, responsaveis, onSave, onDelete, onClo
             <label style={{...Ty.label}}>Enviar para quais analistas? <span style={{fontWeight:500,color:T.muted}}>(nenhum marcado = todos)</span></label>
             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
               {responsaveis.map(r=>{ const on=it.assignees.includes(r); return (
-                <label key={r} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:T.rPill,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:12,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
+                <label key={r} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:T.rPill,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"var(--surface)",cursor:"pointer",fontSize:12,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
                   <input type="checkbox" checked={on} onChange={()=>toggleAssignee(i,r)} style={{width:13,height:13}}/>{r}
                 </label>
               );})}
@@ -2075,7 +2108,7 @@ function DeliveryManager({ templates, responsaveis, competenciaAtual, onTemplate
       {templates.length===0
         ? <div style={{fontSize:13,color:T.muted,textAlign:"center",padding:"24px",background:T.canvas,borderRadius:T.rLg,border:`1px dashed ${T.line}`}}>Nenhum modelo ainda. Crie um modelo de entrega (ex.: "Fechamento mensal") com as tarefas que se repetem todo mês.</div>
         : templates.map(t=>(
-          <div key={t.id} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"#fff",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div key={t.id} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"12px 14px",marginBottom:8,background:"var(--surface)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:160}}>
               <div style={{fontSize:14,fontWeight:700,color:T.ink}}>{t.title}</div>
               <div style={{fontSize:11,color:T.muted,marginTop:2}}>{t.items.length} tarefa(s): {t.items.map(i=>i.title).join(", ").slice(0,80)}{t.items.map(i=>i.title).join(", ").length>80?"…":""}</div>
@@ -2122,10 +2155,10 @@ function Kanban({ tasks, responsaveis, isAdmin, isViewer=false, competenciaAtual
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,padding:"2px 4px"}}>
           <span style={{width:9,height:9,borderRadius:"50%",background:col.accent}}/>
           <span style={{fontSize:13,fontWeight:700,color:col.color}}>{col.title}</span>
-          <span style={{fontSize:11,color:T.muted,background:"#fff",borderRadius:T.rPill,padding:"1px 8px",border:`1px solid ${T.line}`}}>{colTasks.length}</span>
+          <span style={{fontSize:11,color:T.muted,background:"var(--surface)",borderRadius:T.rPill,padding:"1px 8px",border:`1px solid ${T.line}`}}>{colTasks.length}</span>
         </div>
         {col.id==="inbox"&&<button onClick={()=>setEditing({ status:"inbox" })}
-          style={{width:"100%",marginBottom:10,padding:"8px",border:`1.5px dashed #c7cdd6`,borderRadius:T.rMd,background:"#fff",color:T.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          style={{width:"100%",marginBottom:10,padding:"8px",border:`1.5px dashed #c7cdd6`,borderRadius:T.rMd,background:"var(--surface)",color:T.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>
           + Criar tarefa aqui
         </button>}
         {colTasks.map(t=>(
@@ -2245,7 +2278,7 @@ function AccessEditModal({ profile, onSave, onClose }) {
         <label style={Ty.label}>Papel</label>
         <div style={{display:"grid",gap:8}}>
           {PAPEIS.map(op=>{ const on=papel===op.v; return (
-            <label key={op.v} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff"}}>
+            <label key={op.v} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"var(--surface)"}}>
               <input type="radio" name="papel" checked={on} onChange={()=>setPapel(op.v)} style={{width:16,height:16,marginTop:1}}/>
               <span><b style={{color:on?T.brand:T.inkSoft}}>{op.l}</b><br/><span style={{fontSize:11,color:T.muted}}>{op.d}</span></span>
             </label>
@@ -2420,7 +2453,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
           <Btn small onClick={addEntidade}>+ Adicionar CNPJ</Btn>
         </div>
         {entidades.map((e,i)=>(
-          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,background:"#fff"}}>
+          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,background:"var(--surface)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
               <span style={{fontSize:12,fontWeight:700,color:T.brand}}>{i===0?"Empresa principal":`Empresa ${i+1}`}</span>
               {entidades.length>1 && <button onClick={()=>delEntidade(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>}
@@ -2437,13 +2470,13 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
       <CSec title="Tipos de contrato" grid={false}>
         <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:selTipos.length?12:0}}>
           {TIPOS_PROJETO.map(t=>{ const on=selTipos.includes(t); return (
-            <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
+            <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 12px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"var(--surface)",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
               <input type="checkbox" checked={on} onChange={()=>toggleTipo(t)} style={{width:15,height:15}}/>{t}
             </label>
           );})}
         </div>
         {selTipos.map(t=>(
-          <div key={t} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,background:"#fff"}}>
+          <div key={t} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,padding:"10px 12px",marginBottom:8,background:"var(--surface)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
               <span style={{fontSize:12,fontWeight:700,color:T.brand}}>PEPs · {t}</span>
               <Btn small onClick={()=>addPep(t)}>+ PEP</Btn>
@@ -2485,7 +2518,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
             <label style={{fontSize:12,fontWeight:600,color:T.inkSoft,display:"block",marginBottom:6}}>Classificação do portal</label>
             <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
               {PORTAL_TIPOS.map(t=>{ const on=selPortalTipos.includes(t); return (
-                <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"#fff",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
+                <label key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 11px",borderRadius:T.rMd,border:`1.5px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"var(--surface)",cursor:"pointer",fontSize:13,fontWeight:on?600:400,color:on?T.brand:T.inkSoft}}>
                   <input type="checkbox" checked={on} onChange={()=>togglePortalTipo(t)} style={{width:15,height:15}}/>{t}
                 </label>
               );})}
@@ -2529,7 +2562,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         </div>
         {passos.length===0 && <div style={{fontSize:13,color:T.muted,padding:"24px 16px",textAlign:"center",background:T.canvas,borderRadius:T.rLg,border:`1px dashed ${T.line}`}}>Nenhuma etapa adicionada ainda.<br/>Clique em “+ Incluir etapa” para começar.</div>}
         {passos.map((p,i)=>(
-          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,marginBottom:10,background:"#fff",overflow:"hidden"}}>
+          <div key={i} style={{border:`1px solid ${T.line}`,borderRadius:T.rLg,marginBottom:10,background:"var(--surface)",overflow:"hidden"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:T.brandBg,borderBottom:`1px solid ${T.line}`}}>
               <span style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:T.brand}}>
                 <span style={{width:22,height:22,borderRadius:"50%",background:T.brand,color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12}}>{i+1}</span>
@@ -2618,7 +2651,7 @@ function ClientImportModal({ existing, onImport, onClose }) {
     <Modal title="Importar clientes" subtitle="Carga em massa (exportação do SAP). Entram como cadastro incompleto." onClose={onClose} wide>
       <input type="file" ref={fileRef} style={{display:"none"}} accept=".xlsx,.xls,.csv" onChange={e=>{if(e.target.files[0])readFile(e.target.files[0]);e.target.value="";}}/>
       <div onClick={()=>fileRef.current.click()} role="button" tabIndex={0}
-        style={{border:`2px dashed ${fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:fileName?T.okBg:"#fafbfc",marginBottom:14}}>
+        style={{border:`2px dashed ${fileName?T.okLine:"#cbd2dc"}`,borderRadius:T.rLg,padding:"28px 20px",textAlign:"center",cursor:"pointer",background:fileName?T.okBg:"var(--canvas)",marginBottom:14}}>
         {loading?<div style={{color:T.muted,fontSize:13}}>Lendo...</div>:fileName?<><div style={{color:T.ok,marginBottom:6}}><Icon name="check" size={26}/></div><div style={{fontSize:13,fontWeight:700,color:T.ok}}>{fileName}</div><div style={{fontSize:11,color:T.muted}}>Clique para trocar</div></>:<><div style={{color:T.muted,marginBottom:8}}><Icon name="upload" size={26}/></div><div style={{fontSize:14,fontWeight:600,color:T.inkSoft}}>Clique para selecionar a planilha</div></>}
       </div>
       {msgs.map((m,i)=><div key={i} style={{marginBottom:6,fontSize:12,padding:"8px 12px",borderRadius:T.rMd,background:mc[m.type].bg,color:mc[m.type].text,border:`1px solid ${mc[m.type].border}`}}>{m.text}</div>)}
@@ -3022,7 +3055,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 
   const thProj = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"10px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".05em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:190 };
   const thMes  = { padding:"10px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:100 };
-  const tdProj = { position:"sticky", left:0, zIndex:1, background:"#fff", padding:"8px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:190 };
+  const tdProj = { position:"sticky", left:0, zIndex:1, background:"var(--surface)", padding:"8px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:190 };
   const tdCell = { padding:"8px 10px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, verticalAlign:"top" };
 
   return (
@@ -3050,10 +3083,10 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
           <span style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",marginRight:2}}>Período</span>
           {mesesOpts.map(m=>{ const on=perSel.includes(m); return (
             <button key={m} onClick={()=>setPerSel(on?perSel.filter(x=>x!==m):[...perSel,m])}
-              style={{padding:"5px 11px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${on?T.brand:T.line}`,background:on?"#fff5f1":"#fff",color:on?T.brand:T.inkSoft}}>{m}</button>
+              style={{padding:"5px 11px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${on?T.brand:T.line}`,background:on?"#fff5f1":"var(--surface)",color:on?T.brand:T.inkSoft}}>{m}</button>
           );})}
           {perSel.length>0
-            ? <button onClick={()=>setPerSel([])} style={{padding:"5px 10px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${T.line}`,background:"#fff",color:T.muted}}>limpar</button>
+            ? <button onClick={()=>setPerSel([])} style={{padding:"5px 10px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${T.line}`,background:"var(--surface)",color:T.muted}}>limpar</button>
             : <span style={{fontSize:11,color:T.faint}}>todos os meses</span>}
         </div>}
       </Card>
@@ -3069,7 +3102,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
           <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:12,fontSize:11.5,color:T.muted}}>
             {SEG.map(g=><span key={g.key} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:13,height:13,borderRadius:3,background:g.color}}/>{g.label}</span>)}
           </div>
-          <div style={{overflowX:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg,background:"#fff"}}>
+          <div style={{overflowX:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg,background:"var(--surface)"}}>
             <table style={{borderCollapse:"collapse",width:"100%"}}>
               <thead><tr>
                 <th style={thProj}>Projeto (tipo · PEP)</th>
@@ -3435,7 +3468,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
           <span style={{fontSize:13,fontWeight:700,color:T.ink}}>Empresa:</span>
           {empresasComDados.length===0 ? <span style={{fontSize:12,color:T.muted}}>Importe notas para começar.</span>
             : empresasComDados.map(e=>(
-              <button key={e.cod} onClick={()=>pickEmpresa(e.cod)} style={{padding:"6px 12px",borderRadius:T.rMd,border:`1.5px solid ${empresa===e.cod?T.brand:T.line}`,background:empresa===e.cod?T.brandBg:"#fff",color:empresa===e.cod?T.brand:T.inkSoft,fontWeight:empresa===e.cod?700:500,fontSize:12.5,cursor:"pointer"}}>{e.cod} — {e.nome}</button>
+              <button key={e.cod} onClick={()=>pickEmpresa(e.cod)} style={{padding:"6px 12px",borderRadius:T.rMd,border:`1.5px solid ${empresa===e.cod?T.brand:T.line}`,background:empresa===e.cod?T.brandBg:"var(--surface)",color:empresa===e.cod?T.brand:T.inkSoft,fontWeight:empresa===e.cod?700:500,fontSize:12.5,cursor:"pointer"}}>{e.cod} — {e.nome}</button>
             ))}
         </div>
       </Card>
@@ -3486,7 +3519,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
               <div className="fc-scroll" style={{maxHeight:360,overflowY:"auto"}}>
                 {lotesShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>{lotes.length===0?"Nenhuma conciliação nesta empresa.":"Todos os lotes batem. ✓"}</div>
                   : lotesShown.map(L=>(
-                    <div key={L.cid} style={{padding:"10px 14px",borderBottom:`1px solid ${T.lineSoft}`,background:L.bate?"#fff":"#fef2f2"}}>
+                    <div key={L.cid} style={{padding:"10px 14px",borderBottom:`1px solid ${T.lineSoft}`,background:L.bate?"var(--surface)":"#fef2f2"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
                         <Badge label={L.bate?"✓ bate":`≠ dif. ${brl(L.dif)}`} color={L.bate?"green":"red"} small/>
                         <span style={{fontSize:12,color:T.ink,fontWeight:600}}>{L.recs[0]?.r?.cliente || L.notas[0]?.tomadorNome || "—"}</span>
@@ -3544,7 +3577,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                   : leftShown.map(n=>{
                       const conc=notaConc(n), on=selNotes.has(n.id), exp=expNote===n.id;
                       return (
-                        <div key={n.id} style={{borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(conc?"#f6fdf9":"#fff")}}>
+                        <div key={n.id} style={{borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(conc?"#f6fdf9":"var(--surface)")}}>
                           <div style={{display:"flex",alignItems:"flex-start",gap:9,padding:"9px 12px"}}>
                             {conc
                               ? <span title="Conciliada" style={{width:15,textAlign:"center",color:T.ok,marginTop:2}}>✓</span>
@@ -3599,7 +3632,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                       const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r), dc=diaCorteDe(r);
                       const temCls=hasSaldo(r)&&(r.classMotivo||r.classObs), clsRepres=temCls&&categoriaOf(r,clients).cat==="represado";
                       return (
-                        <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"#fff")}}>
+                        <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"var(--surface)")}}>
                           {full
                             ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
@@ -3723,7 +3756,7 @@ function ClientsView({ clients, isAdmin, isViewer=false, onSave, onDelete, onBul
                   const n=clientCnpjs(c).length;
                   const on=adding.target?.id===c.id;
                   return (
-                    <button key={c.id} onClick={()=>setAdding(a=>({...a,target:c}))} className="fc-row" style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandSoft||"#eef2ff":"#fff",cursor:"pointer",padding:"10px 12px",fontSize:13,color:T.ink}}>
+                    <button key={c.id} onClick={()=>setAdding(a=>({...a,target:c}))} className="fc-row" style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandSoft||"#eef2ff":"var(--surface)",cursor:"pointer",padding:"10px 12px",fontSize:13,color:T.ink}}>
                       <span style={{width:16,color:T.brand,fontWeight:800}}>{on?"✓":""}</span>
                       <span style={{flex:1,fontWeight:600}}>{c.nome}</span>
                       {n>1 && <Badge label={`${n} CNPJs`} color="blue" small/>}
@@ -3904,7 +3937,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
     .sort((a,b)=>String(a.aniversario).localeCompare(String(b.aniversario)));
 
   const Pend = ({ icon, n, label, color, to }) => (
-    <button onClick={()=>onNavigate(to)} className="fc-btn fc-card-int" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"#fff",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:6,borderLeft:`4px solid ${color}`}}>
+    <button onClick={()=>onNavigate(to)} className="fc-btn fc-card-int" style={{textAlign:"left",border:`1px solid ${T.line}`,background:"var(--surface)",borderRadius:T.rLg,padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",gap:6,borderLeft:`4px solid ${color}`}}>
       <span style={{color}}><Icon name={icon} size={22}/></span>
       <div style={{fontSize:24,fontWeight:800,color:T.ink,fontFamily:T.fontDisplay}}>{n}</div>
       <div style={{fontSize:12,color:T.muted}}>{label}</div>
@@ -4222,7 +4255,8 @@ function DataIOView({ recordsCount, clientsCount, onImport, onExport, onHistory,
 
 // ─── TOPBAR ──────────────────────────────────────────────────────────────────
 
-function Topbar({ user, isAdmin, isMobile, onMenu, onLogout }) {
+function Topbar({ user, isAdmin, isMobile, onMenu, onLogout, theme, onToggleTheme }) {
+  const dark = theme==="dark";
   return (
     <div style={{background:T.dark,color:"#fff",padding:"0 16px",display:"flex",alignItems:"center",gap:12,height:56}}>
       {isMobile && <button onClick={onMenu} aria-label="Abrir menu" style={{ background:"none", border:"none", color:"#fff", cursor:"pointer", lineHeight:1, padding:4, display:"inline-flex" }}><Icon name="menu" size={22}/></button>}
@@ -4236,6 +4270,7 @@ function Topbar({ user, isAdmin, isMobile, onMenu, onLogout }) {
       {!isMobile && <span style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"rgba(255,255,255,.9)",paddingLeft:4}}>
         <Avatar name={user.name} size={28} admin={isAdmin}/>{user.name}{isAdmin?" · Admin":""}
       </span>}
+      <button className="fc-btn" onClick={onToggleTheme} title={dark?"Mudar para modo claro":"Mudar para modo escuro"} aria-label={dark?"Modo claro":"Modo escuro"} style={{ background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.18)", color:"#fff", borderRadius:T.rPill, width:32, height:32, display:"inline-flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}><Icon name={dark?"sun":"moon"} size={16}/></button>
       <button className="fc-btn" onClick={onLogout} style={{ background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.18)", color:"#fff", borderRadius:T.rMd, padding:"6px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>Sair</button>
     </div>
   );
@@ -4332,7 +4367,7 @@ function Login() {
   return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,#201b18,${T.dark})`,fontFamily:T.font,padding:16}}>
       {showForgot && <ForgotPasswordModal onClose={()=>setSF(false)}/>}
-      <div style={{background:"#fff",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
+      <div style={{background:"var(--surface)",borderRadius:18,padding:"34px 38px",width:400,maxWidth:"100%",boxShadow:T.shLg}}>
         <div style={{textAlign:"center",marginBottom:24}}>
           <div style={{ display:"inline-flex", marginBottom:14 }}><FcamaraLogo size={34}/></div>
           <h1 style={{fontSize:22,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,lineHeight:1.3,margin:0}}>Order to Cash</h1>
@@ -4386,7 +4421,7 @@ function MergeModal({ source, records, fatByRec={}, onConfirm, onClose }) {
       <div style={{maxHeight:230,overflowY:"auto",border:`1px solid ${T.line}`,borderRadius:T.rMd,marginTop:10}}>
         {lista.length===0 && <div style={{padding:"14px",fontSize:12.5,color:T.muted,textAlign:"center"}}>Nenhum candidato. Ajuste a busca.</div>}
         {lista.map(r=>(
-          <label key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.line}`,cursor:"pointer",background:targetId===r.id?T.brandBg:"#fff"}}>
+          <label key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.line}`,cursor:"pointer",background:targetId===r.id?T.brandBg:"var(--surface)"}}>
             <input type="radio" name="mergeTarget" checked={targetId===r.id} onChange={()=>setTargetId(r.id)}/>
             <span style={{flex:1,fontSize:12.5}}><b>{r.pep||"—"}</b> · {r.profissional||"(sem profissional)"} · {r.tipo} · {r.competencia}</span>
             <span style={{fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>{brl(r.valorTotal)}</span>
@@ -4532,6 +4567,15 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
 function AppInner() {
   const toast = useToast();
   const isMobile = useIsMobile();
+  // Tema claro/escuro — o data-theme no <html> troca as CSS variables (aplicado
+  // em main.jsx antes do render). O botão só alterna o atributo e salva a escolha.
+  const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
+  const toggleTheme = () => setTheme(t => {
+    const next = t==="dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("fc-theme", next); } catch {}
+    return next;
+  });
   const [state, setState]       = useState(()=>loadState());
   const [user, setUser]         = useState(null);
   const [authReady, setAuthRdy] = useState(false);
@@ -5166,7 +5210,7 @@ function AppInner() {
       {showHistory && <HistoryModal history={history} onClose={()=>setHist(false)} onUndo={(entry)=>handleUndoImport(entry)}/>}
       {confirmLogout && <ConfirmDialog title="Sair da plataforma" message="Deseja realmente encerrar a sessão?" confirmLabel="Sair" onConfirm={()=>{ supabase.auth.signOut(); setUser(null); }} onClose={()=>setCL(false)}/>}
 
-      <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)} onLogout={()=>setCL(true)}/>
+      <Topbar user={user} isAdmin={isAdmin} isMobile={isMobile} onMenu={()=>setDrawer(true)} onLogout={()=>setCL(true)} theme={theme} onToggleTheme={toggleTheme}/>
 
       {isAdmin&&<div style={{background:T.warnBg,borderBottom:`1px solid ${T.warnLine}`,padding:"7px 20px",fontSize:12,color:T.warn,display:"flex",alignItems:"center",gap:8}}>
         <Badge label="Admin" color="blue" small/> Acesso completo a todos os analistas, empresas e competências.
