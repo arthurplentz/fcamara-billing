@@ -24,6 +24,7 @@ function dbToRec(row) {
     ausenteRelatorio: !!row.ausente_relatorio,
     valorBaseDivergente: row.valor_base_divergente == null ? null : Number(row.valor_base_divergente),
     classMotivo: row.class_motivo || "", classObs: row.class_obs || "",
+    bu: row.bu || "",
   };
 }
 function recToDb(r, withId) {
@@ -41,9 +42,18 @@ function recToDb(r, withId) {
     valor_alterado_em: r.valorAlteradoEm || null,
     ausente_relatorio: !!r.ausenteRelatorio,
     valor_base_divergente: r.valorBaseDivergente == null ? null : r.valorBaseDivergente,
+    bu: r.bu || null,
   };
   if (withId && r.id) o.id = r.id;
   return o;
+}
+
+// Classificação de BU (unidade de negócio) — atualização dirigida, só toca no
+// campo bu. Seguro para conciliados (não altera valor nem conciliação).
+export async function setRecordsBu(ids, bu) {
+  if (!ids || !ids.length) return;
+  const { error } = await supabase.from("records").update({ bu: bu || null, updated_at: nowISO() }).in("id", ids);
+  if (error) throw error;
 }
 
 // Merge de re-importação: atualiza os que mudaram (preservando id/progress/
