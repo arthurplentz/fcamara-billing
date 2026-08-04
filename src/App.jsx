@@ -4574,17 +4574,20 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
 function BuClassifierView({ records, onSetBu }) {
   const [q, setQ] = useState("");
   const [soSem, setSoSem] = useState(false);
+  const [emp, setEmp] = useState("todas");
   const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const empresasComDados = [...new Set(records.map(r=>r.empresa).filter(Boolean))].sort();
   const grupos = {};
   records.forEach(r => {
+    if (emp!=="todas" && r.empresa!==emp) return;   // escopo por empresa
     const k = key(r.cliente); if(!k) return;
-    (grupos[k] = grupos[k] || { nome:r.cliente, ids:[], total:0, bus:new Set() });
-    grupos[k].ids.push(r.id); grupos[k].total += (r.valorTotal||0); grupos[k].bus.add(r.bu||"");
+    (grupos[k] = grupos[k] || { nome:r.cliente, ids:[], total:0, bus:new Set(), emps:new Set() });
+    grupos[k].ids.push(r.id); grupos[k].total += (r.valorTotal||0); grupos[k].bus.add(r.bu||""); grupos[k].emps.add(r.empresa||"");
   });
   const all = Object.values(grupos).map(g => {
     const arr=[...g.bus];
     const buAtual = arr.filter(Boolean).length===0 ? "" : (arr.length===1 ? arr[0] : "__MISTO__");
-    return { ...g, buAtual };
+    return { ...g, buAtual, empLabel:[...g.emps].filter(Boolean).sort().join(", ") };
   }).sort((a,b)=>b.total-a.total);
   const totalCli = all.length;
   const feitos = all.filter(g=>g.buAtual && g.buAtual!=="__MISTO__").length;
@@ -4605,19 +4608,24 @@ function BuClassifierView({ records, onSetBu }) {
           <span style={{fontSize:12,color:T.muted}}>{pct}%</span>
         </div>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          <input style={{...inp,flex:1,minWidth:220}} placeholder="Buscar cliente…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <input style={{...inp,flex:1,minWidth:200}} placeholder="Buscar cliente…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <select style={{...inp,width:"auto"}} value={emp} onChange={e=>setEmp(e.target.value)}>
+            <option value="todas">Todas as empresas</option>
+            {empresasComDados.map(c=>{ const e=EMPRESAS.find(x=>x.cod===c); return <option key={c} value={c}>{c}{e?` — ${e.nome}`:""}</option>; })}
+          </select>
           <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12.5,color:T.inkSoft,cursor:"pointer",whiteSpace:"nowrap"}}><input type="checkbox" checked={soSem} onChange={e=>setSoSem(e.target.checked)}/> Só não classificados</label>
         </div>
       </Card>
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
-            <thead><tr>{["Cliente","Receitas","Valor total","BU"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Cliente","Empresa","Receitas","Valor total","BU"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>
-              {shown.length===0 && <tr><td colSpan={4} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Nenhum cliente.</td></tr>}
+              {shown.length===0 && <tr><td colSpan={5} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Nenhum cliente.</td></tr>}
               {shown.map(g=>(
                 <tr key={g.nome+"|"+g.ids.length}>
-                  <td style={{...td,maxWidth:340,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={g.nome}>{g.nome}</td>
+                  <td style={{...td,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={g.nome}>{g.nome}</td>
+                  <td style={{...td,whiteSpace:"nowrap",color:T.inkSoft}}>{g.empLabel||"—"}</td>
                   <td style={td}>{g.ids.length}</td>
                   <td style={{...td,whiteSpace:"nowrap",fontWeight:600}}>{brl(g.total)}</td>
                   <td style={{...td,whiteSpace:"nowrap"}}>
