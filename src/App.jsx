@@ -4836,45 +4836,71 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
   const [buSel, setBuSel] = useState("");
   const [emp, setEmp] = useState("todas");
   const [comp, setComp] = useState("todas");
+  const [dim, setDim] = useState("servico");        // competência por serviço × ciclo de faturamento
+  const [openCli, setOpenCli] = useState(()=>new Set());
+  const [openProj, setOpenProj] = useState(()=>new Set());
+  const toggleCli  = k => setOpenCli(s=>{const n=new Set(s); n.has(k)?n.delete(k):n.add(k); return n;});
+  const toggleProj = k => setOpenProj(s=>{const n=new Set(s); n.has(k)?n.delete(k):n.add(k); return n;});
   const bu = buSel || bus[0] || "";
   const bill = r => (r.valorTotal||0)+(varByRec[r.id]||0);
   const fat  = r => fatByRec[r.id]||0;
+  // Competência exibida/filtrada: por SERVIÇO (mês do apontamento) ou por CICLO
+  // de faturamento (respeita o dia de corte do cliente).
+  const compValue = r => dim==="ciclo" ? compFatOf(r, clients) : (r.competencia||"");
   const daBu = records.filter(r=>r.bu===bu);
   const empresasComDados = [...new Set(daBu.map(r=>r.empresa).filter(Boolean))].sort();
-  const comps = [...new Set(daBu.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>{ const [ma,ya]=String(a).split("/"),[mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
+  const comps = [...new Set(daBu.map(compValue).filter(Boolean))].sort((a,b)=>{ const [ma,ya]=String(a).split("/"),[mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
 
   let recs = daBu;
   if (emp!=="todas")  recs = recs.filter(r=>r.empresa===emp);
-  if (comp!=="todas") recs = recs.filter(r=>r.competencia===comp);
+  if (comp!=="todas") recs = recs.filter(r=>compValue(r)===comp);
 
-  const grupos = {};
+  // Árvore: Cliente → Projeto (tipo+PEP) → Consultor (cada lançamento).
+  const cliMap = {};
   recs.forEach(r => {
-    const k = key(r.cliente); if(!k) return;
-    const g = (grupos[k] = grupos[k] || { nome:r.cliente, emps:new Set(), reconhecido:0, faturado:0, represado:0, ciclo:0 });
+    const ck = key(r.cliente); if(!ck) return;
     const b=bill(r), f=fat(r), s=b-f;
-    g.reconhecido+=b; g.faturado+=f; g.emps.add(r.empresa);
-    if (s>0.01) { if (categoriaOf(r,clients).cat==="represado") g.represado+=s; else g.ciclo+=s; }
+    const isRep = s>0.01 && categoriaOf(r,clients).cat==="represado";
+    const c = cliMap[ck] || (cliMap[ck]={ key:ck, nome:r.cliente, emps:new Set(), rec:0, fat:0, rep:0, projs:{} });
+    c.rec+=b; c.fat+=f; if(isRep) c.rep+=s; c.emps.add(r.empresa);
+    const pk = `${r.tipo}||${pepBase(r.pep)}`;
+    const p = c.projs[pk] || (c.projs[pk]={ key:pk, tipo:r.tipo, pep:pepBase(r.pep), rec:0, fat:0, rep:0, cons:[] });
+    p.rec+=b; p.fat+=f; if(isRep) p.rep+=s;
+    p.cons.push({ id:r.id, profissional:r.profissional||"—", comp:compValue(r), valorHora:r.valorVenda||0, horas:r.hrsAprovadas||0, rec:b, fat:f, rep:isRep?s:0, aberto:s>0.01?s:0 });
   });
-  const lista = Object.values(grupos).map(g=>({ ...g, aberto:g.represado+g.ciclo, empLabel:[...g.emps].filter(Boolean).sort().join(", ") }))
-    .sort((a,b)=>b.reconhecido-a.reconhecido);
-  const tot = lista.reduce((t,g)=>({ rec:t.rec+g.reconhecido, fat:t.fat+g.faturado, rep:t.rep+g.represado, cic:t.cic+g.ciclo }),{rec:0,fat:0,rep:0,cic:0});
+  const clientes = Object.values(cliMap).map(c=>({ ...c, empLabel:[...c.emps].filter(Boolean).sort().join(", "),
+    projList:Object.values(c.projs).map(p=>({...p, cons:p.cons.sort((a,b)=>b.rec-a.rec)})).sort((a,b)=>b.rec-a.rec) }))
+    .sort((a,b)=>b.rec-a.rec);
+  const tot = clientes.reduce((t,c)=>({ rec:t.rec+c.rec, fat:t.fat+c.fat, rep:t.rep+c.rep }),{rec:0,fat:0,rep:0});
   const pctFat = tot.rec>0.01 ? Math.round(tot.fat/tot.rec*100) : 0;
+  const expandAll = () => { setOpenCli(new Set(clientes.map(c=>c.key))); setOpenProj(new Set(clientes.flatMap(c=>c.projList.map(p=>`${c.key}|${p.key}`)))); };
+  const collapseAll = () => { setOpenCli(new Set()); setOpenProj(new Set()); };
 
-  const th={padding:"7px 10px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`,whiteSpace:"nowrap"};
+  const th={padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`,whiteSpace:"nowrap"};
   const thR={...th,textAlign:"right"};
-  const td={padding:"7px 10px",fontSize:12.5,borderBottom:`1px solid ${T.line}`};
-  const tdR={...td,textAlign:"right",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"};
+  const cell={padding:"7px 10px",fontSize:12.5,borderBottom:`1px solid ${T.lineSoft}`};
+  const cellR={...cell,textAlign:"right",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"};
+  const chev = open => <span style={{display:"inline-block",width:14,color:T.muted,transition:"transform .1s",transform:open?"rotate(90deg)":"none"}}>▸</span>;
   const kpi=(label,valor,cor,sub)=>(
-    <Card style={{padding:16,flex:"1 1 180px"}}>
+    <Card style={{padding:16,flex:"1 1 170px"}}>
       <div style={{fontSize:12,color:T.muted,fontWeight:600}}>{label}</div>
       <div style={{fontSize:22,fontWeight:800,color:cor,marginTop:4,fontVariantNumeric:"tabular-nums"}}>{brl(valor)}</div>
       {sub && <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{sub}</div>}
     </Card>
   );
+  // Colunas de valor (reutilizadas nos 3 níveis).
+  const valCols = (o) => { const pf=o.rec>0.01?Math.round(o.fat/o.rec*100):0; return (<>
+    <td style={{...cellR,fontWeight:600}}>{brl(o.rec)}</td>
+    <td style={{...cellR,color:C.green.solid}}>{brl(o.fat)}</td>
+    <td style={cellR}>{brl(o.rec-o.fat)}</td>
+    <td style={{...cellR,color:o.rep>0.01?C.red.solid:T.faint,fontWeight:o.rep>0.01?700:400}}>{brl(o.rep)}</td>
+    <td style={cellR}>{pf}%</td>
+  </>); };
 
   return (
     <div>
-      <PageHead icon="chart" title="Visão comercial" sub="Reconhecido, faturado e represado por cliente — na ótica da unidade de negócio."/>
+      <PageHead icon="chart" title="Visão comercial" sub="Reconhecido, faturado e represado — abra em camadas: cliente → projeto → consultor."
+        right={clientes.length>0 && <div style={{display:"flex",gap:6}}><Btn small onClick={expandAll}>Expandir tudo</Btn><Btn small onClick={collapseAll}>Recolher</Btn></div>}/>
       {bus.length===0
         ? <Card style={{padding:22,textAlign:"center",color:T.muted}}>Nenhuma BU classificada ainda. Classifique os clientes em <b>Administração → Classificar BU</b> e esta visão se preenche.</Card>
         : <>
@@ -4883,10 +4909,17 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
               <Field label="Unidade de negócio (BU)"><select style={{...inp,width:"auto",minWidth:180,fontWeight:700,color:T.brand,borderColor:T.brand}} value={bu} onChange={e=>{setBuSel(e.target.value);setEmp("todas");setComp("todas");}}>{bus.map(b=><option key={b}>{b}</option>)}</select></Field>
               <Field label="Empresa"><select style={{...inp,width:"auto"}} value={emp} onChange={e=>setEmp(e.target.value)}><option value="todas">Todas</option>{empresasComDados.map(c=>{const e=EMPRESAS.find(x=>x.cod===c);return <option key={c} value={c}>{c}{e?` — ${e.nome}`:""}</option>;})}</select></Field>
               <Field label="Competência"><select style={{...inp,width:"auto"}} value={comp} onChange={e=>setComp(e.target.value)}><option value="todas">Todas</option>{comps.map(c=><option key={c}>{c}</option>)}</select></Field>
+              <Field label="Competência por" hint={dim==="ciclo"?"(ciclo de faturamento — usa o dia de corte)":"(mês do serviço/apontamento)"}>
+                <div style={{display:"inline-flex",border:`1px solid ${T.line}`,borderRadius:T.rPill,overflow:"hidden"}}>
+                  {[["servico","Serviço"],["ciclo","Ciclo"]].map(([v,l])=>(
+                    <button key={v} onClick={()=>{setDim(v);setComp("todas");}} style={{border:"none",cursor:"pointer",padding:"7px 16px",fontSize:12.5,fontWeight:700,background:dim===v?T.brand:"transparent",color:dim===v?"#fff":T.inkSoft}}>{l}</button>
+                  ))}
+                </div>
+              </Field>
             </div>
           </Card>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-            {kpi("Reconhecido", tot.rec, T.ink, `${lista.length} cliente(s)`)}
+            {kpi("Reconhecido", tot.rec, T.ink, `${clientes.length} cliente(s)`)}
             {kpi("Faturado", tot.fat, C.green.solid, `${pctFat}% do reconhecido`)}
             {kpi("A faturar", tot.rec-tot.fat, C.orange.solid, "reconhecido ainda em aberto")}
             {kpi("Represado", tot.rep, C.red.solid, "em aberto e fora do ciclo")}
@@ -4894,24 +4927,49 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
           <Card style={{padding:0,overflow:"hidden"}}>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse"}}>
-                <thead><tr><th style={th}>Cliente</th><th style={th}>Empresa</th><th style={thR}>Reconhecido</th><th style={thR}>Faturado</th><th style={thR}>A faturar</th><th style={thR}>Represado</th><th style={thR}>% fat.</th></tr></thead>
+                <thead><tr>
+                  <th style={th}>Cliente · Projeto · Consultor</th><th style={th}>Detalhe</th>
+                  <th style={thR}>Reconhecido</th><th style={thR}>Faturado</th><th style={thR}>A faturar</th><th style={thR}>Represado</th><th style={thR}>% fat.</th>
+                </tr></thead>
                 <tbody>
-                  {lista.length===0 && <tr><td colSpan={7} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Sem receitas nesse recorte.</td></tr>}
-                  {lista.map(g=>{ const pf=g.reconhecido>0.01?Math.round(g.faturado/g.reconhecido*100):0; return (
-                    <tr key={g.nome+g.empLabel}>
-                      <td style={{...td,maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={g.nome}>{g.nome}</td>
-                      <td style={{...td,color:T.inkSoft,whiteSpace:"nowrap"}}>{g.empLabel||"—"}</td>
-                      <td style={{...tdR,fontWeight:600}}>{brl(g.reconhecido)}</td>
-                      <td style={{...tdR,color:C.green.solid}}>{brl(g.faturado)}</td>
-                      <td style={tdR}>{brl(g.aberto)}</td>
-                      <td style={{...tdR,color:g.represado>0.01?C.red.solid:T.faint,fontWeight:g.represado>0.01?700:400}}>{brl(g.represado)}</td>
-                      <td style={tdR}>{pf}%</td>
-                    </tr>
-                  );})}
+                  {clientes.length===0 && <tr><td colSpan={7} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Sem receitas nesse recorte.</td></tr>}
+                  {clientes.flatMap(c=>{
+                    const cOpen = openCli.has(c.key);
+                    const rows = [(
+                      <tr key={c.key} onClick={()=>toggleCli(c.key)} style={{cursor:"pointer",background:T.canvas}}>
+                        <td style={{...cell,fontWeight:700,color:T.ink,maxWidth:320,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={c.nome}>{chev(cOpen)} {c.nome}</td>
+                        <td style={{...cell,color:T.inkSoft,whiteSpace:"nowrap"}}>{c.empLabel||"—"} · {c.projList.length} projeto(s)</td>
+                        {valCols(c)}
+                      </tr>
+                    )];
+                    if (cOpen) c.projList.forEach(p=>{
+                      const pKey=`${c.key}|${p.key}`, pOpen=openProj.has(pKey);
+                      rows.push(
+                        <tr key={pKey} onClick={()=>toggleProj(pKey)} style={{cursor:"pointer"}}>
+                          <td style={{...cell,paddingLeft:30,fontWeight:600,color:T.ink,whiteSpace:"nowrap"}}>{chev(pOpen)} {p.pep||"—"}</td>
+                          <td style={{...cell,color:T.muted,whiteSpace:"nowrap"}}><Badge label={p.tipo||"—"} color="gray" small/> · {p.cons.length} consultor(es)</td>
+                          {valCols(p)}
+                        </tr>
+                      );
+                      if (pOpen) p.cons.forEach(cn=>rows.push(
+                        <tr key={pKey+"|"+cn.id}>
+                          <td style={{...cell,paddingLeft:52,color:T.inkSoft,maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={cn.profissional}>{cn.profissional}</td>
+                          <td style={{...cell,color:T.muted,whiteSpace:"nowrap",fontSize:11.5}}>{cn.comp||"—"} · <b style={{color:T.inkSoft}}>{brl(cn.valorHora)}</b>/h · <b style={{color:T.inkSoft}}>{(cn.horas||0).toLocaleString("pt-BR")}</b>h</td>
+                          <td style={{...cellR,fontWeight:600}}>{brl(cn.rec)}</td>
+                          <td style={{...cellR,color:C.green.solid}}>{brl(cn.fat)}</td>
+                          <td style={cellR}>{brl(cn.rec-cn.fat)}</td>
+                          <td style={{...cellR,color:cn.rep>0.01?C.red.solid:T.faint}}>{brl(cn.rep)}</td>
+                          <td style={cellR}>{cn.rec>0.01?Math.round(cn.fat/cn.rec*100):0}%</td>
+                        </tr>
+                      ));
+                    });
+                    return rows;
+                  })}
                 </tbody>
               </table>
             </div>
           </Card>
+          <div style={{fontSize:11.5,color:T.faint,marginTop:10,lineHeight:1.5}}>Clique numa linha para abrir. <b>Serviço</b> = competência do mês do apontamento. <b>Ciclo</b> = competência de faturamento (respeita o dia de corte do cliente). No consultor: <b>valor/hora</b> e <b>horas</b> da competência.</div>
         </>}
     </div>
   );
