@@ -2878,6 +2878,17 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
     return !viaAloc && !viaLegado;
   });
 
+  // Conferência de mão dupla (o problema #5): faturado ↔ reconhecido.
+  const totExc = foraRegra.length + semNota.length;
+  const exportar = () => {
+    const rows = [
+      ...foraRegra.map(l=>["Divergência de conciliação", l.cli, `NF ${l.nfs||"—"}`, "", brl(l.sn), brl(l.sr), brl(l.dif)]),
+      ...semNota.map(r=>["Faturado sem nota", r.cliente, `${r.profissional||r.pep} · ${r.competencia} · ${r.empresa}`, recStatus(r,fatByRec[r.id],bill(r)), "", "", brl(bill(r))]),
+      ...dups.map(g=>["Receita duplicada", g[0].cliente, `${g[0].profissional||g[0].pep} · ${g[0].competencia} · ${g[0].tipo} · ${g[0].empresa}`, `${g.length}×`, "", "", brl(g[0].valorTotal)]),
+    ];
+    downloadCSV("FCamara_Conferencia.csv", ["Exceção","Cliente","Detalhe","Status/Qtd","Notas","Receitas","Valor/Diferença"], rows);
+  };
+
   const Result = ({ id, titulo, desc, problemas, children }) => {
     const ok = problemas===0; const isOpen = open===id;
     return (
@@ -2900,6 +2911,17 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
   return (
     <div>
       <PageHead icon="check" title="Validações do sistema" sub="confere se o faturamento está batendo"/>
+      <Card style={{padding:16,marginBottom:16,border:`1px solid ${totExc?T.dangerLine:T.okLine}`,background:totExc?T.dangerBg:T.okBg}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <div style={{fontSize:26}}>{totExc?"⚠️":"🛡️"}</div>
+          <div style={{flex:1,minWidth:220}}>
+            <div style={{fontWeight:800,fontSize:15,color:T.ink}}>Conferência faturado ↔ reconhecido</div>
+            <div style={{fontSize:12.5,color:T.inkSoft,marginTop:2}}>Garante os dois lados: toda receita faturada tem nota amarrada, e nota × receita batem por conciliação. {totExc?`${totExc} exceção(ões) a revisar.`:"Sem exceções — 100% reconciliado."}</div>
+          </div>
+          <div style={{fontSize:26,fontWeight:800,color:totExc?T.danger:T.ok,minWidth:32,textAlign:"center"}}>{totExc||"✓"}</div>
+          <Btn icon="download" onClick={exportar}>Exportar exceções</Btn>
+        </div>
+      </Card>
       <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Rodam sobre todos os dados carregados. Verde = ok; laranja = clique para ver o que revisar.</div>
 
       <Result id="lotes" titulo="Conciliado da prefeitura × receita conciliada (regra de R$ 1,00)"
