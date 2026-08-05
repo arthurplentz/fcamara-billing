@@ -2962,12 +2962,13 @@ function ProfContinuityView({ records }) {
   const thMes  = { padding:"9px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:78 };
   const tdName = { position:"sticky", left:0, zIndex:1, background:"var(--surface)", padding:"7px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:220, maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" };
   const tdCell = { padding:"6px 8px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, textAlign:"center", whiteSpace:"nowrap", fontVariantNumeric:"tabular-nums" };
+  const fmtH = h => h.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1});
   const cellStyle = (a,i) => {
     const h = a.byH[months[i]]||0;
-    if (h>0) return { txt:`${h.toLocaleString("pt-BR")}h`, bg:"transparent", color:T.ink, w:700, title:`${brl(a.byV[months[i]]||0)}` };
+    if (h>0) return { txt:`${fmtH(h)}h`, bg:"#f0f7ff", color:T.ink, w:700, title:`${fmtH(h)}h · ${brl(a.byV[months[i]]||0)}` };
     if (a.first<0 || i<a.first) return { txt:"·", bg:"transparent", color:T.faint, w:400, title:"antes de começar" };
-    if (i>a.last) return { txt:"— saiu", bg:"#fff7ed", color:C.orange.solid, w:700, title:"sem horas depois do último mês ativo" };
-    return { txt:"— falta", bg:"#fef2f2", color:C.red.solid, w:700, title:"lacuna: tinha antes e depois, mas não neste mês" };
+    if (i>a.last) return { txt:"saiu", bg:"#fff7ed", color:C.orange.solid, w:700, title:"sem horas depois do último mês ativo" };
+    return { txt:"falta", bg:"#fef2f2", color:C.red.solid, w:700, title:"lacuna: tinha antes e depois, mas não neste mês" };
   };
 
   return (
@@ -3017,8 +3018,8 @@ function ProfContinuityView({ records }) {
               {list.map(a=>(
                 <tr key={a.prof}>
                   <td style={tdName} title={a.prof}>{a.flag && <span title={a.sumiuTail?"sumiu antes do fim":"lacuna no meio"} style={{color:a.sumiuTail?C.orange.solid:C.red.solid,fontWeight:800,marginRight:5}}>⚠</span>}{a.prof}</td>
-                  {months.map((m,i)=>{ const s=cellStyle(a,i); return <td key={m} style={{...tdCell,background:s.bg,color:s.color,fontWeight:s.w}} title={s.title}>{s.txt}</td>; })}
-                  <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`,fontWeight:700}}>{a.totalH.toLocaleString("pt-BR")}h</td>
+                  {months.map((m,i)=>{ const s=cellStyle(a,i); return <td key={m} style={{...tdCell,background:s.bg,color:s.color,fontWeight:s.w,fontSize:12}} title={s.title}>{s.txt}</td>; })}
+                  <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`,fontWeight:700}}>{fmtH(a.totalH)}h</td>
                 </tr>
               ))}
             </tbody>
