@@ -1881,8 +1881,16 @@ const NAV_SECTIONS = [
 
 const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
-function NavLinks({ page, setPage, isAdmin, onNavigate }) {
-  const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
+// Navegação do acesso COMERCIAL — enxuta: só a receita da BU dele.
+const COMERCIAL_NAV_SECTIONS = [
+  { group:"", links:[ {id:"dash",icon:"chart",label:"Dashboard"} ] },
+  { group:"Minha BU", links:[ {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"report",icon:"file",label:"Report semanal"} ] },
+];
+// Páginas que o comercial pode abrir (trava de UI; o RLS trava o dado).
+const COMERCIAL_PAGES = new Set(["dash","projeto","report"]);
+
+function NavLinks({ page, setPage, isAdmin, isComercial, onNavigate }) {
+  const sections = isComercial ? COMERCIAL_NAV_SECTIONS : isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
   return (
     <>
       {sections.map(sec=>(
@@ -1909,35 +1917,36 @@ function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   );
 }
 
-function UserChip({ user, isAdmin }) {
+function UserChip({ user, isAdmin, isComercial }) {
+  const papel = isComercial ? `Comercial${user.bu?` · ${user.bu}`:""}` : isAdmin ? "Administrador" : "Analista";
   return (
     <div style={{ display:"flex", alignItems:"center", gap:9, padding:"4px 8px 14px", marginBottom:6, borderBottom:`1px solid ${T.lineSoft}` }}>
       <Avatar name={user.name} admin={isAdmin}/>
       <div style={{ minWidth:0 }}>
         <div style={{ fontSize:13, fontWeight:700, color:T.ink, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{user.name}</div>
-        <div style={{ fontSize:11, color:isAdmin?T.brand:T.muted, fontWeight:600 }}>{isAdmin?"Administrador":"Analista"}</div>
+        <div style={{ fontSize:11, color:(isAdmin||isComercial)?T.brand:T.muted, fontWeight:600 }}>{papel}</div>
       </div>
     </div>
   );
 }
 
-function Sidebar({ page, setPage, user, isAdmin }) {
+function Sidebar({ page, setPage, user, isAdmin, isComercial }) {
   return (
     <aside style={{width:212,flexShrink:0,background:"var(--surface)",borderRight:`1px solid ${T.line}`,padding:"18px 12px",display:"flex",flexDirection:"column"}}>
-      <UserChip user={user} isAdmin={isAdmin}/>
-      <NavLinks page={page} setPage={setPage} isAdmin={isAdmin}/>
+      <UserChip user={user} isAdmin={isAdmin} isComercial={isComercial}/>
+      <NavLinks page={page} setPage={setPage} isAdmin={isAdmin} isComercial={isComercial}/>
     </aside>
   );
 }
 
-function MobileDrawer({ open, onClose, page, setPage, user, isAdmin }) {
+function MobileDrawer({ open, onClose, page, setPage, user, isAdmin, isComercial }) {
   if (!open) return null;
   return (
     <div style={{ position:"fixed", inset:0, zIndex:250 }}>
       <div style={{ position:"absolute", inset:0, background:"rgba(15,23,42,.5)", animation:"fcOverlay .15s ease" }} onClick={onClose}/>
       <aside style={{ position:"absolute", top:0, left:0, bottom:0, width:240, background:"var(--surface)", padding:"18px 12px", boxShadow:T.shLg, display:"flex", flexDirection:"column", overflowY:"auto" }}>
-        <UserChip user={user} isAdmin={isAdmin}/>
-        <NavLinks page={page} setPage={setPage} isAdmin={isAdmin} onNavigate={onClose}/>
+        <UserChip user={user} isAdmin={isAdmin} isComercial={isComercial}/>
+        <NavLinks page={page} setPage={setPage} isAdmin={isAdmin} isComercial={isComercial} onNavigate={onClose}/>
       </aside>
     </div>
   );
@@ -2255,16 +2264,20 @@ function AccessEditModal({ profile, onSave, onClose }) {
   const [apelido, setApelido] = useState(profile.apelido || "");
   const [aniversario, setAniv]= useState(profile.aniversario || "");
   const [responsavel, setResp]= useState(profile.responsavel || "");
-  const [papel, setPapel]     = useState(profile.isViewer ? "viewer" : profile.isAdmin ? "admin" : "analista");
+  const [papel, setPapel]     = useState(profile.isComercial ? "comercial" : profile.isViewer ? "viewer" : profile.isAdmin ? "admin" : "analista");
+  const [bu, setBu]           = useState(profile.bu || BUS[0]);
   const [err, setErr]         = useState("");
   function save() {
     const nm = name.trim();
     if (!nm) { setErr("Informe o nome de exibição."); return; }
-    onSave({ id: profile.id, name: nm, isAdmin: papel==="admin", isViewer: papel==="viewer", responsavel: responsavel.trim(), apelido: apelido.trim(), aniversario: aniversario.trim() });
+    if (papel==="comercial" && !bu) { setErr("Escolha a BU deste comercial."); return; }
+    onSave({ id: profile.id, name: nm, isAdmin: papel==="admin", isViewer: papel==="viewer", isComercial: papel==="comercial",
+      bu: papel==="comercial" ? bu : "", responsavel: responsavel.trim(), apelido: apelido.trim(), aniversario: aniversario.trim() });
     onClose();
   }
   const PAPEIS = [
     { v:"analista", l:"Analista", d:"Vê e edita as próprias receitas (vínculo abaixo)." },
+    { v:"comercial",l:"Comercial (BU)", d:"Vê só a receita da sua BU — Dashboard, Visão por projeto e Report semanal. Não altera dados." },
     { v:"viewer",   l:"Somente visualização", d:"Vê todas as telas e extrai relatórios, mas não altera nenhum dado." },
     { v:"admin",    l:"Administrador", d:"Acesso completo: importar, exportar, todos os analistas e gestão de acessos." },
   ];
@@ -2285,7 +2298,13 @@ function AccessEditModal({ profile, onSave, onClose }) {
           {PAPEIS.map(op=>{ const on=papel===op.v; return (
             <label key={op.v} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:T.inkSoft,cursor:"pointer",padding:"10px 12px",borderRadius:T.rMd,border:`1px solid ${on?T.brand:T.line}`,background:on?T.brandBg:"var(--surface)"}}>
               <input type="radio" name="papel" checked={on} onChange={()=>setPapel(op.v)} style={{width:16,height:16,marginTop:1}}/>
-              <span><b style={{color:on?T.brand:T.inkSoft}}>{op.l}</b><br/><span style={{fontSize:11,color:T.muted}}>{op.d}</span></span>
+              <span style={{flex:1}}><b style={{color:on?T.brand:T.inkSoft}}>{op.l}</b><br/><span style={{fontSize:11,color:T.muted}}>{op.d}</span>
+                {op.v==="comercial" && on && <div style={{marginTop:10}}>
+                  <label style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".4px",display:"block",marginBottom:5}}>Unidade de negócio (BU)</label>
+                  <select style={{...inp,width:"auto",minWidth:200,fontWeight:700,color:T.brand,borderColor:T.brand}} value={bu} onChange={e=>setBu(e.target.value)}>{BUS.map(b=><option key={b}>{b}</option>)}</select>
+                  <div style={{fontSize:11,color:T.muted,marginTop:5}}>Este comercial enxerga apenas os projetos/receita classificados nesta BU. Classifique os clientes em <b>Administração → Classificar BU</b>.</div>
+                </div>}
+              </span>
             </label>
           );})}
         </div>
@@ -2344,7 +2363,7 @@ function AccessManagement({ profiles, currentUserId, onUpdate, onRemove, onRefre
                         <span style={{fontWeight:600,color:T.ink}}>{u.name}{isSelf&&<span style={{fontSize:11,color:T.muted,fontWeight:500}}> (você)</span>}</span>
                       </span>
                     </td>
-                    <td style={{padding:"10px 14px"}}><Badge label={u.isViewer?"Somente visualização":u.isAdmin?"Administrador":"Analista"} color={u.isViewer?"teal":u.isAdmin?"blue":"gray"} small dot/></td>
+                    <td style={{padding:"10px 14px"}}><Badge label={u.isComercial?`Comercial${u.bu?` · ${u.bu}`:""}`:u.isViewer?"Somente visualização":u.isAdmin?"Administrador":"Analista"} color={u.isComercial?"orange":u.isViewer?"teal":u.isAdmin?"blue":"gray"} small dot/></td>
                     <td style={{padding:"10px 14px",textAlign:"right",whiteSpace:"nowrap"}}>
                       <Btn small onClick={()=>setEditing(u)} style={{marginRight:6}}>Editar</Btn>
                       <Btn small danger disabled={isSelf||lastAdmin} onClick={()=>setConfirm(u)}
@@ -2386,6 +2405,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   const [peps, setPeps] = useState(() => { const m=parseJSON(client?.tiposPeps, {}); return (m && typeof m==="object" && !Array.isArray(m))?m:{}; });
   const [propostas, setPropostas] = useState(() => { const a=parseJSON(client?.propostas, null); if(Array.isArray(a)) return a.length?a:[""]; return client?.propostaUrl?[client.propostaUrl]:[""]; });
   const [entidades, setEnt] = useState(() => { const a=parseJSON(client?.cnpjs, null); if(Array.isArray(a)&&a.length) return a; return [{ razao:client?.nome||"", cnpj:client?.cnpj||"", codSap:client?.codSap||"" }]; });
+  const [projetos, setProjetos] = useState(() => { const a=parseJSON(client?.projetos, []); return Array.isArray(a)?a:[]; });
   const [tab, setTab] = useState("dados");
   const [err, setErr] = useState("");
   const set = (k,v) => setF(p=>({...p,[k]:v}));
@@ -2415,6 +2435,12 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
   const addEntidade = () => setEnt(a=>[...a,{razao:"",cnpj:"",codSap:""}]);
   const delEntidade = (i) => setEnt(a=>a.filter((_,j)=>j!==i));
 
+  const addProjeto = () => setProjetos(a=>[...a,{nome:"",pep:"",inicio:"",vencimento:"",valor:"",status:"Ativo",obs:""}]);
+  const setProjeto = (i,k,v) => setProjetos(a=>a.map((p,j)=>j===i?{...p,[k]:v}:p));
+  const delProjeto = (i) => setProjetos(a=>a.filter((_,j)=>j!==i));
+  const hojeISO = new Date().toISOString().slice(0,10);
+  const projVencido = (p) => p.vencimento && String(p.vencimento).slice(0,10) < hojeISO && p.status!=="Encerrado" && p.status!=="Renovado";
+
   function save() {
     if (!(f.nome||"").trim()) { setTab("dados"); setErr("Informe o nome do cliente/grupo."); return; }
     if (f.temPortal && (!(f.portalLink||"").trim() || !(f.portalUsuario||"").trim() || !(f.portalSenha||"").trim())) {
@@ -2423,7 +2449,9 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
     const cleanPeps = {}; selTipos.forEach(t=>{ const arr=(peps[t]||[]).map(s=>s.trim()).filter(Boolean); if(arr.length) cleanPeps[t]=arr; });
     const cleanProp = propostas.map(s=>s.trim()).filter(Boolean);
     const cleanEnt = entidades.map(e=>({razao:(e.razao||"").trim(),cnpj:(e.cnpj||"").replace(/\D/g,"").slice(0,14),codSap:(e.codSap||"").trim()})).filter(e=>e.cnpj||e.razao||e.codSap);
+    const cleanProj = projetos.map(p=>({ nome:(p.nome||"").trim(), pep:(p.pep||"").trim(), inicio:p.inicio||"", vencimento:p.vencimento||"", valor:(p.valor||"").toString().trim(), status:p.status||"Ativo", obs:(p.obs||"").trim() })).filter(p=>p.nome||p.pep||p.vencimento);
     onSave({ ...f, nome:f.nome.trim(), calendario: JSON.stringify(passos), tiposPeps: JSON.stringify(cleanPeps), propostas: JSON.stringify(cleanProp),
+      projetos: JSON.stringify(cleanProj), processo: (f.processo||"").trim(),
       cnpjs: JSON.stringify(cleanEnt), cnpj: cleanEnt[0]?.cnpj || "", codSap: cleanEnt[0]?.codSap || "" });
     onClose();
   }
@@ -2432,7 +2460,7 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
     <Modal title={isNew?"Novo cliente":`Cliente — ${client.nome}`} subtitle="Perfil de faturamento do cliente" onClose={onClose} wide>
       {/* Abas: Dados x Calendário (passo a passo) */}
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:18}}>
-        {[["dados","Dados do cliente"],["calendario","Calendário (passo a passo)"]].map(([id,label])=>(
+        {[["dados","Dados do cliente"],["processo","Processo & projetos"],["calendario","Calendário (passo a passo)"]].map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 12px",fontSize:13,fontWeight:tab===id?700:500,color:tab===id?T.brand:T.muted,borderBottom:`2px solid ${tab===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -2555,6 +2583,44 @@ function ClientModal({ client, onSave, onDelete, onClose }) {
         <Field label="Nome"><input style={inp} value={f.accountManager||""} onChange={e=>set("accountManager",e.target.value)}/></Field>
         <Field label="E-mail"><input style={inp} type="email" placeholder="am@grupofcamara.com" value={f.accountManagerEmail||""} onChange={e=>set("accountManagerEmail",e.target.value)}/></Field>
       </CSec>
+      </>}
+
+      {tab==="processo" && <>
+        <CSec title="Processo do cliente" grid={false}>
+          <div style={{fontSize:12,color:T.muted,marginBottom:8}}>O jeito que este cliente funciona de ponta a ponta — particularidades, quem aprova, ordem de faturamento, o que costuma travar. O conhecimento que hoje fica na cabeça do analista, centralizado aqui.</div>
+          <textarea style={{...inp,minHeight:150,resize:"vertical",lineHeight:1.55}} placeholder="Ex: Fatura só depois da medição no portal. O gerente X aprova as horas até dia 5. NF sempre por CNPJ da filial. Costuma atrasar aprovação no fim do trimestre…" value={f.processo||""} onChange={e=>set("processo",e.target.value)}/>
+        </CSec>
+
+        <div style={{marginBottom:8,marginTop:6,padding:"10px 12px",borderRadius:T.rMd,background:T.canvas,border:`1px solid ${T.line}`,fontSize:12,color:T.inkSoft}}>
+          <b>Prazos & datas deste cliente</b> — dia de corte, prazo de vencimento e período de faturamento ficam na aba <b>Dados do cliente → Faturamento</b>. As propostas, na aba <b>Dados do cliente → Propostas</b>.
+        </div>
+
+        <CSec title="Projetos & vencimentos" grid={false}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8,flexWrap:"wrap"}}>
+            <div style={{fontSize:12,color:T.muted}}>Contratos/projetos do cliente com data de vencimento — para enxergar o que está <b style={{color:C.red.solid}}>vencido</b> ou a vencer.</div>
+            <Btn small primary onClick={addProjeto}>+ Projeto</Btn>
+          </div>
+          {projetos.length===0 && <div style={{fontSize:13,color:T.muted,padding:"20px 16px",textAlign:"center",background:T.canvas,borderRadius:T.rLg,border:`1px dashed ${T.line}`}}>Nenhum projeto cadastrado.<br/>Clique em “+ Projeto” para incluir contratos e datas de vencimento.</div>}
+          {projetos.map((p,i)=>(
+            <div key={i} style={{border:`1px solid ${projVencido(p)?"#fca5a5":T.line}`,borderRadius:T.rLg,padding:"12px",marginBottom:8,background:projVencido(p)?T.dangerBg:"var(--surface)"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:12,fontWeight:700,color:T.brand}}>Projeto {i+1}{projVencido(p) && <Badge label="VENCIDO" color="red" small/>}</span>
+                <button onClick={()=>delProjeto(i)} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:12,fontWeight:600}}>✕ Remover</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <Field label="Nome do projeto / contrato"><input style={inp} placeholder="Ex: Sustentação SAP 2026" value={p.nome||""} onChange={e=>setProjeto(i,"nome",e.target.value)}/></Field>
+                <Field label="PEP"><input style={inp} placeholder="Ex: BR02CLP00046" value={p.pep||""} onChange={e=>setProjeto(i,"pep",e.target.value)}/></Field>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.2fr",gap:10}}>
+                <Field label="Início"><input type="date" style={inp} value={p.inicio||""} onChange={e=>setProjeto(i,"inicio",e.target.value)}/></Field>
+                <Field label="Vencimento"><input type="date" style={inp} value={p.vencimento||""} onChange={e=>setProjeto(i,"vencimento",e.target.value)}/></Field>
+                <Field label="Valor do contrato"><input style={inp} placeholder="Ex: 480.000" value={p.valor||""} onChange={e=>setProjeto(i,"valor",e.target.value)}/></Field>
+                <Field label="Status"><select style={inp} value={p.status||"Ativo"} onChange={e=>setProjeto(i,"status",e.target.value)}>{["Ativo","A vencer","Vencido","Renovado","Encerrado"].map(s=><option key={s}>{s}</option>)}</select></Field>
+              </div>
+              <Field label="Observação"><input style={inp} placeholder="Renovação em negociação, aditivo pendente…" value={p.obs||""} onChange={e=>setProjeto(i,"obs",e.target.value)}/></Field>
+            </div>
+          ))}
+        </CSec>
       </>}
 
       {tab==="calendario" && <>
@@ -3234,10 +3300,24 @@ function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClas
   list.forEach(r=>{ (grouped[r.cliente]=grouped[r.cliente]||[]).push(r); });
   const groups = Object.entries(grouped).map(([cli,recs])=>({cli, recs, tot:recs.reduce((s,r)=>s+rep(r),0)})).sort((a,b)=>b.tot-a.tot);
 
+  // Exporta o que está filtrado (mesma lista da tela), já formatado em .xlsx.
+  function exportXLSX() {
+    const headers = ["Empresa","Cliente","PEP","Profissional","Tipo","Compet. faturamento","Represado (R$)","Motivo","Observação"];
+    const rows = list
+      .slice().sort((a,b)=>rep(b)-rep(a))
+      .map(r=>{ const { compFat } = categoriaOf(r,clients); return [
+        r.empresa||"", r.cliente||"", r.pep||"", r.profissional||"", r.tipo||"",
+        compFat||"", Number(rep(r).toFixed(2)), r.classMotivo||"", r.classObs||"",
+      ]; });
+    const stamp = new Date().toISOString().slice(0,10);
+    downloadXLSX(`Represados_${rows.length}_${stamp}.xlsx`, headers, rows);
+  }
+
   return (
     <div>
       {classTarget && <ClassifyModal record={classTarget} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSave={onSaveClass} onClose={()=>setClass(null)}/>}
-      <PageHead icon="alert" title="Represados" sub={`${base.length} receita(s) · ${brl(totalBase)} represado · ${semClass} sem classificação`}/>
+      <PageHead icon="alert" title="Represados" sub={`${base.length} receita(s) · ${brl(totalBase)} represado · ${semClass} sem classificação`}
+        right={<Btn primary icon="download" disabled={!list.length} onClick={exportXLSX}>Exportar Excel</Btn>}/>
       <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Único lugar para registrar/editar o motivo do represamento e a observação. Represado = receita ainda em aberto que passou da folga de 1 mês sobre a competência de faturamento (respeita período quebrado).</div>
 
       <Card style={{padding:"12px 14px",marginBottom:16}}>
@@ -4759,6 +4839,155 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
   );
 }
 
+// ─── REPORT SEMANAL DO COMERCIAL ─────────────────────────────────────────────
+// A mesma foto que o "disparo" (Edge Function) manda por e-mail — aqui dentro do
+// app, para o comercial ver, baixar em Excel e enviar na hora. Detalha por tipo
+// de projeto; em Time & Expenses, mostra a linha de cada consultor (valor/hora,
+// horas e total).
+function WeeklyReportView({ records, clients=[], bu, nome, fatByRec={}, varByRec={} }) {
+  const toast = useToast();
+  const [sending, setSending] = useState(false);
+  const bill = r => (r.valorTotal||0)+(varByRec[r.id]||0);
+  const fat  = r => fatByRec[r.id]||0;
+  const rep  = r => bill(r)-fat(r);
+  const empNome = cod => EMPRESAS.find(e=>e.cod===cod)?.nome||"";
+
+  const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>{ const [ma,ya]=String(a).split("/"),[mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
+  const [comp, setComp] = useState("todas");
+  const recs = comp==="todas" ? records : records.filter(r=>r.competencia===comp);
+
+  const tot = recs.reduce((a,r)=>({ rec:a.rec+bill(r), fat:a.fat+fat(r), rep:a.rep+Math.max(0,rep(r)) }),{rec:0,fat:0,rep:0});
+  const pctFat = tot.rec>0.01 ? Math.round(tot.fat/tot.rec*100) : 0;
+
+  // Agrupa por tipo de projeto.
+  const porTipo = {};
+  recs.forEach(r=>{ (porTipo[r.tipo||"—"]=porTipo[r.tipo||"—"]||[]).push(r); });
+  const isTE = t => /time|expense|t&e/i.test(t);
+
+  const th={padding:"7px 10px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`,whiteSpace:"nowrap"};
+  const thR={...th,textAlign:"right"};
+  const td={padding:"7px 10px",fontSize:12.5,borderBottom:`1px solid ${T.lineSoft}`};
+  const tdR={...td,textAlign:"right",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"};
+  const kpi=(label,valor,cor,sub)=>(
+    <Card style={{padding:16,flex:"1 1 170px"}}>
+      <div style={{fontSize:12,color:T.muted,fontWeight:600}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,color:cor,marginTop:4,fontVariantNumeric:"tabular-nums"}}>{brl(valor)}</div>
+      {sub && <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{sub}</div>}
+    </Card>
+  );
+
+  function exportXLSX() {
+    const headers = ["Tipo","Empresa","Cliente","Consultor / PEP","Valor/hora","Horas","Reconhecido","Faturado","Represado"];
+    const rows = [];
+    Object.entries(porTipo).forEach(([tipo,list])=>{
+      list.slice().sort((a,b)=>bill(b)-bill(a)).forEach(r=>{
+        rows.push([ tipo, r.empresa||"", r.cliente||"", isTE(tipo)?(r.profissional||"—"):(r.pep||"—"),
+          isTE(tipo)?Number((r.valorVenda||0).toFixed(2)):"", isTE(tipo)?(r.hrsAprovadas||0):"",
+          Number(bill(r).toFixed(2)), Number(fat(r).toFixed(2)), Number(Math.max(0,rep(r)).toFixed(2)) ]);
+      });
+    });
+    const stamp = new Date().toISOString().slice(0,10);
+    downloadXLSX(`Report_${(bu||"BU").replace(/\s+/g,"_")}_${stamp}.xlsx`, headers, rows);
+  }
+
+  async function enviarAgora() {
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("weekly-commercial-report", { body:{ bu } });
+      if (error) throw error;
+      const sent = data?.sent ?? 0;
+      toast(sent>0 ? `Report enviado por e-mail (${sent}).` : "Disparo executado — verifique a configuração de e-mail (RESEND_API_KEY).", sent>0?"success":"info");
+    } catch(e) {
+      toast("Envio automático ainda não ativado neste ambiente. Baixe o Excel para encaminhar, ou peça ao admin para publicar a função de e-mail.", "info");
+    } finally { setSending(false); }
+  }
+
+  return (
+    <div>
+      <PageHead icon="file" title="Report semanal" sub={`${bu||"Sua BU"} — reconhecido, faturado e represado, detalhado por tipo de projeto.`}
+        right={<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn icon="download" disabled={!recs.length} onClick={exportXLSX}>Baixar Excel</Btn>
+          <Btn primary icon="check" disabled={!recs.length||sending} onClick={enviarAgora}>{sending?"Enviando…":"Enviar por e-mail"}</Btn>
+        </div>}/>
+
+      <Card style={{padding:14,marginBottom:14}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <Field label="Competência"><select style={{...inp,width:"auto",minWidth:150}} value={comp} onChange={e=>setComp(e.target.value)}><option value="todas">Todas</option>{comps.map(c=><option key={c}>{c}</option>)}</select></Field>
+          <div style={{fontSize:12,color:T.muted,flex:1,minWidth:200}}>Esta é exatamente a foto que o disparo automático semanal envia por e-mail para o comercial da BU.</div>
+        </div>
+      </Card>
+
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+        {kpi("Reconhecido", tot.rec, T.ink, `${recs.length} lançamento(s)`)}
+        {kpi("Faturado", tot.fat, C.green.solid, `${pctFat}% do reconhecido`)}
+        {kpi("A faturar", tot.rec-tot.fat, C.orange.solid, "reconhecido em aberto")}
+        {kpi("Represado", tot.rep, C.red.solid, "em aberto e fora do ciclo")}
+      </div>
+
+      {recs.length===0
+        ? <Card style={{padding:28,textAlign:"center",color:T.muted}}>Sem receitas classificadas na sua BU para este recorte.</Card>
+        : Object.entries(porTipo).sort((a,b)=>b[1].reduce((s,r)=>s+bill(r),0)-a[1].reduce((s,r)=>s+bill(r),0)).map(([tipo,list])=>{
+          const subtot = list.reduce((a,r)=>({rec:a.rec+bill(r),fat:a.fat+fat(r),rep:a.rep+Math.max(0,rep(r))}),{rec:0,fat:0,rep:0});
+          if (isTE(tipo)) {
+            return (
+              <Card key={tipo} style={{padding:0,overflow:"hidden",marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.canvas,borderBottom:`1px solid ${T.lineSoft}`,flexWrap:"wrap"}}>
+                  <Badge label={tipo} color="blue" small/><span style={{fontSize:11.5,color:T.muted}}>por consultor</span><div style={{flex:1}}/>
+                  <span style={{fontSize:12.5,fontWeight:700}}>{brl(subtot.rec)}</span>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead><tr><th style={th}>Cliente</th><th style={th}>Consultor</th><th style={th}>PEP</th><th style={thR}>Valor/hora</th><th style={thR}>Horas</th><th style={thR}>Total</th><th style={thR}>Faturado</th><th style={thR}>Represado</th></tr></thead>
+                    <tbody>
+                      {list.slice().sort((a,b)=>bill(b)-bill(a)).map(r=>(
+                        <tr key={r.id}>
+                          <td style={{...td,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.cliente}>{r.cliente}</td>
+                          <td style={{...td,whiteSpace:"nowrap"}}>{r.profissional||"—"}</td>
+                          <td style={{...td,color:T.muted,fontSize:11,whiteSpace:"nowrap"}}>{r.pep||"—"}</td>
+                          <td style={tdR}>{brl(r.valorVenda||0)}</td>
+                          <td style={tdR}>{(r.hrsAprovadas||0).toLocaleString("pt-BR")}</td>
+                          <td style={{...tdR,fontWeight:600}}>{brl(bill(r))}</td>
+                          <td style={{...tdR,color:C.green.solid}}>{brl(fat(r))}</td>
+                          <td style={{...tdR,color:Math.max(0,rep(r))>0.01?C.red.solid:T.faint}}>{brl(Math.max(0,rep(r)))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            );
+          }
+          // Demais tipos: consolidado por cliente.
+          const byCli={};
+          list.forEach(r=>{ const k=r.cliente||"—"; const g=(byCli[k]=byCli[k]||{rec:0,fat:0,rep:0,emp:new Set()}); g.rec+=bill(r); g.fat+=fat(r); g.rep+=Math.max(0,rep(r)); g.emp.add(r.empresa); });
+          return (
+            <Card key={tipo} style={{padding:0,overflow:"hidden",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.canvas,borderBottom:`1px solid ${T.lineSoft}`,flexWrap:"wrap"}}>
+                <Badge label={tipo} color="gray" small/><div style={{flex:1}}/><span style={{fontSize:12.5,fontWeight:700}}>{brl(subtot.rec)}</span>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead><tr><th style={th}>Cliente</th><th style={th}>Empresa</th><th style={thR}>Reconhecido</th><th style={thR}>Faturado</th><th style={thR}>Represado</th></tr></thead>
+                  <tbody>
+                    {Object.entries(byCli).sort((a,b)=>b[1].rec-a[1].rec).map(([cli,g])=>(
+                      <tr key={cli}>
+                        <td style={{...td,maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={cli}>{cli}</td>
+                        <td style={{...td,color:T.inkSoft,whiteSpace:"nowrap"}}>{[...g.emp].filter(Boolean).join(", ")||"—"}</td>
+                        <td style={{...tdR,fontWeight:600}}>{brl(g.rec)}</td>
+                        <td style={{...tdR,color:C.green.solid}}>{brl(g.fat)}</td>
+                        <td style={{...tdR,color:g.rep>0.01?C.red.solid:T.faint}}>{brl(g.rep)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          );
+        })}
+    </div>
+  );
+}
+
 // ─── PREVISÃO & SAÚDE DA RECEITA ─────────────────────────────────────────────
 // Esperado por projeto (PEP): T&E/Usage = média dos últimos 6 meses; Fee = valor
 // recorrente; WIP = média (sinalizado — o certo é a proposta). Somado = previsão
@@ -4942,16 +5171,19 @@ function AppInner() {
         // is_viewer é buscado à parte e tolerante a falha: se a coluna ainda não
         // existir (migração não aplicada), o login segue normal (viewer=false),
         // sem quebrar a detecção de admin.
-        let isViewerFlag = false;
+        let isViewerFlag = false, isComercialFlag = false, buVal = "";
         const vres = await supabase.from("profiles").select("is_viewer").eq("id", session.user.id).single();
         if (!vres.error) isViewerFlag = !!vres.data?.is_viewer;
+        // is_comercial + bu: idem — tolerante à migração 0031 ainda não aplicada.
+        const cres = await supabase.from("profiles").select("is_comercial,bu").eq("id", session.user.id).single();
+        if (!cres.error) { isComercialFlag = !!cres.data?.is_comercial; buVal = cres.data?.bu || ""; }
         if (!mounted) return;
-        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, isViewer: isViewerFlag, apelido: prof?.apelido || "", email: session.user.email };
+        const next = { id: session.user.id, name: prof?.name || session.user.email, isAdmin: !!prof?.is_admin, isViewer: isViewerFlag, isComercial: isComercialFlag, bu: buVal, apelido: prof?.apelido || "", email: session.user.email };
         const isNewLogin = userIdRef.current !== next.id;
         userIdRef.current = next.id;
         // Mantém a MESMA referência do usuário se nada mudou — evita recarregar
         // a tela (e fechar modais) quando o app volta do foco / renova o token.
-        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin && prev.isViewer===next.isViewer && prev.apelido===next.apelido) ? prev : next);
+        setUser(prev => (prev && prev.id===next.id && prev.name===next.name && prev.isAdmin===next.isAdmin && prev.isViewer===next.isViewer && prev.isComercial===next.isComercial && prev.bu===next.bu && prev.apelido===next.apelido) ? prev : next);
         if (greet && isNewLogin) { setPage("home"); toast(`Bem-vindo(a), ${next.apelido || (next.name||"").split(" ")[0]}!`, "info"); }
       } else if (mounted) {
         userIdRef.current = null;
@@ -4968,10 +5200,17 @@ function AppInner() {
 
   const isAdmin = user?.isAdmin || false;
   const isViewer = user?.isViewer || false;   // somente-visualização: lê tudo, não escreve
+  const isComercial = user?.isComercial || false;  // comercial: só a receita da sua BU
+  const userBu = user?.bu || "";
   // Receitas "ativas" = fora as sinalizadas "fora do relatório" (ausenteRelatorio).
   // Telas de RESUMO de receita usam esta lista para não somar o que saiu do
   // relatório. Conciliação e Minha visão (revisão) continuam vendo tudo.
   const recordsAtivos = records.filter(r => !r.ausenteRelatorio);
+  // Comercial só enxerga a receita da sua BU. O RLS já limita o fetch; este
+  // filtro é a visão do app (e defesa extra caso a migração não esteja aplicada).
+  const recordsView = isComercial ? recordsAtivos.filter(r => r.bu === userBu) : recordsAtivos;
+  // Comercial: trava a navegação nas telas permitidas (o RLS trava o dado).
+  useEffect(() => { if (isComercial && !COMERCIAL_PAGES.has(page)) setPage("dash"); }, [isComercial, page]);
   // Trava de UX para o viewer (a trava real é o RLS). Retorna true se bloqueou.
   const blockIfViewer = () => { if (isViewer) { toast("Acesso somente visualização — ação não permitida.", "info"); return true; } return false; };
 
@@ -5271,7 +5510,7 @@ function AppInner() {
       await db.updateProfile(data);
       await reloadProfiles();
       // Se o admin alterou o próprio papel/nome, reflete na sessão atual.
-      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin, isViewer: data.isViewer, apelido: data.apelido ?? u.apelido }));
+      if (data.id === user.id) setUser(u => ({ ...u, name: data.name, isAdmin: data.isAdmin, isViewer: data.isViewer, isComercial: data.isComercial, bu: data.bu ?? u.bu, apelido: data.apelido ?? u.apelido }));
       toast(`Acesso de ${(data.name||"").split(" ")[0]} atualizado`);
     } catch(e) { toast("Erro ao atualizar acesso: "+e.message, "error"); }
   }
@@ -5534,10 +5773,10 @@ function AppInner() {
         <Badge label="Somente visualização" color="teal" small/> Você vê todas as telas e pode extrair relatórios, mas não pode alterar dados.
       </div>}
 
-      {isMobile && <MobileDrawer open={drawer} onClose={()=>setDrawer(false)} page={page} setPage={setPage} user={user} isAdmin={isAdmin}/>}
+      {isMobile && <MobileDrawer open={drawer} onClose={()=>setDrawer(false)} page={page} setPage={setPage} user={user} isAdmin={isAdmin} isComercial={isComercial}/>}
 
       <div style={{display:"flex",flex:1,minHeight:0}}>
-        {!isMobile && <Sidebar page={page} setPage={setPage} user={user} isAdmin={isAdmin}/>}
+        {!isMobile && <Sidebar page={page} setPage={setPage} user={user} isAdmin={isAdmin} isComercial={isComercial}/>}
         <main style={{flex:1,overflowX:"auto",minWidth:0}}>
           {page==="home"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
@@ -5547,7 +5786,7 @@ function AppInner() {
           {(page==="time"||page==="dash")&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               {page==="time"&&<MyView records={records} clients={clients} analista={user.name} isAdmin={isAdmin} isViewer={isViewer} fatByRec={fatByRec} varByRec={varByRec} varsByRec={varsByRec} aceitaVar={aceitaVar} onAddVariacao={handleAddVariacao} onDelVariacao={handleDelVariacao} onUpdateBulk={handleUpdateBulk} onDeleteRecord={handleRecordDelete} onClearAlert={handleClearAlert} onSaveClass={handleSaveClass} competenciaAtual={state.competenciaAtual} onCompetenciaChange={handleCompetencia}/>}
-              {page==="dash"&&<Dashboard records={recordsAtivos} analista={user.name} isAdmin={isAdmin} fatByRec={fatByRec} varByRec={varByRec}/>}
+              {page==="dash"&&<Dashboard records={recordsView} analista={user.name} isAdmin={isAdmin||isComercial} fatByRec={fatByRec} varByRec={varByRec}/>}
             </div>
           )}
           {page==="dados"&&isAdmin&&(
@@ -5577,7 +5816,12 @@ function AppInner() {
           )}
           {page==="projeto"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ProjectTimelineView records={recordsAtivos} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
+              <ProjectTimelineView records={recordsView} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
+            </div>
+          )}
+          {page==="report"&&isComercial&&(
+            <div style={{maxWidth:1180,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <WeeklyReportView records={recordsView} clients={clients} bu={userBu} nome={user.name} fatByRec={fatByRec} varByRec={varByRec}/>
             </div>
           )}
           {page==="represados"&&(
