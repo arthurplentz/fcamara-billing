@@ -2929,45 +2929,63 @@ function NotesImportModal({ onImport, onClose }) {
 // (saiu do projeto de verdade, ou foi esquecido?).
 function ProfContinuityView({ records }) {
   const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
-  const [cliSel, setCliSel] = useState("");
   const [emp, setEmp] = useState("todas");
+  const [q, setQ] = useState("");
   const [soSumiu, setSoSumiu] = useState(false);
   const hrs = r => Number(r.hrsAprovadas)||0;
-  const val = r => Number(r.valorTotal)||0;
-
-  const clientesAll = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-  const cli = cliSel || clientesAll[0] || "";
-  const recsCli = records.filter(r=>r.cliente===cli);
-  const empresasDoCli = [...new Set(recsCli.map(r=>r.empresa).filter(Boolean))].sort();
-  const recs = emp==="todas" ? recsCli : recsCli.filter(r=>r.empresa===emp);
-  const months = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
-
-  // Agrupa por profissional; horas e valor por mês.
-  const pm = {};
-  recs.forEach(r=>{ const p=r.profissional||"—"; const k=key(p)||"_"; const m=r.competencia; if(!m) return;
-    const g=(pm[k]=pm[k]||{prof:p, byH:{}, byV:{}}); g.byH[m]=(g.byH[m]||0)+hrs(r); g.byV[m]=(g.byV[m]||0)+val(r); });
-  const analise = Object.values(pm).map(g=>{
-    const idxs = months.map((m,i)=> (g.byH[m]||0)>0 ? i : -1).filter(i=>i>=0);
-    const first = idxs.length?idxs[0]:-1, last = idxs.length?idxs[idxs.length-1]:-1;
-    const gaps = new Set();
-    for(let i=first;i<=last && i>=0;i++){ if(!((g.byH[months[i]]||0)>0)) gaps.add(i); }  // buraco no meio
-    const sumiuTail = last>=0 && last < months.length-1;                                  // parou antes do fim
-    const totalH = months.reduce((s,m)=>s+(g.byH[m]||0),0);
-    return { ...g, first, last, gaps, sumiuTail, flag: sumiuTail||gaps.size>0, totalH };
-  }).sort((a,b)=> (Number(b.flag)-Number(a.flag)) || (b.totalH-a.totalH) || a.prof.localeCompare(b.prof));
-  const list = soSumiu ? analise.filter(a=>a.flag) : analise;
-  const nSumiu = analise.filter(a=>a.flag).length;
-
-  const thName = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"9px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".04em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:220 };
-  const thMes  = { padding:"9px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:78 };
-  const tdName = { position:"sticky", left:0, zIndex:1, background:"var(--surface)", padding:"7px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:220, maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" };
-  const tdCell = { padding:"6px 8px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, textAlign:"center", whiteSpace:"nowrap", fontVariantNumeric:"tabular-nums" };
   const fmtH = h => h.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1});
-  const cellStyle = (a,i) => {
-    const h = a.byH[months[i]]||0;
-    if (h>0) return { txt:`${fmtH(h)}h`, bg:"#f0f7ff", color:T.ink, w:700, title:`${fmtH(h)}h · ${brl(a.byV[months[i]]||0)}` };
-    if (a.first<0 || i<a.first) return { txt:"·", bg:"transparent", color:T.faint, w:400, title:"antes de começar" };
-    if (i>a.last) return { txt:"saiu", bg:"#fff7ed", color:C.orange.solid, w:700, title:"sem horas depois do último mês ativo" };
+
+  const empresasAll = [...new Set(records.map(r=>r.empresa).filter(Boolean))].sort();
+  const base = emp==="todas" ? records : records.filter(r=>r.empresa===emp);
+  const months = [...new Set(base.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  const idxOf = {}; months.forEach((m,i)=>idxOf[m]=i);
+
+  // Cliente → profissional; horas e valor por índice de mês. cActive = meses em
+  // que o cliente teve algum dado (para não flagar mês sem movimento do cliente).
+  const cliMap = {};
+  base.forEach(r=>{
+    const m = r.competencia; if(m==null || idxOf[m]==null) return;
+    const cliNome = r.cliente||"—"; const ck = key(cliNome)||"_";
+    const c = cliMap[ck] || (cliMap[ck]={ nome:cliNome, emps:new Set(), cActive:new Set(), totMonthH:new Array(months.length).fill(0), profs:{} });
+    c.emps.add(r.empresa); c.cActive.add(idxOf[m]); c.totMonthH[idxOf[m]] += hrs(r);
+    const p = r.profissional||"—"; const pk = key(p)||"_";
+    const pr = c.profs[pk] || (c.profs[pk]={ prof:p, h:new Array(months.length).fill(0), v:new Array(months.length).fill(0) });
+    pr.h[idxOf[m]] += hrs(r); pr.v[idxOf[m]] += (Number(r.valorTotal)||0);
+  });
+
+  const clientes = Object.values(cliMap).map(c=>{
+    const cSorted = [...c.cActive].sort((a,b)=>a-b);
+    const cLast = cSorted.length ? cSorted[cSorted.length-1] : -1;
+    const profs = Object.values(c.profs).map(pr=>{
+      const active = cSorted.filter(i=>pr.h[i]>0);
+      const first = active.length?active[0]:-1, last = active.length?active[active.length-1]:-1;
+      const gaps = new Set(); cSorted.forEach(i=>{ if(i>first && i<last && !(pr.h[i]>0)) gaps.add(i); });
+      const sumiuTail = last>=0 && last<cLast;
+      const totH = pr.h.reduce((s,x)=>s+x,0);
+      return { ...pr, first, last, gaps, sumiuTail, flag: sumiuTail||gaps.size>0, totH };
+    }).sort((a,b)=>(Number(b.flag)-Number(a.flag))||(b.totH-a.totH)||a.prof.localeCompare(b.prof));
+    return { nome:c.nome, empLabel:[...c.emps].filter(Boolean).sort().join(", "), cActive:c.cActive, cLast, totMonthH:c.totMonthH,
+      totH:c.totMonthH.reduce((s,x)=>s+x,0), profs, nSumiu:profs.filter(p=>p.flag).length };
+  }).sort((a,b)=>(b.nSumiu-a.nSumiu)||(b.totH-a.totH)||a.nome.localeCompare(b.nome));
+
+  const term = q.trim().toLowerCase();
+  let shown = clientes;
+  if (term) shown = shown.filter(c=>c.nome.toLowerCase().includes(term) || c.profs.some(p=>p.prof.toLowerCase().includes(term)));
+  if (soSumiu) shown = shown.filter(c=>c.nSumiu>0).map(c=>({ ...c, profs:c.profs.filter(p=>p.flag) }));
+  const totSumiu = clientes.reduce((s,c)=>s+c.nSumiu,0);
+  const nCliSumiu = clientes.filter(c=>c.nSumiu>0).length;
+
+  const thName = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"9px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".04em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:230 };
+  const thMes  = { padding:"9px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:76 };
+  const tdCli  = { position:"sticky", left:0, zIndex:1, background:T.canvas, padding:"8px 12px", borderBottom:`1px solid ${T.line}`, borderTop:`1px solid ${T.line}`, minWidth:230, maxWidth:330, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontWeight:700, color:T.ink };
+  const tdProf = { position:"sticky", left:0, zIndex:1, background:"var(--surface)", padding:"6px 12px 6px 24px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:230, maxWidth:330, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" };
+  const tdCell = { padding:"6px 8px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, textAlign:"center", whiteSpace:"nowrap", fontVariantNumeric:"tabular-nums", fontSize:12 };
+  const cellStyle = (pr, cActive, i) => {
+    if (!cActive.has(i)) return { txt:"", bg:"transparent", color:T.faint, w:400, title:"" };  // cliente sem movimento no mês
+    const h = pr.h[i]||0;
+    if (h>0) return { txt:`${fmtH(h)}h`, bg:"#f0f7ff", color:T.ink, w:700, title:`${fmtH(h)}h · ${brl(pr.v[i]||0)}` };
+    if (pr.first<0 || i<pr.first) return { txt:"·", bg:"transparent", color:T.faint, w:400, title:"antes de começar" };
+    if (i>pr.last) return { txt:"saiu", bg:"#fff7ed", color:C.orange.solid, w:700, title:"sem horas depois do último mês ativo" };
     return { txt:"falta", bg:"#fef2f2", color:C.red.solid, w:700, title:"lacuna: tinha antes e depois, mas não neste mês" };
   };
 
@@ -2975,57 +2993,65 @@ function ProfContinuityView({ records }) {
     <div>
       <Card style={{padding:"12px 14px",marginBottom:14}}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cli} onChange={e=>{setCliSel(e.target.value);setEmp("todas");}}>
-            {clientesAll.length===0 && <option value="">— sem clientes —</option>}
-            {clientesAll.map(c=><option key={c} value={c}>{c}</option>)}
-          </select>
-          <select style={{...inp,width:"auto",minWidth:150}} value={emp} onChange={e=>setEmp(e.target.value)}>
+          <select style={{...inp,width:"auto",minWidth:170}} value={emp} onChange={e=>setEmp(e.target.value)}>
             <option value="todas">Todas as empresas</option>
-            {empresasDoCli.map(cod=>{const e=EMPRESAS.find(x=>x.cod===cod);return <option key={cod} value={cod}>{cod}{e?` — ${e.nome}`:""}</option>;})}
+            {empresasAll.map(cod=>{const e=EMPRESAS.find(x=>x.cod===cod);return <option key={cod} value={cod}>{cod}{e?` — ${e.nome}`:""}</option>;})}
           </select>
+          <input style={{...inp,width:"auto",minWidth:200,flex:"1 1 200px"}} placeholder="Buscar cliente ou profissional…" value={q} onChange={e=>setQ(e.target.value)}/>
           <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
             <input type="checkbox" checked={soSumiu} onChange={e=>setSoSumiu(e.target.checked)}/> só quem sumiu / com lacuna
           </label>
         </div>
       </Card>
 
-      <Card style={{padding:16,marginBottom:14,border:`1px solid ${nSumiu?T.dangerLine:T.okLine}`,background:nSumiu?T.dangerBg:T.okBg}}>
+      <Card style={{padding:16,marginBottom:14,border:`1px solid ${totSumiu?T.dangerLine:T.okLine}`,background:totSumiu?T.dangerBg:T.okBg}}>
         <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <div style={{fontSize:24}}>{nSumiu?"⚠️":"✅"}</div>
+          <div style={{fontSize:24}}>{totSumiu?"⚠️":"✅"}</div>
           <div style={{flex:1,minWidth:220}}>
-            <div style={{fontWeight:800,fontSize:15,color:T.ink}}>Continuidade de profissionais — {cli||"—"}</div>
-            <div style={{fontSize:12.5,color:T.inkSoft,marginTop:2}}>{nSumiu ? `${nSumiu} profissional(is) com sumiço ou lacuna de horas. Verifique se saíram do projeto ou se ficou faltando reconhecer.` : "Nenhum sumiço detectado — todos seguem contínuos até o último mês."}</div>
+            <div style={{fontWeight:800,fontSize:15,color:T.ink}}>Continuidade de profissionais {emp!=="todas"?`— ${emp}`:"— todas as empresas"}</div>
+            <div style={{fontSize:12.5,color:T.inkSoft,marginTop:2}}>{totSumiu ? `${totSumiu} profissional(is) com sumiço ou lacuna, em ${nCliSumiu} cliente(s). Verifique se saíram do projeto ou se ficou faltando reconhecer.` : "Nenhum sumiço detectado — todos seguem contínuos até o último mês com movimento."}</div>
           </div>
-          <div style={{fontSize:24,fontWeight:800,color:nSumiu?T.danger:T.ok,minWidth:32,textAlign:"center"}}>{nSumiu||"✓"}</div>
+          <div style={{fontSize:24,fontWeight:800,color:totSumiu?T.danger:T.ok,minWidth:32,textAlign:"center"}}>{totSumiu||"✓"}</div>
         </div>
       </Card>
 
       <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:10,fontSize:11.5,color:T.muted}}>
-        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#fef2f2",border:`1px solid ${C.red.solid}`}}/>lacuna no meio (tinha antes e depois)</span>
-        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#fff7ed",border:`1px solid ${C.orange.solid}`}}/>saiu (sem horas depois do último mês)</span>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#f0f7ff",border:`1px solid #93c5fd`}}/>tem horas</span>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#fef2f2",border:`1px solid ${C.red.solid}`}}/>lacuna no meio</span>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#fff7ed",border:`1px solid ${C.orange.solid}`}}/>saiu (sem horas depois)</span>
       </div>
 
-      {months.length===0 || list.length===0
-        ? <Card style={{padding:22,textAlign:"center",color:T.muted,fontSize:13}}>{months.length===0?"Sem dados de horas para este cliente.":"Nenhum profissional no filtro."}</Card>
+      {months.length===0 || shown.length===0
+        ? <Card style={{padding:22,textAlign:"center",color:T.muted,fontSize:13}}>{months.length===0?"Sem dados de horas para este recorte.":"Nenhum cliente/profissional no filtro."}</Card>
         : <div style={{overflowX:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg,background:"var(--surface)"}}>
           <table style={{borderCollapse:"collapse",width:"100%"}}>
             <thead><tr>
-              <th style={thName}>Profissional</th>
+              <th style={thName}>Cliente / Profissional</th>
               {months.map(m=><th key={m} style={thMes}>{m}</th>)}
               <th style={{...thMes,background:T.canvas,borderLeft:`2px solid ${T.line}`}}>Total h</th>
             </tr></thead>
             <tbody>
-              {list.map(a=>(
-                <tr key={a.prof}>
-                  <td style={tdName} title={a.prof}>{a.flag && <span title={a.sumiuTail?"sumiu antes do fim":"lacuna no meio"} style={{color:a.sumiuTail?C.orange.solid:C.red.solid,fontWeight:800,marginRight:5}}>⚠</span>}{a.prof}</td>
-                  {months.map((m,i)=>{ const s=cellStyle(a,i); return <td key={m} style={{...tdCell,background:s.bg,color:s.color,fontWeight:s.w,fontSize:12}} title={s.title}>{s.txt}</td>; })}
-                  <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`,fontWeight:700}}>{fmtH(a.totalH)}h</td>
-                </tr>
-              ))}
+              {shown.flatMap(c=>{
+                const rows = [(
+                  <tr key={"c_"+c.nome}>
+                    <td style={tdCli} title={c.nome}>{c.nome}{c.nSumiu>0 && <span style={{marginLeft:6,fontSize:10,fontWeight:800,color:C.red.solid}}>⚠ {c.nSumiu}</span>} <span style={{fontSize:10,color:T.muted,fontWeight:500}}>· {c.empLabel}</span></td>
+                    {months.map((m,i)=><td key={m} style={{...tdCell,background:T.canvas,fontWeight:700,color:c.cActive.has(i)?T.inkSoft:T.faint}}>{c.cActive.has(i)?`${fmtH(c.totMonthH[i])}h`:"·"}</td>)}
+                    <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`,fontWeight:800}}>{fmtH(c.totH)}h</td>
+                  </tr>
+                )];
+                c.profs.forEach(pr=>rows.push(
+                  <tr key={"c_"+c.nome+"_p_"+pr.prof}>
+                    <td style={tdProf} title={pr.prof}>{pr.flag && <span title={pr.sumiuTail?"sumiu antes do fim":"lacuna no meio"} style={{color:pr.sumiuTail?C.orange.solid:C.red.solid,fontWeight:800,marginRight:5}}>⚠</span>}<span style={{color:T.inkSoft}}>{pr.prof}</span></td>
+                    {months.map((m,i)=>{ const s=cellStyle(pr,c.cActive,i); return <td key={m} style={{...tdCell,background:s.bg,color:s.color,fontWeight:s.w}} title={s.title}>{s.txt}</td>; })}
+                    <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`,fontWeight:700}}>{fmtH(pr.totH)}h</td>
+                  </tr>
+                ));
+                return rows;
+              })}
             </tbody>
           </table>
         </div>}
-      <div style={{fontSize:11.5,color:T.faint,marginTop:10,lineHeight:1.5}}>Cada célula = horas aprovadas do consultor no mês (passe o mouse p/ ver o valor). <b style={{color:C.red.solid}}>Falta</b> = tinha horas antes e depois, mas não neste mês. <b style={{color:C.orange.solid}}>Saiu</b> = sem horas depois do último mês ativo — confirme se saiu do projeto ou se esqueceram de reconhecer.</div>
+      <div style={{fontSize:11.5,color:T.faint,marginTop:10,lineHeight:1.5}}>Linha do cliente = total de horas do mês; abaixo, cada consultor. <b style={{color:C.red.solid}}>Falta</b> = tinha horas antes e depois, mas não neste mês. <b style={{color:C.orange.solid}}>Saiu</b> = sem horas depois do último mês ativo — confirme se saiu do projeto ou se esqueceram de reconhecer. Passe o mouse na célula p/ ver o valor.</div>
     </div>
   );
 }
