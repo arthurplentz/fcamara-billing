@@ -1267,12 +1267,17 @@ function NFGroupModal({ cliente, pep, records, onSave, onClose }) {
 function RecordEditModal({ record, conciliado, novo=false, onSave, onClose }) {
   const [f, setF] = useState(record);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
-  const num = (k,v) => setF(p=>({...p,[k]: v===""?0:parseFloat(String(v).replace(",","."))||0}));
+  // Campos de valor: guardam o TEXTO enquanto edita (aceita vírgula nas casas
+  // decimais) e só viram número ao salvar — sem "comer" a vírgula a cada tecla.
+  const numStr = (k,v) => setF(p=>({...p,[k]: String(v).replace(/[^\d.,-]/g,"")}));
+  const toNum = (v) => { const s=String(v==null?"":v).trim(); if(!s) return 0; return s.includes(",") ? (parseFloat(s.replace(/\./g,"").replace(",","."))||0) : (parseFloat(s)||0); };
   const lockVal = { ...inp, background:"#f1f5f9", color:T.muted, cursor:"not-allowed" };
   // No modo "novo" exige os campos de identidade antes de deixar salvar.
   const faltando = [ !(f.cliente||"").trim()&&"Cliente", !(f.pep||"").trim()&&"PEP", !(f.competencia||"").trim()&&"Competência" ].filter(Boolean);
   const podeSalvar = !novo || faltando.length===0;
-  function save() { if(!podeSalvar) return; onSave({ ...record, ...f, updatedAt: nowISO() }); onClose(); }
+  function save() { if(!podeSalvar) return; onSave({ ...record, ...f,
+    valorVenda:toNum(f.valorVenda), hrsAprovadas:toNum(f.hrsAprovadas), valorTotal:toNum(f.valorTotal), valorLiquido:toNum(f.valorLiquido),
+    updatedAt: nowISO() }); onClose(); }
   return (
     <Modal title={novo?"Incluir registro":"Editar registro"} subtitle={novo?"Lançamento que o time esqueceu — preencha os dados":`${record.cliente} · ${record.profissional}`} onClose={onClose} wide>
       {conciliado && <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"9px 12px",borderRadius:T.rMd,background:"#fef2f2",border:"1px solid #fecaca",color:"#991b1b",fontWeight:600,marginBottom:14}}>
@@ -1290,10 +1295,10 @@ function RecordEditModal({ record, conciliado, novo=false, onSave, onClose }) {
         <Field label="Profissional"><input style={inp} value={f.profissional||""} onChange={e=>set("profissional",e.target.value)}/></Field>
         <Field label="Início"><input style={inp} value={f.inicio||""} onChange={e=>set("inicio",e.target.value)}/></Field>
         <Field label="Fim"><input style={inp} value={f.fim||""} onChange={e=>set("fim",e.target.value)}/></Field>
-        <Field label="Valor de venda"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorVenda} onChange={e=>num("valorVenda",e.target.value)}/></Field>
-        <Field label="Hrs aprovadas"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.hrsAprovadas} onChange={e=>num("hrsAprovadas",e.target.value)}/></Field>
-        <Field label="Valor total"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorTotal} onChange={e=>num("valorTotal",e.target.value)}/></Field>
-        <Field label="Valor líquido"><input style={conciliado?lockVal:inp} disabled={conciliado} value={f.valorLiquido} onChange={e=>num("valorLiquido",e.target.value)}/></Field>
+        <Field label="Valor de venda"><input style={conciliado?lockVal:inp} inputMode="decimal" disabled={conciliado} value={f.valorVenda} onChange={e=>numStr("valorVenda",e.target.value)}/></Field>
+        <Field label="Hrs aprovadas"><input style={conciliado?lockVal:inp} inputMode="decimal" disabled={conciliado} value={f.hrsAprovadas} onChange={e=>numStr("hrsAprovadas",e.target.value)}/></Field>
+        <Field label="Valor total"><input style={conciliado?lockVal:inp} inputMode="decimal" disabled={conciliado} value={f.valorTotal} onChange={e=>numStr("valorTotal",e.target.value)}/></Field>
+        <Field label="Valor líquido"><input style={conciliado?lockVal:inp} inputMode="decimal" disabled={conciliado} value={f.valorLiquido} onChange={e=>numStr("valorLiquido",e.target.value)}/></Field>
       </div>
       <div style={{marginBottom:16}}><Field label="Observações"><textarea style={{...inp,minHeight:54,resize:"vertical"}} value={f.obs||""} onChange={e=>set("obs",e.target.value)}/></Field></div>
       {novo && faltando.length>0 && <div style={{fontSize:12,color:T.warn,marginBottom:10}}>Preencha para incluir: <b>{faltando.join(", ")}</b>.</div>}
@@ -4575,6 +4580,12 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
   const blankRec = () => ({ responsavel:"", empresa: emp!=="todas"?emp:"BR02", tipo: tipo!=="todos"?tipo:"Time & Expenses",
     competencia: comp!=="todas"?comp:(comps[0]||""), codCliente:"", cliente:"", pep:"", profissional:"",
     inicio:"", fim:"", valorVenda:0, hrsAprovadas:0, valorTotal:0, valorLiquido:0, obs:"", progress:{}, ausenteRelatorio:false });
+  // Duplicar: cópia dos dados de uma linha SEM id (vira um novo registro no
+  // "Incluir"). Não copia conciliação/progresso — nasce limpo para editar.
+  const dupRec = (r) => ({ responsavel:r.responsavel||"", empresa:r.empresa, tipo:r.tipo, bu:r.bu||"",
+    competencia:r.competencia, codCliente:r.codCliente||"", cliente:r.cliente||"", pep:r.pep||"", profissional:r.profissional||"",
+    inicio:r.inicio||"", fim:r.fim||"", valorVenda:r.valorVenda||0, hrsAprovadas:r.hrsAprovadas||0,
+    valorTotal:r.valorTotal||0, valorLiquido:r.valorLiquido||0, obs:r.obs||"", progress:{}, ausenteRelatorio:false });
 
   let list = records;
   if (comp!=="todas") list=list.filter(r=>r.competencia===comp);
@@ -4658,6 +4669,7 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
                     <td style={{...td,whiteSpace:"nowrap"}}>
                       <div style={{display:"flex",gap:5}}>
                         <Btn small icon="pencil" onClick={()=>setEditT(r)}>Editar</Btn>
+                        <Btn small icon="plus" title="Duplicar esta linha para editar só o que muda" onClick={()=>setIncT(dupRec(r))}>Duplicar</Btn>
                         <Btn small icon="link" disabled={conc} title={conc?"Reabra a conciliação primeiro":"Mesclar com outra linha"} onClick={()=>!conc&&setMergeT(r)}>Mesclar</Btn>
                         <Btn small danger icon="trash" disabled={conc} title={conc?"Reabra a conciliação primeiro":"Apagar"} onClick={()=>!conc&&setDelT(r)}>Apagar</Btn>
                       </div>
