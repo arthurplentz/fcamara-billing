@@ -2932,6 +2932,10 @@ function ProfContinuityView({ records }) {
   const [emp, setEmp] = useState("todas");
   const [q, setQ] = useState("");
   const [soSumiu, setSoSumiu] = useState(false);
+  const [ordProf, setOrdProf] = useState("flag");   // ordem dos consultores dentro do cliente
+  const cmpProf = ordProf==="az"
+    ? (a,b)=>a.prof.localeCompare(b.prof,"pt-BR")
+    : (a,b)=>(Number(b.flag)-Number(a.flag))||(b.totH-a.totH)||a.prof.localeCompare(b.prof,"pt-BR");
   const hrs = r => Number(r.hrsAprovadas)||0;
   const fmtH = h => h.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1});
 
@@ -2963,7 +2967,7 @@ function ProfContinuityView({ records }) {
       const sumiuTail = last>=0 && last<cLast;
       const totH = pr.h.reduce((s,x)=>s+x,0);
       return { ...pr, first, last, gaps, sumiuTail, flag: sumiuTail||gaps.size>0, totH };
-    }).sort((a,b)=>(Number(b.flag)-Number(a.flag))||(b.totH-a.totH)||a.prof.localeCompare(b.prof));
+    }).sort(cmpProf);
     return { nome:c.nome, empLabel:[...c.emps].filter(Boolean).sort().join(", "), cActive:c.cActive, cLast, totMonthH:c.totMonthH,
       totH:c.totMonthH.reduce((s,x)=>s+x,0), profs, nSumiu:profs.filter(p=>p.flag).length };
   }).sort((a,b)=>(b.nSumiu-a.nSumiu)||(b.totH-a.totH)||a.nome.localeCompare(b.nome));
@@ -2998,6 +3002,10 @@ function ProfContinuityView({ records }) {
             {empresasAll.map(cod=>{const e=EMPRESAS.find(x=>x.cod===cod);return <option key={cod} value={cod}>{cod}{e?` — ${e.nome}`:""}</option>;})}
           </select>
           <input style={{...inp,width:"auto",minWidth:200,flex:"1 1 200px"}} placeholder="Buscar cliente ou profissional…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <select style={{...inp,width:"auto",minWidth:180}} value={ordProf} onChange={e=>setOrdProf(e.target.value)} title="Ordem dos consultores dentro do cliente">
+            <option value="flag">Consultor: sinalizados primeiro</option>
+            <option value="az">Consultor: A → Z</option>
+          </select>
           <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
             <input type="checkbox" checked={soSumiu} onChange={e=>setSoSumiu(e.target.checked)}/> só quem sumiu / com lacuna
           </label>
