@@ -4836,6 +4836,7 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
   const [buSel, setBuSel] = useState("");
   const [emp, setEmp] = useState("todas");
   const [dim, setDim] = useState("servico");        // competência por serviço × ciclo de faturamento
+  const [perSel, setPerSel] = useState([]);         // competências escolhidas (vazio = todas)
   const [openCli, setOpenCli] = useState(()=>new Set());
   const [openProj, setOpenProj] = useState(()=>new Set());
   const toggleCli  = k => setOpenCli(s=>{const n=new Set(s); n.has(k)?n.delete(k):n.add(k); return n;});
@@ -4852,8 +4853,11 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
   let recs = daBu;
   if (emp!=="todas")  recs = recs.filter(r=>r.empresa===emp);
 
-  // Colunas = meses (competências), em ordem cronológica.
-  const meses = [...new Set(recs.map(compValue).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  // Todas as competências disponíveis (para o seletor). As colunas = as
+  // escolhidas (vazio = todas). O filtro vale para células E totais.
+  const mesesAll = [...new Set(recs.map(compValue).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+  if (perSel.length) recs = recs.filter(r=>perSel.includes(compValue(r)));
+  const meses = perSel.length ? mesesAll.filter(m=>perSel.includes(m)) : mesesAll;
 
   // Árvore: Cliente → Projeto (tipo+PEP) → Consultor (por profissional).
   const cliMap = {};
@@ -4932,16 +4936,26 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
         : <>
           <Card style={{padding:14,marginBottom:14}}>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-              <Field label="Unidade de negócio (BU)"><select style={{...inp,width:"auto",minWidth:180,fontWeight:700,color:T.brand,borderColor:T.brand}} value={bu} onChange={e=>{setBuSel(e.target.value);setEmp("todas");}}>{bus.map(b=><option key={b}>{b}</option>)}</select></Field>
+              <Field label="Unidade de negócio (BU)"><select style={{...inp,width:"auto",minWidth:180,fontWeight:700,color:T.brand,borderColor:T.brand}} value={bu} onChange={e=>{setBuSel(e.target.value);setEmp("todas");setPerSel([]);}}>{bus.map(b=><option key={b}>{b}</option>)}</select></Field>
               <Field label="Empresa"><select style={{...inp,width:"auto"}} value={emp} onChange={e=>setEmp(e.target.value)}><option value="todas">Todas</option>{empresasComDados.map(c=>{const e=EMPRESAS.find(x=>x.cod===c);return <option key={c} value={c}>{c}{e?` — ${e.nome}`:""}</option>;})}</select></Field>
               <Field label="Competência por" hint={dim==="ciclo"?"(ciclo de faturamento — usa o dia de corte)":"(mês do serviço/apontamento)"}>
                 <div style={{display:"inline-flex",border:`1px solid ${T.line}`,borderRadius:T.rPill,overflow:"hidden"}}>
                   {[["servico","Serviço"],["ciclo","Ciclo"]].map(([v,l])=>(
-                    <button key={v} onClick={()=>setDim(v)} style={{border:"none",cursor:"pointer",padding:"7px 16px",fontSize:12.5,fontWeight:700,background:dim===v?T.brand:"transparent",color:dim===v?"#fff":T.inkSoft}}>{l}</button>
+                    <button key={v} onClick={()=>{setDim(v);setPerSel([]);}} style={{border:"none",cursor:"pointer",padding:"7px 16px",fontSize:12.5,fontWeight:700,background:dim===v?T.brand:"transparent",color:dim===v?"#fff":T.inkSoft}}>{l}</button>
                   ))}
                 </div>
               </Field>
             </div>
+            {mesesAll.length>0 && <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:11,paddingTop:11,borderTop:`1px solid ${T.lineSoft}`}}>
+              <span style={{fontSize:11,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",marginRight:2}}>Competências</span>
+              {mesesAll.map(m=>{ const on=perSel.includes(m); return (
+                <button key={m} onClick={()=>setPerSel(on?perSel.filter(x=>x!==m):[...perSel,m])}
+                  style={{padding:"5px 11px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${on?T.brand:T.line}`,background:on?"#fff5f1":"var(--surface)",color:on?T.brand:T.inkSoft}}>{m}</button>
+              );})}
+              {perSel.length>0
+                ? <button onClick={()=>setPerSel([])} style={{padding:"5px 10px",borderRadius:T.rPill,fontSize:12,fontWeight:600,cursor:"pointer",border:`1px solid ${T.line}`,background:"var(--surface)",color:T.muted}}>limpar</button>
+                : <span style={{fontSize:11,color:T.faint}}>todas</span>}
+            </div>}
           </Card>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
             {kpi("Reconhecido", tot.rec, T.ink, `${clientes.length} cliente(s)`)}
