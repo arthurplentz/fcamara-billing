@@ -1879,7 +1879,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -4737,6 +4737,114 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
   );
 }
 
+// ─── PREVISÃO & SAÚDE DA RECEITA ─────────────────────────────────────────────
+// Esperado por projeto (PEP): T&E/Usage = média dos últimos 6 meses; Fee = valor
+// recorrente; WIP = média (sinalizado — o certo é a proposta). Somado = previsão
+// do próximo mês. Comparado com o realizado = saúde do projeto (subiu/caiu).
+function ForecastView({ records, varByRec={} }) {
+  const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const rank = c => { const [m,y]=String(c||"").split("/").map(Number); return (y&&m)?y*12+m:0; };
+  const bill = r => (r.valorTotal||0)+(varByRec[r.id]||0);
+  const bus = [...new Set(records.map(r=>r.bu).filter(Boolean))].sort();
+  const empresasComDados = [...new Set(records.map(r=>r.empresa).filter(Boolean))].sort();
+  const [buF,setBuF]=useState("todas");
+  const [empF,setEmpF]=useState("todas");
+  const [tipoF,setTipoF]=useState("todos");
+  const [q,setQ]=useState("");
+
+  let recs = records;
+  if (buF!=="todas")  recs = recs.filter(r=>r.bu===buF);
+  if (empF!=="todas") recs = recs.filter(r=>r.empresa===empF);
+  if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
+
+  const proj = {};
+  recs.forEach(r => {
+    const pk = key(pepBase(r.pep)); if(!pk) return;
+    const gk = (r.empresa||"")+"|"+pk;
+    const g = (proj[gk] = proj[gk] || { pep:pepBase(r.pep), cliente:r.cliente, tipo:r.tipo, bu:r.bu, empresa:r.empresa, byComp:{} });
+    g.byComp[r.competencia] = (g.byComp[r.competencia]||0) + bill(r);
+  });
+  let lista = Object.values(proj).map(g => {
+    const comps = Object.keys(g.byComp).sort((a,b)=>rank(a)-rank(b));
+    const vals = comps.map(c=>g.byComp[c]);
+    const ult6 = vals.slice(-6);
+    const media6 = ult6.length ? ult6.reduce((a,b)=>a+b,0)/ult6.length : 0;
+    const ultimo = vals.length ? vals[vals.length-1] : 0;
+    const ant = vals.slice(-6,-1);
+    const mediaAnt = ant.length ? ant.reduce((a,b)=>a+b,0)/ant.length : null;
+    const esperado = g.tipo==="Fee" ? ultimo : media6;
+    let saude="novo", varPct=null;
+    if (mediaAnt!=null && mediaAnt>0.01) { const r=ultimo/mediaAnt; varPct=(ultimo-mediaAnt)/mediaAnt; saude = r>=0.85?"ok":(r>=0.5?"queda":"critico"); }
+    else if (ultimo>0.01) saude="ok";
+    return { ...g, meses:comps.length, media6, ultimo, esperado, saude, varPct };
+  });
+  if (q.trim()) lista = lista.filter(g=>key(g.cliente).includes(key(q))||key(g.pep).includes(key(q)));
+  lista.sort((a,b)=>b.media6-a.media6);
+  const shown = lista.slice(0,400);
+  const previsao = lista.reduce((s,g)=>s+g.esperado,0);
+  const porTipo = {}; lista.forEach(g=>{ porTipo[g.tipo]=(porTipo[g.tipo]||0)+g.esperado; });
+  const emQueda = lista.filter(g=>g.saude==="queda"||g.saude==="critico");
+
+  const SAUDE = { ok:{l:"saudável",c:"green"}, queda:{l:"caiu",c:"yellow"}, critico:{l:"crítico",c:"red"}, novo:{l:"novo",c:"gray"} };
+  const th={padding:"7px 10px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`,whiteSpace:"nowrap"};
+  const thR={...th,textAlign:"right"};
+  const td={padding:"7px 10px",fontSize:12.5,borderBottom:`1px solid ${T.line}`};
+  const tdR={...td,textAlign:"right",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"};
+
+  return (
+    <div>
+      <PageHead icon="chart" title="Previsão & Saúde da receita" sub="Receita esperada por projeto (média 6m · Fee recorrente) e se o projeto subiu ou caiu."/>
+      <Card style={{padding:14,marginBottom:14}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <Field label="Buscar"><input style={{...inp,minWidth:200}} placeholder="cliente ou PEP" value={q} onChange={e=>setQ(e.target.value)}/></Field>
+          {bus.length>0 && <Field label="BU"><select style={{...inp,width:"auto"}} value={buF} onChange={e=>setBuF(e.target.value)}><option value="todas">Todas</option>{bus.map(b=><option key={b}>{b}</option>)}</select></Field>}
+          <Field label="Empresa"><select style={{...inp,width:"auto"}} value={empF} onChange={e=>setEmpF(e.target.value)}><option value="todas">Todas</option>{empresasComDados.map(c=><option key={c}>{c}</option>)}</select></Field>
+          <Field label="Tipo"><select style={{...inp,width:"auto"}} value={tipoF} onChange={e=>setTipoF(e.target.value)}><option value="todos">Todos</option>{TIPOS_PROJETO.map(t=><option key={t}>{t}</option>)}</select></Field>
+        </div>
+      </Card>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+        <Card style={{padding:16,flex:"2 1 300px"}}>
+          <div style={{fontSize:12,color:T.muted,fontWeight:600}}>Previsão do próximo mês</div>
+          <div style={{fontSize:24,fontWeight:800,color:T.brand,marginTop:4,fontVariantNumeric:"tabular-nums"}}>{brl(previsao)}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+            {TIPOS_PROJETO.filter(t=>porTipo[t]>0.01).map(t=><Badge key={t} label={`${t}: ${fmtShort(porTipo[t])}`} color={({["Time & Expenses"]:"blue",Fee:"purple",WIP:"teal","Usage Based":"orange"})[t]||"gray"} small/>)}
+          </div>
+        </Card>
+        <Card style={{padding:16,flex:"1 1 180px"}}>
+          <div style={{fontSize:12,color:T.muted,fontWeight:600}}>Projetos em atenção</div>
+          <div style={{fontSize:24,fontWeight:800,color:emQueda.length?C.red.solid:C.green.solid,marginTop:4}}>{emQueda.length}</div>
+          <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>caíram vs. a própria média</div>
+        </Card>
+      </div>
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr><th style={th}>Cliente</th><th style={th}>PEP</th><th style={th}>Tipo</th><th style={thR}>Meses</th><th style={thR}>Média 6m</th><th style={thR}>Último mês</th><th style={th}>Saúde</th><th style={thR}>Previsão</th></tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><td colSpan={8} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Sem projetos nesse recorte.</td></tr>}
+              {shown.map(g=>{ const s=SAUDE[g.saude]; return (
+                <tr key={g.empresa+g.pep+g.cliente}>
+                  <td style={{...td,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={g.cliente}>{g.cliente}</td>
+                  <td style={{...td,whiteSpace:"nowrap",fontWeight:600}}>{g.pep}</td>
+                  <td style={{...td,whiteSpace:"nowrap",color:T.inkSoft}}>{g.tipo}{g.tipo==="WIP"?" ⚠":""}</td>
+                  <td style={tdR}>{g.meses}</td>
+                  <td style={{...tdR,fontWeight:600}}>{brl(g.media6)}</td>
+                  <td style={tdR}>{brl(g.ultimo)}{g.varPct!=null&&<span style={{marginLeft:6,fontSize:11,fontWeight:700,color:g.varPct>=-0.05?C.green.solid:(g.varPct>=-0.4?C.yellow.solid:C.red.solid)}}>{g.varPct>=0?"▲":"▼"}{Math.abs(Math.round(g.varPct*100))}%</span>}</td>
+                  <td style={td}><Badge label={s.l} color={s.c} small dot/></td>
+                  <td style={{...tdR,fontWeight:700,color:T.brand}}>{brl(g.esperado)}</td>
+                </tr>
+              );})}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <div style={{fontSize:11.5,color:T.faint,marginTop:10,lineHeight:1.5}}>
+        Previsão: <b>T&E e Usage Based</b> = média dos últimos 6 meses · <b>Fee</b> = valor recorrente · <b>WIP</b> (⚠) = média como aproximação — o correto é a proposta/etapa. Saúde compara o último mês com a média dos meses anteriores.
+      </div>
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 function AppInner() {
@@ -5476,6 +5584,11 @@ function AppInner() {
           {page==="comercial"&&isAdmin&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ComercialView records={recordsAtivos} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
+            </div>
+          )}
+          {page==="previsao"&&isAdmin&&(
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ForecastView records={recordsAtivos} varByRec={varByRec}/>
             </div>
           )}
           {page==="correcoes"&&isAdmin&&(
