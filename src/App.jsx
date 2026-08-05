@@ -2924,7 +2924,106 @@ function NotesImportModal({ onImport, onClose }) {
 // Validações do sistema — só leitura. Confere a integridade do faturamento:
 // (1) conciliado da prefeitura × receita conciliada (regra de R$ 1,00 por lote),
 // (2) receitas possivelmente duplicadas, (3) faturado sem nota amarrada.
+// Continuidade de profissionais — linha do tempo de HORAS de reconhecimento por
+// consultor, por cliente. Sinaliza quem estava num mês e some no seguinte
+// (saiu do projeto de verdade, ou foi esquecido?).
+function ProfContinuityView({ records }) {
+  const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const [cliSel, setCliSel] = useState("");
+  const [soSumiu, setSoSumiu] = useState(false);
+  const hrs = r => Number(r.hrsAprovadas)||0;
+  const val = r => Number(r.valorTotal)||0;
+
+  const clientesAll = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const cli = cliSel || clientesAll[0] || "";
+  const recs = records.filter(r=>r.cliente===cli);
+  const months = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
+
+  // Agrupa por profissional; horas e valor por mês.
+  const pm = {};
+  recs.forEach(r=>{ const p=r.profissional||"—"; const k=key(p)||"_"; const m=r.competencia; if(!m) return;
+    const g=(pm[k]=pm[k]||{prof:p, byH:{}, byV:{}}); g.byH[m]=(g.byH[m]||0)+hrs(r); g.byV[m]=(g.byV[m]||0)+val(r); });
+  const analise = Object.values(pm).map(g=>{
+    const idxs = months.map((m,i)=> (g.byH[m]||0)>0 ? i : -1).filter(i=>i>=0);
+    const first = idxs.length?idxs[0]:-1, last = idxs.length?idxs[idxs.length-1]:-1;
+    const gaps = new Set();
+    for(let i=first;i<=last && i>=0;i++){ if(!((g.byH[months[i]]||0)>0)) gaps.add(i); }  // buraco no meio
+    const sumiuTail = last>=0 && last < months.length-1;                                  // parou antes do fim
+    const totalH = months.reduce((s,m)=>s+(g.byH[m]||0),0);
+    return { ...g, first, last, gaps, sumiuTail, flag: sumiuTail||gaps.size>0, totalH };
+  }).sort((a,b)=> (Number(b.flag)-Number(a.flag)) || (b.totalH-a.totalH) || a.prof.localeCompare(b.prof));
+  const list = soSumiu ? analise.filter(a=>a.flag) : analise;
+  const nSumiu = analise.filter(a=>a.flag).length;
+
+  const thName = { position:"sticky", left:0, zIndex:2, background:T.canvas, textAlign:"left", padding:"9px 12px", fontSize:11, textTransform:"uppercase", letterSpacing:".04em", color:T.muted, borderBottom:`1px solid ${T.line}`, minWidth:220 };
+  const thMes  = { padding:"9px 8px", fontSize:12, fontWeight:700, color:T.ink, borderBottom:`1px solid ${T.line}`, borderLeft:`1px solid ${T.lineSoft}`, whiteSpace:"nowrap", textAlign:"center", minWidth:78 };
+  const tdName = { position:"sticky", left:0, zIndex:1, background:"var(--surface)", padding:"7px 12px", borderBottom:`1px solid ${T.lineSoft}`, minWidth:220, maxWidth:300, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" };
+  const tdCell = { padding:"6px 8px", borderBottom:`1px solid ${T.lineSoft}`, borderLeft:`1px solid ${T.lineSoft}`, textAlign:"center", whiteSpace:"nowrap", fontVariantNumeric:"tabular-nums" };
+  const cellStyle = (a,i) => {
+    const h = a.byH[months[i]]||0;
+    if (h>0) return { txt:`${h.toLocaleString("pt-BR")}h`, bg:"transparent", color:T.ink, w:700, title:`${brl(a.byV[months[i]]||0)}` };
+    if (a.first<0 || i<a.first) return { txt:"·", bg:"transparent", color:T.faint, w:400, title:"antes de começar" };
+    if (i>a.last) return { txt:"— saiu", bg:"#fff7ed", color:C.orange.solid, w:700, title:"sem horas depois do último mês ativo" };
+    return { txt:"— falta", bg:"#fef2f2", color:C.red.solid, w:700, title:"lacuna: tinha antes e depois, mas não neste mês" };
+  };
+
+  return (
+    <div>
+      <Card style={{padding:"12px 14px",marginBottom:14}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <select style={{...inp,width:"auto",minWidth:260,flex:"1 1 260px"}} value={cli} onChange={e=>setCliSel(e.target.value)}>
+            {clientesAll.length===0 && <option value="">— sem clientes —</option>}
+            {clientesAll.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+            <input type="checkbox" checked={soSumiu} onChange={e=>setSoSumiu(e.target.checked)}/> só quem sumiu / com lacuna
+          </label>
+        </div>
+      </Card>
+
+      <Card style={{padding:16,marginBottom:14,border:`1px solid ${nSumiu?T.dangerLine:T.okLine}`,background:nSumiu?T.dangerBg:T.okBg}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <div style={{fontSize:24}}>{nSumiu?"⚠️":"✅"}</div>
+          <div style={{flex:1,minWidth:220}}>
+            <div style={{fontWeight:800,fontSize:15,color:T.ink}}>Continuidade de profissionais — {cli||"—"}</div>
+            <div style={{fontSize:12.5,color:T.inkSoft,marginTop:2}}>{nSumiu ? `${nSumiu} profissional(is) com sumiço ou lacuna de horas. Verifique se saíram do projeto ou se ficou faltando reconhecer.` : "Nenhum sumiço detectado — todos seguem contínuos até o último mês."}</div>
+          </div>
+          <div style={{fontSize:24,fontWeight:800,color:nSumiu?T.danger:T.ok,minWidth:32,textAlign:"center"}}>{nSumiu||"✓"}</div>
+        </div>
+      </Card>
+
+      <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:10,fontSize:11.5,color:T.muted}}>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#fef2f2",border:`1px solid ${C.red.solid}`}}/>lacuna no meio (tinha antes e depois)</span>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,borderRadius:3,background:"#fff7ed",border:`1px solid ${C.orange.solid}`}}/>saiu (sem horas depois do último mês)</span>
+      </div>
+
+      {months.length===0 || list.length===0
+        ? <Card style={{padding:22,textAlign:"center",color:T.muted,fontSize:13}}>{months.length===0?"Sem dados de horas para este cliente.":"Nenhum profissional no filtro."}</Card>
+        : <div style={{overflowX:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg,background:"var(--surface)"}}>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr>
+              <th style={thName}>Profissional</th>
+              {months.map(m=><th key={m} style={thMes}>{m}</th>)}
+              <th style={{...thMes,background:T.canvas,borderLeft:`2px solid ${T.line}`}}>Total h</th>
+            </tr></thead>
+            <tbody>
+              {list.map(a=>(
+                <tr key={a.prof}>
+                  <td style={tdName} title={a.prof}>{a.flag && <span title={a.sumiuTail?"sumiu antes do fim":"lacuna no meio"} style={{color:a.sumiuTail?C.orange.solid:C.red.solid,fontWeight:800,marginRight:5}}>⚠</span>}{a.prof}</td>
+                  {months.map((m,i)=>{ const s=cellStyle(a,i); return <td key={m} style={{...tdCell,background:s.bg,color:s.color,fontWeight:s.w}} title={s.title}>{s.txt}</td>; })}
+                  <td style={{...tdCell,background:T.canvas,borderLeft:`2px solid ${T.line}`,fontWeight:700}}>{a.totalH.toLocaleString("pt-BR")}h</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      <div style={{fontSize:11.5,color:T.faint,marginTop:10,lineHeight:1.5}}>Cada célula = horas aprovadas do consultor no mês (passe o mouse p/ ver o valor). <b style={{color:C.red.solid}}>Falta</b> = tinha horas antes e depois, mas não neste mês. <b style={{color:C.orange.solid}}>Saiu</b> = sem horas depois do último mês ativo — confirme se saiu do projeto ou se esqueceram de reconhecer.</div>
+    </div>
+  );
+}
+
 function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec={} }) {
+  const [aba, setAba] = useState("conferencias");
   const [open, setOpen] = useState("");
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
 
@@ -2989,6 +3088,13 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
   return (
     <div>
       <PageHead icon="check" title="Validações do sistema" sub="confere se o faturamento está batendo"/>
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
+        {[["conferencias","Conferências"],["continuidade","Continuidade de profissionais"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+      {aba==="continuidade" && <ProfContinuityView records={records}/>}
+      {aba==="conferencias" && <>
       <Card style={{padding:16,marginBottom:16,border:`1px solid ${totExc?T.dangerLine:T.okLine}`,background:totExc?T.dangerBg:T.okBg}}>
         <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <div style={{fontSize:26}}>{totExc?"⚠️":"🛡️"}</div>
@@ -3043,6 +3149,7 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
           </Row>
         ))}
       </Result>
+      </>}
     </div>
   );
 }
