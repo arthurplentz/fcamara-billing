@@ -380,7 +380,7 @@ export async function deleteVariacao(id) {
 }
 
 // ─── CLIENTS (perfil de faturamento) ─────────────────────────────────────────
-const CLIENT_FIELDS = ["nome","cod_sap","cnpj","cnpjs","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email","aceita_variacao","dia_corte"];
+const CLIENT_FIELDS = ["nome","cod_sap","cnpj","cnpjs","grupo_empresa","owner","incompleto","tipos_contrato","tipos_peps","proposta_url","propostas","periodo_faturamento","calendario","tem_portal","portal_tipo","portal_link","portal_usuario","portal_senha","portal_passo_url","prazo_vencimento","forma_pagamento","contato_financeiro","contato_financeiro_email","account_manager","account_manager_email","aceita_variacao","dia_corte","processo","projetos"];
 const BOOL_CLIENT_FIELDS = ["tem_portal","incompleto","aceita_variacao"];
 
 // Busca paginada — traz TODAS as linhas (o Supabase pode limitar a 1000 por página).
@@ -437,15 +437,17 @@ export async function deleteClient(id) {
 
 // ─── PROFILES (gestão de acessos) ────────────────────────────────────────────
 export async function fetchProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,is_viewer,responsavel,apelido,aniversario").order("name", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("id,name,is_admin,is_viewer,is_comercial,bu,responsavel,apelido,aniversario").order("name", { ascending: true });
   if (error) throw error;
-  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, isViewer: !!p.is_viewer, responsavel: p.responsavel || "", apelido: p.apelido || "", aniversario: p.aniversario || "" }));
+  return data.map(p => ({ id: p.id, name: p.name, isAdmin: !!p.is_admin, isViewer: !!p.is_viewer, isComercial: !!p.is_comercial, bu: p.bu || "", responsavel: p.responsavel || "", apelido: p.apelido || "", aniversario: p.aniversario || "" }));
 }
-export async function updateProfile({ id, name, isAdmin, isViewer, responsavel, apelido, aniversario }) {
+export async function updateProfile({ id, name, isAdmin, isViewer, isComercial, bu, responsavel, apelido, aniversario }) {
   const patch = {};
   if (name != null) patch.name = name;
   if (isAdmin != null) patch.is_admin = isAdmin;
   if (isViewer != null) patch.is_viewer = isViewer;
+  if (isComercial != null) patch.is_comercial = isComercial;
+  if (bu !== undefined) patch.bu = bu || null;
   if (responsavel !== undefined) patch.responsavel = responsavel || null;
   if (apelido !== undefined) patch.apelido = apelido || null;
   if (aniversario !== undefined) patch.aniversario = aniversario || null;
@@ -455,6 +457,21 @@ export async function updateProfile({ id, name, isAdmin, isViewer, responsavel, 
 // O próprio usuário edita o apelido (via função SECURITY DEFINER — só o apelido).
 export async function setMyApelido(apelido) {
   const { error } = await supabase.rpc("set_my_apelido", { p: apelido || "" });
+  if (error) throw error;
+}
+
+// ─── DE → PARA de clientes (unificação de nomes) ─────────────────────────────
+export async function fetchClientAliases() {
+  const { data, error } = await supabase.from("client_aliases").select("de,para").order("para", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(a => ({ de: a.de, para: a.para }));
+}
+export async function saveClientAlias({ de, para }) {
+  const { error } = await supabase.from("client_aliases").upsert({ de, para, updated_at: nowISO() }, { onConflict: "de" });
+  if (error) throw error;
+}
+export async function deleteClientAlias(de) {
+  const { error } = await supabase.from("client_aliases").delete().eq("de", de);
   if (error) throw error;
 }
 
