@@ -1884,10 +1884,10 @@ const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"i
 // Navegação do acesso COMERCIAL — enxuta: só a receita da BU dele.
 const COMERCIAL_NAV_SECTIONS = [
   { group:"", links:[ {id:"dash",icon:"chart",label:"Dashboard"} ] },
-  { group:"Minha BU", links:[ {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"report",icon:"file",label:"Report semanal"} ] },
+  { group:"Minha BU", links:[ {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"represados",icon:"alert",label:"Represados"}, {id:"report",icon:"file",label:"Report semanal"} ] },
 ];
 // Páginas que o comercial pode abrir (trava de UI; o RLS trava o dado).
-const COMERCIAL_PAGES = new Set(["dash","projeto","report"]);
+const COMERCIAL_PAGES = new Set(["dash","projeto","represados","report"]);
 
 function NavLinks({ page, setPage, isAdmin, isComercial, onNavigate }) {
   const sections = isComercial ? COMERCIAL_NAV_SECTIONS : isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -5826,7 +5826,7 @@ function AppInner() {
           )}
           {page==="represados"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <RepresadosView records={recordsAtivos} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass} isViewer={isViewer}/>
+              <RepresadosView records={recordsView} clients={clients} fatByRec={fatByRec} varByRec={varByRec} onSaveClass={handleSaveClass} isViewer={isViewer||isComercial}/>
             </div>
           )}
           {page==="clients"&&(
