@@ -2930,13 +2930,16 @@ function NotesImportModal({ onImport, onClose }) {
 function ProfContinuityView({ records }) {
   const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
   const [cliSel, setCliSel] = useState("");
+  const [emp, setEmp] = useState("todas");
   const [soSumiu, setSoSumiu] = useState(false);
   const hrs = r => Number(r.hrsAprovadas)||0;
   const val = r => Number(r.valorTotal)||0;
 
   const clientesAll = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const cli = cliSel || clientesAll[0] || "";
-  const recs = records.filter(r=>r.cliente===cli);
+  const recsCli = records.filter(r=>r.cliente===cli);
+  const empresasDoCli = [...new Set(recsCli.map(r=>r.empresa).filter(Boolean))].sort();
+  const recs = emp==="todas" ? recsCli : recsCli.filter(r=>r.empresa===emp);
   const months = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
 
   // Agrupa por profissional; horas e valor por mês.
@@ -2971,9 +2974,13 @@ function ProfContinuityView({ records }) {
     <div>
       <Card style={{padding:"12px 14px",marginBottom:14}}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          <select style={{...inp,width:"auto",minWidth:260,flex:"1 1 260px"}} value={cli} onChange={e=>setCliSel(e.target.value)}>
+          <select style={{...inp,width:"auto",minWidth:240,flex:"1 1 240px"}} value={cli} onChange={e=>{setCliSel(e.target.value);setEmp("todas");}}>
             {clientesAll.length===0 && <option value="">— sem clientes —</option>}
             {clientesAll.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <select style={{...inp,width:"auto",minWidth:150}} value={emp} onChange={e=>setEmp(e.target.value)}>
+            <option value="todas">Todas as empresas</option>
+            {empresasDoCli.map(cod=>{const e=EMPRESAS.find(x=>x.cod===cod);return <option key={cod} value={cod}>{cod}{e?` — ${e.nome}`:""}</option>;})}
           </select>
           <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
             <input type="checkbox" checked={soSumiu} onChange={e=>setSoSumiu(e.target.checked)}/> só quem sumiu / com lacuna
