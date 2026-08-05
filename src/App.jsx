@@ -1879,7 +1879,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"report",icon:"file",label:"Report semanal (comercial)"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 // Navegação do acesso COMERCIAL — enxuta: só a receita da BU dele.
 const COMERCIAL_NAV_SECTIONS = [
@@ -4844,7 +4844,7 @@ function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
 // app, para o comercial ver, baixar em Excel e enviar na hora. Detalha por tipo
 // de projeto; em Time & Expenses, mostra a linha de cada consultor (valor/hora,
 // horas e total).
-function WeeklyReportView({ records, clients=[], bu, nome, fatByRec={}, varByRec={} }) {
+function WeeklyReportView({ records, clients=[], bu:buFixed, nome, fatByRec={}, varByRec={}, canPickBu=false }) {
   const toast = useToast();
   const [sending, setSending] = useState(false);
   const bill = r => (r.valorTotal||0)+(varByRec[r.id]||0);
@@ -4852,9 +4852,15 @@ function WeeklyReportView({ records, clients=[], bu, nome, fatByRec={}, varByRec
   const rep  = r => bill(r)-fat(r);
   const empNome = cod => EMPRESAS.find(e=>e.cod===cod)?.nome||"";
 
-  const comps = [...new Set(records.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>{ const [ma,ya]=String(a).split("/"),[mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
+  // Comercial: BU fixa (records já vem filtrado). Admin: escolhe a BU aqui.
+  const busAll = [...new Set(records.map(r=>r.bu).filter(Boolean))].sort();
+  const [buSel, setBuSel] = useState(buFixed || busAll[0] || "");
+  const bu = canPickBu ? buSel : (buFixed||"");
+  const scoped = canPickBu ? records.filter(r=>r.bu===bu) : records;
+
+  const comps = [...new Set(scoped.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>{ const [ma,ya]=String(a).split("/"),[mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
   const [comp, setComp] = useState("todas");
-  const recs = comp==="todas" ? records : records.filter(r=>r.competencia===comp);
+  const recs = comp==="todas" ? scoped : scoped.filter(r=>r.competencia===comp);
 
   const tot = recs.reduce((a,r)=>({ rec:a.rec+bill(r), fat:a.fat+fat(r), rep:a.rep+Math.max(0,rep(r)) }),{rec:0,fat:0,rep:0});
   const pctFat = tot.rec>0.01 ? Math.round(tot.fat/tot.rec*100) : 0;
@@ -4912,8 +4918,9 @@ function WeeklyReportView({ records, clients=[], bu, nome, fatByRec={}, varByRec
 
       <Card style={{padding:14,marginBottom:14}}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+          {canPickBu && <Field label="Unidade de negócio (BU)"><select style={{...inp,width:"auto",minWidth:180,fontWeight:700,color:T.brand,borderColor:T.brand}} value={buSel} onChange={e=>{setBuSel(e.target.value);setComp("todas");}}>{busAll.length===0 && <option value="">— sem BU classificada —</option>}{busAll.map(b=><option key={b}>{b}</option>)}</select></Field>}
           <Field label="Competência"><select style={{...inp,width:"auto",minWidth:150}} value={comp} onChange={e=>setComp(e.target.value)}><option value="todas">Todas</option>{comps.map(c=><option key={c}>{c}</option>)}</select></Field>
-          <div style={{fontSize:12,color:T.muted,flex:1,minWidth:200}}>Esta é exatamente a foto que o disparo automático semanal envia por e-mail para o comercial da BU.</div>
+          <div style={{fontSize:12,color:T.muted,flex:1,minWidth:200}}>Esta é exatamente a foto que o disparo automático semanal envia por e-mail para o comercial da BU{canPickBu?" selecionada":""}.</div>
         </div>
       </Card>
 
@@ -5822,6 +5829,11 @@ function AppInner() {
           {page==="report"&&isComercial&&(
             <div style={{maxWidth:1180,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <WeeklyReportView records={recordsView} clients={clients} bu={userBu} nome={user.name} fatByRec={fatByRec} varByRec={varByRec}/>
+            </div>
+          )}
+          {page==="report"&&isAdmin&&!isComercial&&(
+            <div style={{maxWidth:1180,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <WeeklyReportView records={recordsAtivos} clients={clients} nome={user.name} fatByRec={fatByRec} varByRec={varByRec} canPickBu/>
             </div>
           )}
           {page==="represados"&&(
