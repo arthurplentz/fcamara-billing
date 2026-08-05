@@ -460,6 +460,21 @@ export async function setMyApelido(apelido) {
   if (error) throw error;
 }
 
+// ─── DE → PARA de clientes (unificação de nomes) ─────────────────────────────
+export async function fetchClientAliases() {
+  const { data, error } = await supabase.from("client_aliases").select("de,para").order("para", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(a => ({ de: a.de, para: a.para }));
+}
+export async function saveClientAlias({ de, para }) {
+  const { error } = await supabase.from("client_aliases").upsert({ de, para, updated_at: nowISO() }, { onConflict: "de" });
+  if (error) throw error;
+}
+export async function deleteClientAlias(de) {
+  const { error } = await supabase.from("client_aliases").delete().eq("de", de);
+  if (error) throw error;
+}
+
 // ─── MURAL (tela inicial) ────────────────────────────────────────────────────
 export async function fetchMural() {
   const { data, error } = await supabase.from("mural").select("*").order("updated_at", { ascending: false }).limit(1);

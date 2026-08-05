@@ -332,6 +332,13 @@ const inp = { padding:"8px 11px", borderRadius:T.rMd, border:`1px solid ${T.line
 // cujo dia de início é >= dia de corte fatura no mês seguinte. Sem corte = mês
 // de serviço (01–31). Helpers no módulo p/ reuso entre as telas.
 const _normCliNome = s => (s||"").toString().trim().toLowerCase();
+// Aplica o mapa DE→PARA (chave = nome normalizado) ao carregar os registros, para
+// que o MESMO cliente com nomes diferentes vire um só em TODAS as telas. Guarda
+// clienteOrig como rastro. Não muta o dado no banco (é só leitura).
+function applyClientAliases(list, aliasMap) {
+  if (!aliasMap || !Object.keys(aliasMap).length) return list;
+  return list.map(r => { const para = aliasMap[_normCliNome(r.cliente)]; return (para && para!==r.cliente) ? { ...r, cliente: para, clienteOrig: r.cliente } : r; });
+}
 function diaCorteOf(record, clients=[]) {
   const rc = _normCliNome(record.cliente);
   const c = (clients||[]).find(cl => { const cn=_normCliNome(cl.nome); return cn && (rc===cn || (cn.length>4 && rc.includes(cn))); });
@@ -1879,7 +1886,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"report",icon:"file",label:"Report semanal (comercial)"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"aliases",icon:"building",label:"Unificar clientes"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"report",icon:"file",label:"Report semanal (comercial)"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 // Navegação do acesso COMERCIAL — enxuta: só a receita da BU dele.
 const COMERCIAL_NAV_SECTIONS = [
@@ -4752,6 +4759,65 @@ function BuClassifierView({ records, onSetBu }) {
 // ─── VISÃO COMERCIAL (por BU) ────────────────────────────────────────────────
 // O que um diretor comercial vê da sua unidade de negócio: reconhecido, faturado,
 // a faturar e represado por cliente. Só leitura. (Acesso por diretor/BU vem depois.)
+// ─── UNIFICAR CLIENTES (DE → PARA) ───────────────────────────────────────────
+// Mapa manual para quando o MESMO cliente aparece com nomes totalmente diferentes
+// nos registros. O nome DE passa a ser lido como o nome PARA em todas as telas.
+function AliasesView({ aliases=[], records=[], onSave, onDelete, isViewer=false }) {
+  const [de, setDe] = useState("");
+  const [para, setPara] = useState("");
+  // Nomes distintos que aparecem hoje nos registros (com contagem) — para escolher.
+  const cont = {};
+  records.forEach(r=>{ const n=(r.cliente||"").trim(); if(n) cont[n]=(cont[n]||0)+1; });
+  const nomes = Object.entries(cont).sort((a,b)=>a[0].localeCompare(b[0]));
+  const paraNomes = [...new Set([...nomes.map(n=>n[0]), ...aliases.map(a=>a.para)])].sort((a,b)=>a.localeCompare(b));
+
+  function submit(){ onSave({ de, para }); setDe(""); setPara(""); }
+
+  return (
+    <div>
+      <PageHead icon="building" title="Unificar clientes (DE → PARA)" sub="Quando o mesmo cliente aparece com nomes diferentes, aponte o nome de origem para o nome final. Vale em todas as telas e sobrevive a re-importações."/>
+      <div style={{fontSize:12.5,color:T.muted,marginBottom:16}}>Ex.: <b>alocacao mandic</b> → <b>SOCIEDADE REGIONAL DE ENSINO E SAUDE LTDA</b>. O app não altera o dado bruto — só a leitura. Não remove receitas duplicadas: se a mesma receita foi importada duas vezes, use <b>Validações → possivelmente duplicadas</b> e <b>Correções</b>.</div>
+
+      {!isViewer && <Card style={{padding:16,marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr auto",gap:12,alignItems:"end"}}>
+          <Field label="DE (nome de origem)">
+            <input style={inp} list="alias-de" placeholder="Nome como aparece hoje" value={de} onChange={e=>setDe(e.target.value)}/>
+            <datalist id="alias-de">{nomes.map(([n,c])=><option key={n} value={n}>{n} ({c})</option>)}</datalist>
+          </Field>
+          <div style={{fontSize:20,color:T.brand,fontWeight:800,paddingBottom:8}}>→</div>
+          <Field label="PARA (nome final / canônico)">
+            <input style={inp} list="alias-para" placeholder="Nome que deve valer" value={para} onChange={e=>setPara(e.target.value)}/>
+            <datalist id="alias-para">{paraNomes.map(n=><option key={n} value={n}/>)}</datalist>
+          </Field>
+          <Btn primary onClick={submit} disabled={!de.trim()||!para.trim()}>Unificar</Btn>
+        </div>
+      </Card>}
+
+      <SectionTitle count={aliases.length}>Unificações ativas</SectionTitle>
+      {aliases.length===0
+        ? <Card style={{padding:24,textAlign:"center",color:T.muted,fontSize:13}}>Nenhuma unificação cadastrada ainda.</Card>
+        : <Card style={{padding:0,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead><tr>
+                <th style={{padding:"9px 14px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`}}>DE (origem)</th>
+                <th style={{padding:"9px 14px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`}}>PARA (final)</th>
+                <th style={{borderBottom:`1px solid ${T.line}`}}/>
+              </tr></thead>
+              <tbody>
+                {aliases.slice().sort((a,b)=>a.para.localeCompare(b.para)||a.de.localeCompare(b.de)).map(a=>(
+                  <tr key={a.de} style={{borderBottom:`1px solid ${T.lineSoft}`}}>
+                    <td style={{padding:"9px 14px",color:T.inkSoft}}>{a.de}</td>
+                    <td style={{padding:"9px 14px",fontWeight:600,color:T.ink}}><span style={{color:T.brand,marginRight:6,fontWeight:800}}>→</span>{a.para}</td>
+                    <td style={{padding:"9px 14px",textAlign:"right"}}>{!isViewer && <Btn small danger onClick={()=>onDelete(a.de)}>Remover</Btn>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>}
+    </div>
+  );
+}
+
 function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
   const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
   const bus = [...new Set(records.map(r=>r.bu).filter(Boolean))].sort();
@@ -5138,12 +5204,16 @@ function AppInner() {
   const [faturamentos, setFaturamentos] = useState([]);  // livro de faturamento (alocações parciais)
   const [variacoes, setVariacoes] = useState([]);        // variações de receita pós-fechamento
   const [mural, setMural] = useState({ id:null, frase:"", autor:"", lembretes:[] });
+  const [aliases, setAliases] = useState([]);        // DE→PARA de clientes
+  const aliasMapRef = useRef({});                    // { nomeNormalizado(de) -> para }
+  const buildAliasMap = (list) => { const m={}; (list||[]).forEach(a=>{ if(a.de&&a.para) m[_normCliNome(a.de)]=a.para; }); return m; };
   const [dataReady, setDataRdy] = useState(false);
 
   useEffect(()=>saveState(state),[state]);
 
   // ─ Carrega os dados do banco quando o usuário entra ─
-  const reloadRecords = useCallback(async () => { try { setRecords(await db.fetchRecords()); } catch(e){ toast("Erro ao carregar registros: "+e.message, "error"); } }, [toast]);
+  const reloadRecords = useCallback(async () => { try { setRecords(applyClientAliases(await db.fetchRecords(), aliasMapRef.current)); } catch(e){ toast("Erro ao carregar registros: "+e.message, "error"); } }, [toast]);
+  const reloadAliases = useCallback(async () => { try { const al = await db.fetchClientAliases(); aliasMapRef.current = buildAliasMap(al); setAliases(al); } catch(e){ /* tabela pode não existir ainda */ } }, []);
   const reloadTasks   = useCallback(async () => { try { setTasks(await db.fetchTasks()); }     catch(e){ toast("Erro ao carregar tarefas: "+e.message, "error"); } }, [toast]);
   const reloadHistory  = useCallback(async () => { try { setHistory(await db.fetchHistory()); } catch(e){ /* histórico é só p/ admin */ } }, []);
   const reloadProfiles = useCallback(async () => { try { setProfiles(await db.fetchProfiles()); } catch(e){ toast("Erro ao carregar acessos: "+e.message, "error"); } }, [toast]);
@@ -5160,8 +5230,8 @@ function AppInner() {
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[])])
-      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr]) => { if (!active) return; setRecords(r); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[])])
+      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -5548,6 +5618,21 @@ function AppInner() {
     try { const n = await db.bulkInsertClients(list); await reloadClients(); toast(`${n} cliente(s) importados (cadastro incompleto)`); }
     catch(e) { toast("Erro ao importar clientes: "+e.message, "error"); }
   }
+  // DE→PARA de clientes (unificação de nomes). Recarrega os registros para
+  // reaplicar o mapa em todas as telas.
+  async function handleAliasSave({ de, para }) {
+    if (blockIfViewer()) return;
+    const d=(de||"").trim(), p=(para||"").trim();
+    if (!d || !p) { toast("Preencha os dois nomes (DE e PARA).", "error"); return; }
+    if (_normCliNome(d)===_normCliNome(p)) { toast("DE e PARA são o mesmo nome.", "error"); return; }
+    try { await db.saveClientAlias({ de:d, para:p }); await reloadAliases(); await reloadRecords(); toast(`Unificado: "${d}" → "${p}"`); }
+    catch(e){ toast("Erro ao salvar unificação: "+e.message, "error"); }
+  }
+  async function handleAliasDelete(de) {
+    if (blockIfViewer()) return;
+    try { await db.deleteClientAlias(de); await reloadAliases(); await reloadRecords(); toast("Unificação removida", "info"); }
+    catch(e){ toast("Erro ao remover: "+e.message, "error"); }
+  }
   // Agrupa N cadastros num só. baseId define qual cadastro é o destino (grupo);
   // sem baseId, usa o primeiro da lista. Reúne os CNPJs no destino e remove os demais.
   async function handleClientsMerge(ids, nome, baseId) {
@@ -5857,6 +5942,11 @@ function AppInner() {
           {page==="bu"&&isAdmin&&(
             <div style={{maxWidth:1100,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <BuClassifierView records={records} onSetBu={handleSetBu}/>
+            </div>
+          )}
+          {page==="aliases"&&isAdmin&&(
+            <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <AliasesView aliases={aliases} records={records} onSave={handleAliasSave} onDelete={handleAliasDelete} isViewer={isViewer}/>
             </div>
           )}
           {page==="comercial"&&isAdmin&&(
