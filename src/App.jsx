@@ -1879,7 +1879,7 @@ const NAV_SECTIONS = [
   { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
 ];
 
-const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
+const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
 
 function NavLinks({ page, setPage, isAdmin, onNavigate }) {
   const sections = isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
@@ -4647,6 +4647,96 @@ function BuClassifierView({ records, onSetBu }) {
   );
 }
 
+// ─── VISÃO COMERCIAL (por BU) ────────────────────────────────────────────────
+// O que um diretor comercial vê da sua unidade de negócio: reconhecido, faturado,
+// a faturar e represado por cliente. Só leitura. (Acesso por diretor/BU vem depois.)
+function ComercialView({ records, clients=[], fatByRec={}, varByRec={} }) {
+  const key = s => (s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+  const bus = [...new Set(records.map(r=>r.bu).filter(Boolean))].sort();
+  const [buSel, setBuSel] = useState("");
+  const [emp, setEmp] = useState("todas");
+  const [comp, setComp] = useState("todas");
+  const bu = buSel || bus[0] || "";
+  const bill = r => (r.valorTotal||0)+(varByRec[r.id]||0);
+  const fat  = r => fatByRec[r.id]||0;
+  const daBu = records.filter(r=>r.bu===bu);
+  const empresasComDados = [...new Set(daBu.map(r=>r.empresa).filter(Boolean))].sort();
+  const comps = [...new Set(daBu.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>{ const [ma,ya]=String(a).split("/"),[mb,yb]=String(b).split("/"); return (Number(yb)-Number(ya))||(Number(mb)-Number(ma)); });
+
+  let recs = daBu;
+  if (emp!=="todas")  recs = recs.filter(r=>r.empresa===emp);
+  if (comp!=="todas") recs = recs.filter(r=>r.competencia===comp);
+
+  const grupos = {};
+  recs.forEach(r => {
+    const k = key(r.cliente); if(!k) return;
+    const g = (grupos[k] = grupos[k] || { nome:r.cliente, emps:new Set(), reconhecido:0, faturado:0, represado:0, ciclo:0 });
+    const b=bill(r), f=fat(r), s=b-f;
+    g.reconhecido+=b; g.faturado+=f; g.emps.add(r.empresa);
+    if (s>0.01) { if (categoriaOf(r,clients).cat==="represado") g.represado+=s; else g.ciclo+=s; }
+  });
+  const lista = Object.values(grupos).map(g=>({ ...g, aberto:g.represado+g.ciclo, empLabel:[...g.emps].filter(Boolean).sort().join(", ") }))
+    .sort((a,b)=>b.reconhecido-a.reconhecido);
+  const tot = lista.reduce((t,g)=>({ rec:t.rec+g.reconhecido, fat:t.fat+g.faturado, rep:t.rep+g.represado, cic:t.cic+g.ciclo }),{rec:0,fat:0,rep:0,cic:0});
+  const pctFat = tot.rec>0.01 ? Math.round(tot.fat/tot.rec*100) : 0;
+
+  const th={padding:"7px 10px",textAlign:"left",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".3px",borderBottom:`1px solid ${T.line}`,whiteSpace:"nowrap"};
+  const thR={...th,textAlign:"right"};
+  const td={padding:"7px 10px",fontSize:12.5,borderBottom:`1px solid ${T.line}`};
+  const tdR={...td,textAlign:"right",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"};
+  const kpi=(label,valor,cor,sub)=>(
+    <Card style={{padding:16,flex:"1 1 180px"}}>
+      <div style={{fontSize:12,color:T.muted,fontWeight:600}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,color:cor,marginTop:4,fontVariantNumeric:"tabular-nums"}}>{brl(valor)}</div>
+      {sub && <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{sub}</div>}
+    </Card>
+  );
+
+  return (
+    <div>
+      <PageHead icon="chart" title="Visão comercial" sub="Reconhecido, faturado e represado por cliente — na ótica da unidade de negócio."/>
+      {bus.length===0
+        ? <Card style={{padding:22,textAlign:"center",color:T.muted}}>Nenhuma BU classificada ainda. Classifique os clientes em <b>Administração → Classificar BU</b> e esta visão se preenche.</Card>
+        : <>
+          <Card style={{padding:14,marginBottom:14}}>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+              <Field label="Unidade de negócio (BU)"><select style={{...inp,width:"auto",minWidth:180,fontWeight:700,color:T.brand,borderColor:T.brand}} value={bu} onChange={e=>{setBuSel(e.target.value);setEmp("todas");setComp("todas");}}>{bus.map(b=><option key={b}>{b}</option>)}</select></Field>
+              <Field label="Empresa"><select style={{...inp,width:"auto"}} value={emp} onChange={e=>setEmp(e.target.value)}><option value="todas">Todas</option>{empresasComDados.map(c=>{const e=EMPRESAS.find(x=>x.cod===c);return <option key={c} value={c}>{c}{e?` — ${e.nome}`:""}</option>;})}</select></Field>
+              <Field label="Competência"><select style={{...inp,width:"auto"}} value={comp} onChange={e=>setComp(e.target.value)}><option value="todas">Todas</option>{comps.map(c=><option key={c}>{c}</option>)}</select></Field>
+            </div>
+          </Card>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+            {kpi("Reconhecido", tot.rec, T.ink, `${lista.length} cliente(s)`)}
+            {kpi("Faturado", tot.fat, C.green.solid, `${pctFat}% do reconhecido`)}
+            {kpi("A faturar", tot.rec-tot.fat, C.orange.solid, "reconhecido ainda em aberto")}
+            {kpi("Represado", tot.rep, C.red.solid, "em aberto e fora do ciclo")}
+          </div>
+          <Card style={{padding:0,overflow:"hidden"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr><th style={th}>Cliente</th><th style={th}>Empresa</th><th style={thR}>Reconhecido</th><th style={thR}>Faturado</th><th style={thR}>A faturar</th><th style={thR}>Represado</th><th style={thR}>% fat.</th></tr></thead>
+                <tbody>
+                  {lista.length===0 && <tr><td colSpan={7} style={{padding:"22px",textAlign:"center",color:T.muted,fontSize:13}}>Sem receitas nesse recorte.</td></tr>}
+                  {lista.map(g=>{ const pf=g.reconhecido>0.01?Math.round(g.faturado/g.reconhecido*100):0; return (
+                    <tr key={g.nome+g.empLabel}>
+                      <td style={{...td,maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={g.nome}>{g.nome}</td>
+                      <td style={{...td,color:T.inkSoft,whiteSpace:"nowrap"}}>{g.empLabel||"—"}</td>
+                      <td style={{...tdR,fontWeight:600}}>{brl(g.reconhecido)}</td>
+                      <td style={{...tdR,color:C.green.solid}}>{brl(g.faturado)}</td>
+                      <td style={tdR}>{brl(g.aberto)}</td>
+                      <td style={{...tdR,color:g.represado>0.01?C.red.solid:T.faint,fontWeight:g.represado>0.01?700:400}}>{brl(g.represado)}</td>
+                      <td style={tdR}>{pf}%</td>
+                    </tr>
+                  );})}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>}
+    </div>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 
 function AppInner() {
@@ -5381,6 +5471,11 @@ function AppInner() {
           {page==="bu"&&isAdmin&&(
             <div style={{maxWidth:1100,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <BuClassifierView records={records} onSetBu={handleSetBu}/>
+            </div>
+          )}
+          {page==="comercial"&&isAdmin&&(
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <ComercialView records={recordsAtivos} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
             </div>
           )}
           {page==="correcoes"&&isAdmin&&(
