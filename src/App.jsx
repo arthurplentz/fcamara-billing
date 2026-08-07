@@ -3434,6 +3434,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
 function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClass, isViewer=false }) {
   const [empF, setEmpF] = useState("todas");
   const [cliF, setCliF] = useState("todos");
+  const [compF, setCompF] = useState("todas");       // competência de faturamento
   const [q, setQ] = useState("");
   const [onlyPend, setOnlyPend] = useState(false);   // só sem classificação
   const [classTarget, setClass] = useState(null);
@@ -3446,10 +3447,12 @@ function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClas
   const base = records.filter(r => rep(r)>0.01 && categoriaOf(r,clients).cat==="represado");
   const empresas = [...new Set(base.map(r=>r.empresa).filter(Boolean))].sort();
   const clientes = [...new Set(base.filter(r=>empF==="todas"||r.empresa===empF).map(r=>r.cliente).filter(Boolean))].sort();
+  const comps = [...new Set(base.map(r=>compFatOf(r,clients)).filter(Boolean))].sort((a,b)=>compRank(b).localeCompare(compRank(a)));
 
   let list = base;
   if (empF!=="todas") list = list.filter(r=>r.empresa===empF);
   if (cliF!=="todos") list = list.filter(r=>r.cliente===cliF);
+  if (compF!=="todas") list = list.filter(r=>compFatOf(r,clients)===compF);
   if (q.trim()){ const s=q.trim().toLowerCase(); list=list.filter(r=>[r.cliente,r.pep,r.profissional,r.classMotivo,r.classObs].some(v=>String(v||"").toLowerCase().includes(s))); }
   if (onlyPend) list = list.filter(r=>!(r.classMotivo||r.classObs));
 
@@ -3490,6 +3493,10 @@ function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClas
           <select style={{...inp,width:"auto",minWidth:200,flex:"1 1 200px"}} value={cliF} onChange={e=>setCliF(e.target.value)}>
             <option value="todos">Todos os clientes</option>
             {clientes.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <select style={{...inp,width:"auto",minWidth:150}} value={compF} onChange={e=>setCompF(e.target.value)} title="Competência de faturamento">
+            <option value="todas">Todas as compet.</option>
+            {comps.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
           <input style={{...inp,width:"auto",minWidth:160,flex:"1 1 160px"}} placeholder="Buscar PEP, profissional, motivo…" value={q} onChange={e=>setQ(e.target.value)}/>
           <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:T.inkSoft,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
