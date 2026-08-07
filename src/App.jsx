@@ -19,6 +19,9 @@ const EMPRESAS = [
 const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 // BUs (unidades de negócio) — classificação comercial. Normalmente 1 por cliente.
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
+// Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
+// se o navegador está rodando o build mais novo (e não uma cópia em cache).
+const APP_BUILD = "concil-checagem · #118";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -1947,6 +1950,7 @@ function Sidebar({ page, setPage, user, isAdmin, isComercial }) {
     <aside style={{width:212,flexShrink:0,background:"var(--surface)",borderRight:`1px solid ${T.line}`,padding:"18px 12px",display:"flex",flexDirection:"column"}}>
       <UserChip user={user} isAdmin={isAdmin} isComercial={isComercial}/>
       <NavLinks page={page} setPage={setPage} isAdmin={isAdmin} isComercial={isComercial}/>
+      <div style={{marginTop:"auto",paddingTop:12,fontSize:10,color:T.faint,borderTop:`1px solid ${T.lineSoft}`,textAlign:"center"}}>versão: {APP_BUILD}</div>
     </aside>
   );
 }
