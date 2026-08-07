@@ -3567,7 +3567,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   // filtros e ordenação — lado esquerdo (notas)
   const [qNote, setQNote] = useState(""); const [noteStat, setNoteStat] = useState("pendentes"); const [noteSort, setNoteSort] = useState("valor_desc"); const [noteDe, setNoteDe] = useState(""); const [noteAte, setNoteAte] = useState(""); const [noteCli, setNoteCli] = useState("todos");
   // filtros e ordenação — lado direito (receitas)
-  const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas");
+  const [qRec, setQRec] = useState(""); const [recStat, setRecStat] = useState("pendentes"); const [recSort, setRecSort] = useState("valor_desc"); const [recComp, setRecComp] = useState("todas"); const [recCheck, setRecCheck] = useState("todas");
   const [recDim, setRecDim] = useState("servico");   // competência: mês de serviço × ciclo de faturamento
   // Incluir receitas ainda não "Liberadas para faturamento" (ex.: conciliação
   // adiantada antes do time preencher o passo a passo). Conciliar já libera o funil.
@@ -3634,6 +3634,9 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>compValue(r)===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
+  // Checagem: já checadas (têm motivo/obs) × represados ainda a checar.
+  if (recCheck==="checadas") rightRecs = rightRecs.filter(r=>r.classMotivo||r.classObs);
+  else if (recCheck==="achecar") rightRecs = rightRecs.filter(r=>hasSaldo(r) && categoriaOf(r,clients).cat==="represado" && !(r.classMotivo||r.classObs));
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
 
@@ -3894,6 +3897,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                   <SortSel value={recDim} onChange={v=>{setRecDim(v);setRecComp("todas");}} opts={[["servico","Ver por: Serviço"],["ciclo","Ver por: Ciclo"]]}/>
                   <SortSel value={recComp} onChange={setRecComp} active={recComp!=="todas"} opts={[["todas",recDim==="ciclo"?"Todos ciclos":"Todos os meses"],...compsUsadas.map(c=>[c,c])]}/>
                   <SortSel value={recStat} onChange={setRecStat} opts={[["pendentes","Sem nota"],["faturados","Faturados"],["todas","Todas"]]}/>
+                  <SortSel value={recCheck} onChange={setRecCheck} active={recCheck!=="todas"} opts={[["todas","Checagem: todas"],["achecar","Represado a checar"],["checadas","Já checadas"]]}/>
                   <SortSel value={recSort} onChange={setRecSort} opts={[["valor_desc","↓ Valor"],["valor_asc","↑ Valor"],["cliente_az","A–Z"],["comp","Competência"]]}/>
                 </div>
                 <label style={{display:"flex",alignItems:"center",gap:6,marginTop:8,fontSize:12,color:T.inkSoft,cursor:"pointer"}}>
@@ -3905,14 +3909,14 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
                       const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r), dc=diaCorteDe(r);
-                      const temCls=hasSaldo(r)&&(r.classMotivo||r.classObs), clsRepres=temCls&&categoriaOf(r,clients).cat==="represado";
+                      const temCls=hasSaldo(r)&&(r.classMotivo||r.classObs), isRepres=hasSaldo(r)&&categoriaOf(r,clients).cat==="represado", clsRepres=temCls&&isRepres, aChecar=isRepres&&!temCls;
                       return (
-                        <div key={r.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,background:on?T.brandBg:(sug?"#f0fdf4":"var(--surface)")}}>
+                        <div key={r.id} title={isRepres?(temCls?"Represado já checado":"Represado ainda a checar"):undefined} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,borderLeft:isRepres?`3px solid ${temCls?C.red.solid:C.orange.solid}`:"3px solid transparent",background:on?T.brandBg:(sug?"#f0fdf4":"var(--surface)")}}>
                           {full
                             ? <span title="Faturada" style={{width:15,textAlign:"center",color:T.ok}}>✓</span>
                             : <input type="checkbox" checked={on} onChange={()=>toggleRec(r.id)}/>}
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>} {dc>0&&<Badge label={`ciclo ${compFat(r)}`} color="teal" small/>} {temCls&&<Badge label={(clsRepres?"⚠ ":"")+(r.classMotivo||"obs")} color={clsRepres?"red":"gray"} small/>}</div>
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.cliente||"—"} {parcial&&<Badge label="parcial" color="orange" small/>} {(varByRec[r.id]||0)>0.001&&<Badge label="variação" color="purple" small/>} {r.valorAnterior!=null&&<Badge label="valor mudou" color="red" small/>} {sug&&<Badge label="sugerido" color="green" small/>} {falta&&<Badge label="faltam datas" color="yellow" small/>} {dc>0&&<Badge label={`ciclo ${compFat(r)}`} color="teal" small/>} {temCls&&<Badge label={(clsRepres?"⚠ ":"")+(r.classMotivo||"obs")} color={clsRepres?"red":"gray"} small/>} {aChecar&&<Badge label="represado · a checar" color="orange" small/>}</div>
                             <div style={{fontSize:11,color:T.muted}}>{r.competencia} · {r.tipo} · {r.profissional||r.pep||"—"}{dc>0?` · fatura ${compFat(r)} · ${r.inicio}–${r.fim}`:""}{hasFat(r)?` · faturado ${brl(fat(r))} de ${brl(bill(r))}`:""}{(varByRec[r.id]||0)>0.001?` · inclui variação ${brl(varByRec[r.id])}`:""}</div>
                             {temCls&&r.classObs&&<div style={{fontSize:11,color:clsRepres?C.red.solid:T.inkSoft,marginTop:2,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📝 {r.classObs}</div>}
                           </div>
