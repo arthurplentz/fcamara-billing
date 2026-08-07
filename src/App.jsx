@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "concil-checagem · #118";
+const APP_BUILD = "concil-checagem-fix · #119";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3639,8 +3639,10 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>compValue(r)===recComp);
   if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
   // Checagem: já checadas (têm motivo/obs) × represados ainda a checar.
-  if (recCheck==="checadas") rightRecs = rightRecs.filter(r=>r.classMotivo||r.classObs);
-  else if (recCheck==="achecar") rightRecs = rightRecs.filter(r=>hasSaldo(r) && categoriaOf(r,clients).cat==="represado" && !(r.classMotivo||r.classObs));
+  // Helper único (com trim) para o filtro e o selo NUNCA divergirem.
+  const checado = (r) => !!((r.classMotivo||"").toString().trim() || (r.classObs||"").toString().trim());
+  if (recCheck==="checadas") rightRecs = rightRecs.filter(checado);
+  else if (recCheck==="achecar") rightRecs = rightRecs.filter(r=>hasSaldo(r) && categoriaOf(r,clients).cat==="represado" && !checado(r));
   rightRecs = rightRecs.sort(sortRecs);
   const LIMIT = 400; const rightShown = rightRecs.slice(0,LIMIT); const leftShown = leftNotes.slice(0,LIMIT);
 
@@ -3909,11 +3911,11 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                   Incluir receitas ainda não liberadas no passo a passo <span style={{color:T.muted,fontSize:11}}>(conciliar já libera o funil)</span>
                 </label>
               </div>
-              <div className="fc-scroll" key={`rr-${recDim}-${recComp}-${recStat}-${recSort}-${qRec}`} style={{maxHeight:480,overflowY:"auto"}}>
+              <div className="fc-scroll" key={`rr-${recDim}-${recComp}-${recStat}-${recCheck}-${recSort}-${qRec}`} style={{maxHeight:480,overflowY:"auto"}}>
                 {rightShown.length===0 ? <div style={{padding:"1.4rem",textAlign:"center",fontSize:13,color:T.muted}}>Nenhuma receita.</div>
                   : rightShown.map(r=>{
                       const full=!hasSaldo(r), parcial=hasFat(r)&&hasSaldo(r), on=selRecs.has(r.id), sug=hasSaldo(r)&&isSug(r), falta=faltaDatas(r), dc=diaCorteDe(r);
-                      const temCls=hasSaldo(r)&&(r.classMotivo||r.classObs), isRepres=hasSaldo(r)&&categoriaOf(r,clients).cat==="represado", clsRepres=temCls&&isRepres, aChecar=isRepres&&!temCls;
+                      const temCls=hasSaldo(r)&&checado(r), isRepres=hasSaldo(r)&&categoriaOf(r,clients).cat==="represado", clsRepres=temCls&&isRepres, aChecar=isRepres&&!temCls;
                       return (
                         <div key={r.id} title={isRepres?(temCls?"Represado já checado":"Represado ainda a checar"):undefined} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",borderBottom:`1px solid ${T.lineSoft}`,borderLeft:isRepres?`3px solid ${temCls?C.red.solid:C.orange.solid}`:"3px solid transparent",background:on?T.brandBg:(sug?"#f0fdf4":"var(--surface)")}}>
                           {full
