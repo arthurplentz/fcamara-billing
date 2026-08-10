@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "concil-checagem-fix · #119";
+const APP_BUILD = "filtros-robustos · #120";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -1042,7 +1042,7 @@ function BulkTimelineModal({ cliente, pep, records, onSave, onClose, onOpenNF })
           <Icon name={pickOpen?"chevronUp":"chevronDown"} size={16}/>
         </button>
         {pickOpen && (() => {
-          const list = records.filter(r=>!qProf.trim() || (r.profissional||"").toLowerCase().includes(qProf.trim().toLowerCase()));
+          const list = records.filter(r=>!qProf.trim() || matchQuery(qProf, [r.profissional]));
           return (
             <div style={{border:`1px solid ${T.line}`,borderTop:"none",borderRadius:`0 0 ${T.rMd}px ${T.rMd}px`,padding:"10px 12px",background:T.canvas}}>
               <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
@@ -1466,7 +1466,7 @@ function MyView({ records, clients=[], analista, isAdmin, isViewer=false, fatByR
   if (seeAll && filterAnalista!=="todos") filtered = filtered.filter(r=>r.responsavel===filterAnalista);
   if (filterEtapa==="_faltam_datas") filtered = filtered.filter(faltaDatas);
   else if (filterEtapa!=="todas") filtered = filtered.filter(r=>recStatus(r, fatByRec[r.id], bill(r))===filterEtapa);
-  filtros.forEach(f=>{ const v=(f.val||"").trim().toLowerCase(); const g=FDIMS[f.dim]?.get; if(v&&g) filtered = filtered.filter(r=>String(g(r)||"").toLowerCase().includes(v)); });
+  filtros.forEach(f=>{ const v=(f.val||"").trim(); const g=FDIMS[f.dim]?.get; if(v&&g) filtered = filtered.filter(r=>matchQuery(v, [g(r)])); });
 
   // Resumo por tipo de contrato
   const porTipo = {};
@@ -2759,6 +2759,26 @@ const brl = (n) => "R$ " + (Number(n)||0).toLocaleString("pt-BR", { minimumFract
 const onlyDigits = (s) => String(s||"").replace(/\D/g, "");
 const stripAcc = (s) => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const normHdr  = (s) => stripAcc(s).replace(/[^a-z0-9]+/g, " ").trim();
+
+// Busca "estilo sistema grande": sem acento, sem caixa, com trim. A consulta é
+// dividida em TERMOS (por espaço) — cada termo precisa casar em ALGUM campo
+// (AND entre termos, OR entre campos). Assim "banco c6" acha "BANCO C6 S.A.".
+// Um termo só de dígitos casa com a versão só-dígitos dos campos (CNPJ, código),
+// mas SÓ a partir de 3 dígitos — evita que "c6" (1 dígito) traga todo CNPJ que
+// tenha um "6". `fields` é uma lista de strings (nome, cnpj, código, etc.).
+function matchQuery(query, fields) {
+  const q = stripAcc(query).trim();
+  if (!q) return true;
+  const arr = (Array.isArray(fields) ? fields : [fields]).filter(v => v != null && v !== "");
+  const hay = arr.map(stripAcc);
+  const hayDigits = arr.map(onlyDigits).filter(Boolean).join(" ");
+  return q.split(/\s+/).every(term => {
+    if (!term) return true;
+    if (hay.some(h => h.includes(term))) return true;
+    const td = term.replace(/\D/g, "");
+    return td.length >= 3 && hayDigits.includes(td);
+  });
+}
 const colByExact = (headers, exact) => { const t = normHdr(exact); return headers.findIndex(h => normHdr(h) === t); };
 
 // Número em formato BR ("80.412,95") ou US ("80,412.95") ou simples ("69"/"2.07").
@@ -2976,9 +2996,8 @@ function ProfContinuityView({ records }) {
       totH:c.totMonthH.reduce((s,x)=>s+x,0), profs, nSumiu:profs.filter(p=>p.flag).length };
   }).sort((a,b)=>(b.nSumiu-a.nSumiu)||(b.totH-a.totH)||a.nome.localeCompare(b.nome));
 
-  const term = q.trim().toLowerCase();
   let shown = clientes;
-  if (term) shown = shown.filter(c=>c.nome.toLowerCase().includes(term) || c.profs.some(p=>p.prof.toLowerCase().includes(term)));
+  if (q.trim()) shown = shown.filter(c=>matchQuery(q, [c.nome, ...c.profs.map(p=>p.prof)]));
   if (soSumiu) shown = shown.filter(c=>c.nSumiu>0).map(c=>({ ...c, profs:c.profs.filter(p=>p.flag) }));
   const totSumiu = clientes.reduce((s,c)=>s+c.nSumiu,0);
   const nCliSumiu = clientes.filter(c=>c.nSumiu>0).length;
@@ -3250,7 +3269,7 @@ function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const tiposCli = [...new Set(recs.map(r=>r.tipo).filter(Boolean))].sort();
   const mesesOpts = [...new Set(recs.map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(a).localeCompare(compRank(b)));
   if (tipoF!=="todos") recs = recs.filter(r=>r.tipo===tipoF);
-  if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recs = recs.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
+  if (qProf.trim()) recs = recs.filter(r=>matchQuery(qProf, [r.profissional]));
   if (statusF!=="todos") recs = recs.filter(r=>statusOf(r)===statusF);
   if (perSel.length) recs = recs.filter(r=>perSel.includes(r.competencia));
 
@@ -3457,7 +3476,7 @@ function RepresadosView({ records, clients, fatByRec={}, varByRec={}, onSaveClas
   if (empF!=="todas") list = list.filter(r=>r.empresa===empF);
   if (cliF!=="todos") list = list.filter(r=>r.cliente===cliF);
   if (compF!=="todas") list = list.filter(r=>compFatOf(r,clients)===compF);
-  if (q.trim()){ const s=q.trim().toLowerCase(); list=list.filter(r=>[r.cliente,r.pep,r.profissional,r.classMotivo,r.classObs].some(v=>String(v||"").toLowerCase().includes(s))); }
+  if (q.trim()) list=list.filter(r=>matchQuery(q, [r.cliente,r.pep,r.profissional,r.classMotivo,r.classObs]));
   if (onlyPend) list = list.filter(r=>!(r.classMotivo||r.classObs));
 
   const totalBase = base.reduce((s,r)=>s+rep(r),0);
@@ -3621,7 +3640,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   // (pendentes mostra só clientes com nota pendente; conciliadas idem).
   const tomadoresUsados = [...new Set(leftNotes.map(n=>n.tomadorNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   if (noteCli!=="todos") leftNotes = leftNotes.filter(n=>(n.tomadorNome||"")===noteCli);
-  if (qNote.trim()) { const s=qNote.trim().toLowerCase(); const dig=s.replace(/\D/g,""); leftNotes = leftNotes.filter(n=>(n.numero||"").toLowerCase().includes(s)||(n.tomadorNome||"").toLowerCase().includes(s)||(!!dig&&(n.pedidos||"").includes(dig))); }
+  if (qNote.trim()) leftNotes = leftNotes.filter(n=>matchQuery(qNote, [n.numero, n.tomadorNome, n.pedidos]));
   leftNotes = leftNotes.sort(sortNotes);
 
   // Período quebrado: dia de corte do cliente → "competência de faturamento" (ciclo).
@@ -3637,7 +3656,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
   if (recStat==="pendentes") rightRecs = rightRecs.filter(r=>hasSaldo(r) && podeFaturar(r));
   if (recStat==="faturados") rightRecs = rightRecs.filter(r=>hasFat(r));
   if (recComp!=="todas") rightRecs = rightRecs.filter(r=>compValue(r)===recComp);
-  if (qRec.trim()) { const s=qRec.trim().toLowerCase(); rightRecs = rightRecs.filter(r=>(r.cliente||"").toLowerCase().includes(s)||(r.profissional||"").toLowerCase().includes(s)||(r.pep||"").toLowerCase().includes(s)); }
+  if (qRec.trim()) rightRecs = rightRecs.filter(r=>matchQuery(qRec, [r.cliente, r.profissional, r.pep]));
   // Checagem: já checadas (têm motivo/obs) × represados ainda a checar.
   // Helper único (com trim) para o filtro e o selo NUNCA divergirem.
   const checado = (r) => !!((r.classMotivo||"").toString().trim() || (r.classObs||"").toString().trim());
@@ -3967,8 +3986,8 @@ function ClientsView({ clients, isAdmin, isViewer=false, onSave, onDelete, onBul
   if (status==="incompletos") filtered = filtered.filter(c=>c.incompleto);
   if (status==="completos")   filtered = filtered.filter(c=>!c.incompleto);
   if (status==="grupos")      filtered = filtered.filter(c=>clientCnpjs(c).length>1);
-  if (grupo.trim())           { const g=grupo.trim().toLowerCase(); filtered = filtered.filter(c=>(c.grupoEmpresa||"").toLowerCase().includes(g)); }
-  if (q.trim()) { const s=q.trim().toLowerCase(); const dig=s.replace(/\D/g,""); filtered = filtered.filter(c => (c.nome||"").toLowerCase().includes(s) || (c.codSap||"").toLowerCase().includes(s) || (!!dig && clientCnpjs(c).some(x=>x.includes(dig)))); }
+  if (grupo.trim())           filtered = filtered.filter(c=>matchQuery(grupo, [c.grupoEmpresa]));
+  if (q.trim())               filtered = filtered.filter(c => matchQuery(q, [c.nome, c.codSap, ...clientCnpjs(c)]));
 
   const incompletos = clients.filter(c=>c.incompleto).length;
   const totalPages = Math.max(1, Math.ceil(filtered.length/PAGE));
@@ -3989,7 +4008,7 @@ function ClientsView({ clients, isAdmin, isViewer=false, onSave, onDelete, onBul
   // Incluir os selecionados num grupo já existente (o grupo é o cadastro-base).
   const startAdd = () => setAdding({ ids:[...sel], pick:"", target:null });
   const grupoCandidatos = clients.filter(c => !adding?.ids.includes(c.id));   // não pode escolher os próprios selecionados
-  const addMatches = adding ? grupoCandidatos.filter(c => !adding.pick.trim() || (c.nome||"").toLowerCase().includes(adding.pick.trim().toLowerCase())).slice(0,8) : [];
+  const addMatches = adding ? grupoCandidatos.filter(c => !adding.pick.trim() || matchQuery(adding.pick, [c.nome])).slice(0,8) : [];
   const confirmAdd = async (target) => {
     await onMerge([target.id, ...adding.ids], target.nome, target.id);
     setSel(new Set()); setAdding(null);
@@ -4400,7 +4419,7 @@ function ReportsView({ records, clients, notes, faturamentos=[], variacoes=[], v
   if (concil==="conciliado") recFiltered = recFiltered.filter(temNota);
   if (concil==="sem_nota") recFiltered = recFiltered.filter(r=>!temNota(r));
   if (qCli.trim()) { const s=qCli.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.cliente||"").toLowerCase().includes(s)); }
-  if (qProf.trim()) { const s=qProf.trim().toLowerCase(); recFiltered = recFiltered.filter(r=>(r.profissional||"").toLowerCase().includes(s)); }
+  if (qProf.trim()) recFiltered = recFiltered.filter(r=>matchQuery(qProf, [r.profissional]));
 
   // Faturamento parcial → DUAS linhas do consultor: o que já foi faturado
   // (status "Faturado", com a NF) e o saldo pendente (status a faturar, sem NF).
@@ -4761,7 +4780,7 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
   else if (status==="ausente") list=list.filter(r=>r.ausenteRelatorio);
   else if (status==="normal")  list=list.filter(r=>!isConc(r)&&!r.ausenteRelatorio);
   const term = q.trim();
-  if (term) list=list.filter(r=>[r.cliente,r.pep,r.profissional,r.responsavel,r.codCliente].some(x=>nrm(x).includes(nrm(term))));
+  if (term) list=list.filter(r=>matchQuery(term, [r.cliente,r.pep,r.profissional,r.responsavel,r.codCliente]));
   const total = list.length;
   const shown = list.slice(0,200);
   const somaShown = shown.reduce((s,r)=>s+(r.valorTotal||0),0);
