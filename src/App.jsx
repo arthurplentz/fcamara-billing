@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "filtros-robustos · #120";
+const APP_BUILD = "quebrar-periodo · #121";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4746,7 +4746,131 @@ function MergeModal({ source, records, fatByRec={}, onConfirm, onClose }) {
   );
 }
 
-function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onInsert, lastCorr, onUndo }) {
+// Quebra o período de um cliente de período quebrado: divide cada lançamento
+// que cruza o dia de corte em duas linhas (01–(D-1) e D–fim), rateando horas e
+// valor por dias — com preview editável para ajustar às horas reais.
+function SplitPeriodModal({ records, clients=[], fatByRec={}, onClose, onApply }) {
+  const toast = useToast();
+  const [cli, setCli] = useState("");
+  const [comp, setComp] = useState("todas");
+  const [dia, setDia] = useState("");
+  const [rows, setRows] = useState(null);   // null = ainda não gerou preview
+  const toNum = (v) => { const s=String(v==null?"":v).trim(); if(!s) return 0; return s.includes(",") ? (parseFloat(s.replace(/\./g,"").replace(",","."))||0) : (parseFloat(s)||0); };
+  const isConc = (r) => (fatByRec[r.id]||0)>0.001 || !!r.conciliadoEm;
+
+  const clientes = [...new Set(records.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const compsDoCli = cli ? [...new Set(records.filter(r=>r.cliente===cli).map(r=>r.competencia).filter(Boolean))].sort((a,b)=>compRank(b).localeCompare(compRank(a))) : [];
+
+  function pickCli(v){ setCli(v); setRows(null); setComp("todas"); const d=diaCorteOf({cliente:v}, clients); setDia(d?String(d):""); }
+
+  function gerar(){
+    const D = parseInt(dia,10);
+    if (!(D>=1 && D<=28)) { toast("Informe um dia de corte válido (1 a 28).", "error"); return; }
+    if (!cli) { toast("Escolha o cliente.", "error"); return; }
+    const base = records.filter(r => r.cliente===cli && (comp==="todas" || r.competencia===comp));
+    const out = base.map(r => {
+      const p=String(r.inicio||"").split("/"), q=String(r.fim||"").split("/");
+      const iDay=+p[0], iM=+p[1], iY=+p[2], fDay=+q[0], fM=+q[1], fY=+q[2];
+      if(!iDay||!iM||!iY||!fDay||!fM||!fY) return { orig:r, skip:"sem datas de início/fim" };
+      if(iM!==fM||iY!==fY) return { orig:r, skip:"início e fim em meses diferentes (ajuste manual)" };
+      if(isConc(r)) return { orig:r, skip:"conciliado — reabra antes" };
+      if(!(iDay < D && fDay >= D)) return { orig:r, skip:"não cruza o dia de corte" };
+      const totalDays=fDay-iDay+1, aDays=D-iDay, bDays=fDay-D+1;
+      const rat=(v)=>(v||0)*aDays/totalDays;
+      const r1=(n)=>Math.round(n*10)/10, r2=(n)=>Math.round(n*100)/100;
+      const hA=r1(rat(r.hrsAprovadas)), hB=r1((r.hrsAprovadas||0)-hA);
+      const vA=r2(rat(r.valorTotal)), vB=r2((r.valorTotal||0)-vA);
+      const lA=r2(rat(r.valorLiquido)), lB=r2((r.valorLiquido||0)-lA);
+      const mm=String(iM).padStart(2,"0");
+      return { orig:r, totalDays, aDays, bDays,
+        a:{ inicio:r.inicio, fim:`${String(D-1).padStart(2,"0")}/${mm}/${iY}`, hrs:String(hA), valor:String(vA), liq:lA },
+        b:{ inicio:`${String(D).padStart(2,"0")}/${mm}/${iY}`, fim:r.fim, hrs:String(hB), valor:String(vB), liq:lB } };
+    });
+    setRows(out);
+    const n = out.filter(x=>x.a).length;
+    if (!n) toast("Nenhum lançamento cruza o dia de corte neste recorte.", "info");
+  }
+  const setCell = (i,part,k,v) => setRows(rs => rs.map((x,j)=> j===i ? {...x,[part]:{...x[part],[k]:v}} : x));
+
+  const doDiv = rows ? rows.filter(x=>x.a) : [];
+  const skips = rows ? rows.filter(x=>x.skip) : [];
+
+  function aplicar(){
+    const edits=[], inserts=[];
+    doDiv.forEach(x=>{
+      const r=x.orig;
+      edits.push({ ...r, inicio:x.a.inicio, fim:x.a.fim, hrsAprovadas:toNum(x.a.hrs), valorTotal:toNum(x.a.valor), valorLiquido:x.a.liq });
+      inserts.push({ ...r, id:undefined, inicio:x.b.inicio, fim:x.b.fim, hrsAprovadas:toNum(x.b.hrs), valorTotal:toNum(x.b.valor), valorLiquido:x.b.liq,
+        progress:{}, municipalNoteId:null, conciliacaoId:null, conciliadoEm:null, conciliadoPor:"", nfNumero:"", valorAnterior:null, valorAlteradoEm:null });
+    });
+    if(!edits.length){ toast("Nada para dividir.", "info"); return; }
+    onApply({ edits, inserts });
+  }
+
+  const cellInp = { ...inp, width:90, fontSize:12, padding:"4px 7px", textAlign:"right" };
+  return (
+    <Modal title="Quebrar período" subtitle="Divide os lançamentos que cruzam o dia de corte em duas linhas (antes/depois do corte)." onClose={onClose} extraWide>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
+        <Field label="Cliente *"><select style={{...inp,width:"auto",minWidth:240}} value={cli} onChange={e=>pickCli(e.target.value)}><option value="">— escolha —</option>{clientes.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+        <Field label="Dia de corte *" hint="(do cadastro; editável)"><input type="number" min="1" max="28" style={{...inp,width:100}} value={dia} onChange={e=>{setDia(e.target.value);setRows(null);}}/></Field>
+        <Field label="Competência"><select style={{...inp,width:"auto",minWidth:130}} value={comp} onChange={e=>{setComp(e.target.value);setRows(null);}}><option value="todas">Todas</option>{compsDoCli.map(c=><option key={c}>{c}</option>)}</select></Field>
+        <Btn primary onClick={gerar} disabled={!cli||!dia}>Gerar prévia</Btn>
+      </div>
+
+      <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>Regra: quem começa <b>antes</b> do dia {dia||"D"} fica no ciclo do próprio mês; a partir do dia {dia||"D"}, vai pro ciclo seguinte. As horas/valor vêm <b>rateadas por dias</b> — <b>ajuste</b> para as horas reais de cada metade antes de aplicar.</div>
+
+      {rows && (doDiv.length===0
+        ? <Card style={{padding:20,textAlign:"center",color:T.muted,fontSize:13}}>Nenhum lançamento cruza o dia de corte neste recorte.</Card>
+        : <div className="fc-scroll" style={{maxHeight:380,overflowY:"auto",border:`1px solid ${T.line}`,borderRadius:T.rLg}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead><tr style={{position:"sticky",top:0,background:T.canvas,zIndex:1}}>
+              {["Consultor · PEP","Parte","Início","Fim","Horas","Valor (R$)","Confere"].map(h=><th key={h} style={{padding:"7px 9px",textAlign:h==="Horas"||h==="Valor (R$)"?"right":"left",borderBottom:`1px solid ${T.line}`,color:T.muted,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {doDiv.map((x,idx)=>{
+                const i = rows.indexOf(x);
+                const hOk = Math.abs((toNum(x.a.hrs)+toNum(x.b.hrs))-(x.orig.hrsAprovadas||0))<0.05;
+                const vOk = Math.abs((toNum(x.a.valor)+toNum(x.b.valor))-(x.orig.valorTotal||0))<0.05;
+                return (
+                  <Fragment key={x.orig.id}>
+                    <tr style={{background:idx%2?T.canvas:"var(--surface)"}}>
+                      <td rowSpan={2} style={{padding:"7px 9px",borderBottom:`2px solid ${T.line}`,verticalAlign:"top",minWidth:180}}>
+                        <div style={{fontWeight:600,color:T.ink}}>{x.orig.profissional||"—"}</div>
+                        <div style={{fontSize:10.5,color:T.muted}}>{x.orig.pep} · {x.orig.competencia}</div>
+                        <div style={{fontSize:10.5,color:T.muted}}>orig: {x.orig.inicio}–{x.orig.fim} · {(x.orig.hrsAprovadas||0)}h · {brl(x.orig.valorTotal||0)}</div>
+                      </td>
+                      <td style={{padding:"5px 9px"}}><Badge label={`ciclo mês`} color="teal" small/></td>
+                      <td style={{padding:"5px 9px",color:T.muted,whiteSpace:"nowrap"}}>{x.a.inicio}</td>
+                      <td style={{padding:"5px 9px",color:T.muted,whiteSpace:"nowrap"}}>{x.a.fim}</td>
+                      <td style={{padding:"5px 9px",textAlign:"right"}}><input style={cellInp} value={x.a.hrs} onChange={e=>setCell(i,"a","hrs",e.target.value)}/></td>
+                      <td style={{padding:"5px 9px",textAlign:"right"}}><input style={cellInp} value={x.a.valor} onChange={e=>setCell(i,"a","valor",e.target.value)}/></td>
+                      <td rowSpan={2} style={{padding:"5px 9px",verticalAlign:"middle",borderBottom:`2px solid ${T.line}`,whiteSpace:"nowrap"}}>{hOk&&vOk?<span style={{color:C.green.solid,fontWeight:700}}>✓ bate</span>:<span style={{color:C.red.solid,fontWeight:700}} title="A soma das duas partes difere do original">⚠ soma ≠ orig</span>}</td>
+                    </tr>
+                    <tr style={{background:idx%2?T.canvas:"var(--surface)"}}>
+                      <td style={{padding:"5px 9px",borderBottom:`2px solid ${T.line}`}}><Badge label="ciclo seguinte" color="orange" small/></td>
+                      <td style={{padding:"5px 9px",color:T.muted,borderBottom:`2px solid ${T.line}`,whiteSpace:"nowrap"}}>{x.b.inicio}</td>
+                      <td style={{padding:"5px 9px",color:T.muted,borderBottom:`2px solid ${T.line}`,whiteSpace:"nowrap"}}>{x.b.fim}</td>
+                      <td style={{padding:"5px 9px",textAlign:"right",borderBottom:`2px solid ${T.line}`}}><input style={cellInp} value={x.b.hrs} onChange={e=>setCell(i,"b","hrs",e.target.value)}/></td>
+                      <td style={{padding:"5px 9px",textAlign:"right",borderBottom:`2px solid ${T.line}`}}><input style={cellInp} value={x.b.valor} onChange={e=>setCell(i,"b","valor",e.target.value)}/></td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>)}
+
+      {skips.length>0 && <div style={{marginTop:10,fontSize:11.5,color:T.muted}}>{skips.length} lançamento(s) não serão divididos: {[...new Set(skips.map(s=>s.skip))].join("; ")}.</div>}
+
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary disabled={doDiv.length===0} onClick={aplicar}>Quebrar {doDiv.length||""} lançamento(s)</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function CorrectionsView({ records, clients=[], fatByRec={}, onEdit, onDelete, onMerge, onInsert, onSplit, lastCorr, onUndo }) {
   const [q,setQ]=useState("");
   const [comp,setComp]=useState("todas");
   const [emp,setEmp]=useState("todas");
@@ -4756,6 +4880,7 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
   const [delT,setDelT]=useState(null);
   const [mergeT,setMergeT]=useState(null);
   const [incT,setIncT]=useState(null);
+  const [splitOpen,setSplitOpen]=useState(false);
 
   const nrm = s => (s||"").toString().toLowerCase();
   const isConc = r => (fatByRec[r.id]||0)>0.001;
@@ -4803,9 +4928,13 @@ function CorrectionsView({ records, fatByRec={}, onEdit, onDelete, onMerge, onIn
       {incT && <RecordEditModal record={incT} novo conciliado={false} onClose={()=>setIncT(null)} onSave={r=>{onInsert(r);setIncT(null);}}/>}
       {mergeT && <MergeModal source={mergeT} records={records} fatByRec={fatByRec} onClose={()=>setMergeT(null)} onConfirm={id=>{onMerge(id);setMergeT(null);}}/>}
       {delT && <ConfirmDialog title="Apagar registro" danger confirmLabel="Apagar" message={delMsg(delT)} onConfirm={()=>onDelete(delT.id)} onClose={()=>setDelT(null)}/>}
+      {splitOpen && <SplitPeriodModal records={records} clients={clients} fatByRec={fatByRec} onClose={()=>setSplitOpen(false)} onApply={(payload)=>{ onSplit&&onSplit(payload); setSplitOpen(false); }}/>}
 
       <PageHead icon="pencil" title="Correções" sub="Ajuste a base direto no app — incluir, mover PEP, corrigir empresa, apagar e mesclar. Com prévia e desfazer."
-        right={<Btn primary icon="plus" onClick={()=>setIncT(blankRec())}>Incluir registro</Btn>}/>
+        right={<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn icon="receipt" onClick={()=>setSplitOpen(true)} title="Dividir lançamentos no dia de corte (período quebrado)">Quebrar período</Btn>
+          <Btn primary icon="plus" onClick={()=>setIncT(blankRec())}>Incluir registro</Btn>
+        </div>}/>
 
       {lastCorr && <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 13px",borderRadius:T.rMd,background:C.green.bg,border:`1px solid ${C.green.border}`,marginBottom:14}}>
         <Icon name="check" size={15}/>
@@ -5851,6 +5980,22 @@ function AppInner() {
       toast("Registro incluído");
     } catch(e) { toast("Erro ao incluir: "+e.message, "error"); }
   }
+  // Quebrar período: a parte 01–(D-1) reaproveita o id original (edit); a parte
+  // D–fim entra como novo registro (id inédito, sem conciliação/progresso).
+  async function handleSplitPeriod({ edits, inserts }) {
+    if (blockIfViewer()) return;
+    const now = nowISO();
+    const rows = [
+      ...(edits||[]).map(r => ({ ...r, updatedAt: now })),
+      ...(inserts||[]).map(r => ({ ...r, id: uuid(), progress: r.progress || {}, updatedAt: now })),
+    ];
+    if (!rows.length) return;
+    try {
+      await db.upsertRecords(rows);
+      await Promise.all([reloadRecords(), reloadFaturamentos()]);
+      toast(`Período quebrado — ${(edits||[]).length} lançamento(s) viraram ${rows.length} linhas.`);
+    } catch(e) { toast("Erro ao quebrar período: "+e.message, "error"); }
+  }
   async function handleCorrUndo() {
     if (blockIfViewer() || !lastCorr) return;
     try {
@@ -6264,8 +6409,8 @@ function AppInner() {
           )}
           {page==="correcoes"&&isAdmin&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <CorrectionsView records={records} fatByRec={fatByRec}
-                onEdit={handleCorrEdit} onDelete={handleCorrDelete} onMerge={handleCorrDelete} onInsert={handleCorrInsert}
+              <CorrectionsView records={records} clients={clients} fatByRec={fatByRec}
+                onEdit={handleCorrEdit} onDelete={handleCorrDelete} onMerge={handleCorrDelete} onInsert={handleCorrInsert} onSplit={handleSplitPeriod}
                 lastCorr={lastCorr} onUndo={handleCorrUndo}/>
             </div>
           )}
