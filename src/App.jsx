@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "quebrar-periodo · #121";
+const APP_BUILD = "data-nota-fallback · #122";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -121,6 +121,15 @@ const SAMPLE_TASKS = [
 const fmtShort = (n) => n == null ? "—" : "R$ " + Math.round(n).toLocaleString("pt-BR");
 const nowISO   = () => new Date().toISOString();
 const fmtDT    = (iso) => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }); };
+// Data da nota para exibição: usa a emissão; se o município não trouxe a
+// emissão, cai para o fato gerador. Data pura (aaaa-mm-dd) sai como dd/mm/aaaa
+// SEM fuso/hora (evita o dia "voltar" por causa do timezone).
+const fmtNoteDate = (n) => {
+  const raw = String((n && (n.emitidaEm || n.fatoGerador)) || "");
+  if (!raw) return "—";
+  if (raw.length <= 10) { const [y,m,d] = raw.slice(0,10).split("-"); return (d&&m&&y) ? `${d}/${m}/${y}` : raw; }
+  return fmtDT(raw);
+};
 const genId    = () => "r" + Date.now() + Math.random().toString(36).slice(2,7);
 const uuid     = () => (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID()
   : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&0x3|0x8)).toString(16);});
@@ -2822,7 +2831,7 @@ function parseDiscriminacao(txt) {
 // Candidatos de cabeçalho por campo — cobre SP, Maringá e variações.
 const NOTE_COLS = {
   numero:      ["n nfs e", "numero", "numero da nota", "nota"],
-  emitida:     ["data hora nfe", "emitido em", "data emissao", "data de emissao", "data da emissao"],
+  emitida:     ["data hora nfe", "emitido em", "data emissao", "data de emissao", "data da emissao", "data hora da nfs e", "data hora nfs e", "data e hora nfs e", "data e hora de emissao", "data e hora da emissao", "data hora emissao", "data da nfs e", "data nfs e", "data emissao nfs e", "emissao", "data de emissao da nfs e"],
   fato:        ["data do fato gerador", "fato gerador"],
   prestCnpj:   ["cpf cnpj do prestador", "cpf cnpj prestador"],
   prestNome:   ["razao social do prestador", "razao social prestador"],
@@ -3888,7 +3897,7 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                             <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>setExpNote(exp?"":n.id)}>
                               <div style={{fontSize:12.5,fontWeight:700,color:T.ink}}>NF {n.numero} · {brl(n.valorServicos)} {conc&&<Badge label="conciliada" color="green" small/>}</div>
                               <div style={{fontSize:11,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{n.tomadorNome||"—"}</div>
-                              <div style={{fontSize:11,color:T.muted}}>{fmtDT(n.emitidaEm)}{n.pedidos?` · pedido ${n.pedidos}`:""}{n.competencias?` · ${n.competencias}`:""}</div>
+                              <div style={{fontSize:11,color:T.muted}}>{fmtNoteDate(n)}{n.pedidos?` · pedido ${n.pedidos}`:""}{n.competencias?` · ${n.competencias}`:""}</div>
                             </div>
                             {conc && <button onClick={()=>onReopen({ conciliacaoId:n.conciliacaoId, noteId:n.id })} title="Desfazer conciliação" style={{background:"none",border:"none",cursor:"pointer",color:T.warn,fontSize:14}}>↩</button>}
                             <button onClick={()=>setExpNote(exp?"":n.id)} title="Detalhes" style={{background:"none",border:"none",cursor:"pointer",color:T.muted,fontSize:14}}>{exp?"▲":"ⓘ"}</button>
