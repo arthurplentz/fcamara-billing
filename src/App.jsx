@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "backfill-data-nota · #123";
+const APP_BUILD = "backfill-empresa-nota · #124";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -6141,6 +6141,9 @@ function AppInner() {
         const patch = {};
         if (!ex.emitidaEm && novo.emitidaEm)   patch.emitidaEm = novo.emitidaEm;
         if (!ex.fatoGerador && novo.fatoGerador) patch.fatoGerador = novo.fatoGerador;
+        // Empresa vazia: corrige para a empresa escolhida na importação (nota sem
+        // empresa fica invisível no filtro por empresa). Só quando vazia.
+        if (!ex.empresa && novo.empresa) patch.empresa = novo.empresa;
         const hasPatch = Object.keys(patch).length > 0;
         if (!willCancel && !hasPatch) continue;
         const merged = { ...ex, ...patch, ...(willCancel ? { cancelada: true, situacao: novo.situacao || ex.situacao } : {}) };
@@ -6155,7 +6158,7 @@ function AppInner() {
       }
       if (reabrir.length) await db.reopenRecords(reabrir);
       await Promise.all([reloadNotes(), reloadRecords(), reloadFaturamentos()]);
-      const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${backfill?` · ${backfill} com data preenchida`:""}${canceladas?` · ${canceladas} cancelada(s)`:""}`;
+      const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${backfill?` · ${backfill} corrigida(s) (data/empresa)`:""}${canceladas?` · ${canceladas} cancelada(s)`:""}`;
       if (reabrir.length) toast(`${base} · ${reabrir.length} registro(s) reabertos: NF cancelada`, "error");
       else toast(`Importação: ${base}`);
     } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
