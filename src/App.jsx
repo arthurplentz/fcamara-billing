@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "nota-info-debug · #125";
+const APP_BUILD = "notas-data-raw · #126";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -2807,12 +2807,34 @@ function parseBR(v) {
   }
   return parseFloat(s) || 0;
 }
-// "29/06/2026 17:24:52" ou "29/06/2026" → ISO
+// Serial do Excel (dias desde 1899-12-30) → ISO. Só para o caminho .xlsx, onde
+// datas viram número quando lemos com raw:true.
+function excelSerialToISO(n) {
+  const ms = Math.round((n - 25569) * 86400 * 1000); // 25569 = dias entre 1899-12-30 e 1970-01-01
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  const p = x => String(x).padStart(2, "0");
+  const base = `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`;
+  const hh = d.getUTCHours(), mi = d.getUTCMinutes(), ss = d.getUTCSeconds();
+  return (hh || mi || ss) ? `${base}T${p(hh)}:${p(mi)}:${p(ss)}` : base;
+}
+// "29/06/2026 17:24:52", "29/06/2026", "2026-06-29", serial do Excel ou Date → ISO.
+// IMPORTANTE: lemos o CSV com raw:true (texto original), então o dd/mm/aaaa BR
+// chega intacto — sem o SheetJS "adivinhar" mês/dia e derrubar datas com dia ≤ 12.
 function brToISO(v) {
-  const m = String(v||"").trim().match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (!m) return null;
-  const [, d, mo, y, hh, mi, ss] = m;
-  return hh ? `${y}-${mo}-${d}T${hh}:${mi}:${ss||"00"}` : `${y}-${mo}-${d}`;
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && isFinite(v)) return v > 59 ? excelSerialToISO(v) : null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : excelSerialToISO(v.getTime()/86400000 + 25569);
+  const s = String(v).trim();
+  if (!s) return null;
+  const p = x => String(x).padStart(2, "0");
+  // BR: dd/mm/aaaa (barra ou hífen), hora opcional
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) { const [, d, mo, y, hh, mi, ss] = m; return hh ? `${y}-${p(mo)}-${p(d)}T${hh}:${mi}:${ss||"00"}` : `${y}-${p(mo)}-${p(d)}`; }
+  // ISO: aaaa-mm-dd, hora opcional
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) { const [, y, mo, d, hh, mi, ss] = m; return hh ? `${y}-${mo}-${d}T${hh}:${mi}:${ss||"00"}` : `${y}-${mo}-${d}`; }
+  return null;
 }
 const MESES = { janeiro:"01", fevereiro:"02", marco:"03", abril:"04", maio:"05", junho:"06", julho:"07", agosto:"08", setembro:"09", outubro:"10", novembro:"11", dezembro:"12" };
 // Extrai PEDIDO (OV), competências e nomes da "Discriminação dos Serviços".
@@ -2909,8 +2931,11 @@ function NotesImportModal({ onImport, onClose }) {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array", codepage:1252 });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", blankrows:false, raw:false });
+        // raw:true → mantém o texto original das células (não deixa o SheetJS
+        // reinterpretar datas dd/mm/aaaa como m/d e derrubar as de dia ≤ 12).
+        // brToISO/parseBR lidam com o texto BR e com serial do Excel (.xlsx).
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array", codepage:1252, raw:true });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", blankrows:false, raw:true });
         const { notes, errors } = parseMunicipalSheet(rows, municipio);
         const m = []; errors.forEach(x => m.push({ type:"warn", text:x }));
         if (!notes.length) { m.push({ type:"error", text:"Nenhuma nota válida encontrada." }); setMsgs(m); }
