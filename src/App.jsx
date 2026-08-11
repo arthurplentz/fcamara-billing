@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "data-nota-fallback · #122";
+const APP_BUILD = "backfill-data-nota · #123";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -6133,19 +6133,29 @@ function AppInner() {
       if (toInsert.length) await db.insertMunicipalNotes(toInsert);
       // Notas já existentes NÃO são reimportadas — só agimos se houve NOVO
       // cancelamento (coluna de cancelamento da prefeitura). Importação diária.
-      const reabrir = []; let canceladas = 0;
+      const reabrir = []; let canceladas = 0, backfill = 0;
       for (const { ex, novo } of toUpdate) {
-        if (novo.cancelada && !ex.cancelada) {
+        const willCancel = novo.cancelada && !ex.cancelada;
+        // Backfill: preenche data que faltava (só quando vazia — NUNCA sobrescreve
+        // dado existente, nem toca em conciliação). Corrige notas antigas sem data.
+        const patch = {};
+        if (!ex.emitidaEm && novo.emitidaEm)   patch.emitidaEm = novo.emitidaEm;
+        if (!ex.fatoGerador && novo.fatoGerador) patch.fatoGerador = novo.fatoGerador;
+        const hasPatch = Object.keys(patch).length > 0;
+        if (!willCancel && !hasPatch) continue;
+        const merged = { ...ex, ...patch, ...(willCancel ? { cancelada: true, situacao: novo.situacao || ex.situacao } : {}) };
+        await db.updateMunicipalNote(ex.id, merged);
+        if (hasPatch) backfill++;
+        if (willCancel) {
           canceladas++;
-          await db.updateMunicipalNote(ex.id, { ...ex, cancelada: true, situacao: novo.situacao || ex.situacao });
           // Reabre o lote inteiro (reabre o saldo das receitas e libera as notas).
-          if (ex.conciliacaoId) { await reopenCid(ex.conciliacaoId); canceladas += 0; }
+          if (ex.conciliacaoId) { await reopenCid(ex.conciliacaoId); }
           else records.filter(r => r.municipalNoteId === ex.id).forEach(r => reabrir.push({ id: r.id, progress: { ...(r.progress||{}), p5_nf:false, p5_data_nf:"", p5_no_corte:false } }));
         }
       }
       if (reabrir.length) await db.reopenRecords(reabrir);
       await Promise.all([reloadNotes(), reloadRecords(), reloadFaturamentos()]);
-      const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${canceladas?` · ${canceladas} cancelada(s)`:""}`;
+      const base = `${toInsert.length} nova(s) · ${toUpdate.length} já existiam${backfill?` · ${backfill} com data preenchida`:""}${canceladas?` · ${canceladas} cancelada(s)`:""}`;
       if (reabrir.length) toast(`${base} · ${reabrir.length} registro(s) reabertos: NF cancelada`, "error");
       else toast(`Importação: ${base}`);
     } catch(e) { toast("Erro ao importar notas: "+e.message, "error"); }
