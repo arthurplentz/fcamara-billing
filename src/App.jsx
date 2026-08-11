@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "backfill-empresa-nota · #124";
+const APP_BUILD = "nota-info-debug · #125";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3904,6 +3904,9 @@ function ConciliationView({ records, clients, notes, isAdmin, isViewer=false, fa
                             {isAdmin && <button onClick={()=>setNoteDel(n)} title="Excluir nota da base" style={{background:"none",border:"none",cursor:"pointer",color:T.danger,fontSize:14}}><Icon name="trash" size={14}/></button>}
                           </div>
                           {exp && <div style={{padding:"0 12px 11px 33px",fontSize:11.5,color:T.inkSoft,lineHeight:1.5}}>
+                            <div><b>Município:</b> {n.municipio||"— (vazio)"} · <b>Empresa:</b> {n.empresa||"— (vazia)"}</div>
+                            <div><b>Prestador:</b> {n.prestadorNome||"—"} · {n.prestadorCnpj||"— (vazio)"}</div>
+                            <div><b>Emissão:</b> {n.emitidaEm||"— (vazia)"} · <b>Fato ger.:</b> {n.fatoGerador||"—"} · <b>Compet.:</b> {n.competencias||"—"}</div>
                             <div><b>Tomador:</b> {n.tomadorNome||"—"} · {n.tomadorCnpj||"—"}</div>
                             {n.profissionais && <div><b>Profissionais:</b> {n.profissionais}</div>}
                             <div><b>Valor serviços:</b> {brl(n.valorServicos)} · <b>ISS:</b> {brl(n.iss)}</div>
