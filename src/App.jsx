@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-flag · #132";
+const APP_BUILD = "projetos-cliente-col · #133";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3265,9 +3265,11 @@ function ProjetosConfView({ records }) {
     </Card>
   );
 
-  const thName = { position: "sticky", left: 0, zIndex: 2, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, minWidth: 250 };
+  const thName = { position: "sticky", left: 0, zIndex: 2, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, width: 250, minWidth: 250, maxWidth: 250 };
+  const thCli = { position: "sticky", left: 250, zIndex: 2, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.lineSoft}`, width: 170, minWidth: 170, maxWidth: 170 };
   const thMes = { padding: "9px 6px", fontSize: 11.5, fontWeight: 700, color: T.ink, borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.lineSoft}`, whiteSpace: "nowrap", textAlign: "center", minWidth: 62 };
-  const tdName = { position: "sticky", left: 0, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, minWidth: 250, maxWidth: 340 };
+  const tdName = { position: "sticky", left: 0, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, width: 250, minWidth: 250, maxWidth: 250 };
+  const tdCli = { position: "sticky", left: 250, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, width: 170, minWidth: 170, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: T.ink };
   const tdCell = { padding: "6px 6px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, textAlign: "center", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: 11.5 };
 
   return (
@@ -3320,6 +3322,7 @@ function ProjetosConfView({ records }) {
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
             <thead><tr>
               <th style={thName}>Projeto</th>
+              <th style={thCli}>Cliente</th>
               {months.map(m => <th key={m} style={thMes}>{mLabel(m)}</th>)}
             </tr></thead>
             <tbody>
@@ -3333,8 +3336,9 @@ function ProjetosConfView({ records }) {
                       </button>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
                     </div>
-                    <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{p.pep} · {p.empresa} · {p.cliente}{p.flagged ? " · interno" : (p.nGap > 0 ? ` · ${p.nGap} mês(es) sem receita` : "")}</div>
+                    <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{p.pep} · {p.empresa}{p.flagged ? " · interno" : (p.nGap > 0 ? ` · ${p.nGap} mês(es) sem receita` : "")}</div>
                   </td>
+                  <td style={{ ...tdCli, background: p.flagged ? "#f6f5f3" : tdCli.background }} title={p.cliente}>{p.cliente || "—"}</td>
                   {p.cells.map((c, ci) => {
                     const gap = c.st === "gap" && !p.flagged;
                     const s = c.st === "rec" ? { background: "#f0fdf4", color: "#166534", weight: 700, txt: short(c.val) }
@@ -3344,7 +3348,7 @@ function ProjetosConfView({ records }) {
                   })}
                 </tr>
               ))}
-              {!shown.length && <tr><td style={tdName} colSpan={months.length + 1}><div style={{ padding: 14, textAlign: "center", color: T.muted }}>Nenhum projeto com esse filtro.</div></td></tr>}
+              {!shown.length && <tr><td style={tdName} colSpan={months.length + 2}><div style={{ padding: 14, textAlign: "center", color: T.muted }}>Nenhum projeto com esse filtro.</div></td></tr>}
             </tbody>
           </table>
         </div>
