@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-timeline · #128";
+const APP_BUILD = "projetos-timeline · #129";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3165,6 +3165,7 @@ function parseProjetosSheet(rows) {
       empresa, bu, fase,
       inicioKey: ymKey(iniRaw), fimKey: ymKey(fimRaw),
       inativ: /INATIV/i.test(nome), concluido: fase === "40",
+      interno: /^(?:BR|PT)\d{2}INP/i.test(pep),
     });
   }
   return { projs, error: projs.length ? "" : "Nenhum projeto encontrado no arquivo." };
@@ -3175,6 +3176,7 @@ function ProjetosConfView({ records }) {
   const [importedAt, setImportedAt] = useState(() => { try { return localStorage.getItem(PROJ_LS_KEY + "_at") || ""; } catch { return ""; } });
   const [incConcluidos, setIncConcluidos] = useState(false);
   const [incInativos, setIncInativos] = useState(false);
+  const [incInternos, setIncInternos] = useState(false);
   const [soGap, setSoGap] = useState(true);
   const [fEmp, setFEmp] = useState("");
   const [q, setQ] = useState("");
@@ -3212,7 +3214,8 @@ function ProjetosConfView({ records }) {
   records.forEach(r => { const pb = pepBase(r.pep); if (!pb || !r.competencia) return; const k = pb + "|" + r.competencia; cellMap[k] = (cellMap[k] || 0) + (r.valorTotal || 0); });
   const empresasComReceita = new Set(records.map(r => String(r.empresa || "").toUpperCase()));
 
-  const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ));
+  const isInterno = p => p.interno ?? /(?:BR|PT)\d{2}INP/i.test(p.pep || "");
+  const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ) && (incInternos || !isInterno(p)));
   const empresas = [...new Set(ativos.map(p => p.empresa).filter(Boolean))].sort();
   const rows = ativos.map(p => {
     const buLoaded = empresasComReceita.has(p.empresa);
@@ -3291,6 +3294,7 @@ function ProjetosConfView({ records }) {
         <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={soGap} onChange={e => setSoGap(e.target.checked)} />só com lacuna</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incConcluidos} onChange={e => setIncConcluidos(e.target.checked)} />incluir concluídos</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInativos} onChange={e => setIncInativos(e.target.checked)} />incluir inativos</label>
+        <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInternos} onChange={e => setIncInternos(e.target.checked)} />incluir internos (INP)</label>
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 11.5, color: T.muted }}>
