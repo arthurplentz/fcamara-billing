@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-conferencia · #127";
+const APP_BUILD = "projetos-timeline · #128";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3140,6 +3140,14 @@ function parseProjetosSheet(rows) {
   const iNome = col("projeto"), iGer = col("gerente"), iCli = col("cliente"),
         iOrg = col("organiza"), iFase = col("fase"), iIni = col("inicio"), iFim = col("fim");
   const pepRe = /((?:BR|PT)\d{2}[A-Z]{2,4}\d{3,})/i;
+  const pad2 = n => String(n).padStart(2, "0");
+  const ymKey = v => {
+    if (v instanceof Date && !isNaN(v.getTime())) return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}`;
+    const s = String(v || "").trim(); let m = s.match(/(\d{4})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}`;
+    m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return `${m[3]}-${pad2(m[2])}`; // dd/mm/aaaa
+    return "";
+  };
   const projs = [];
   for (let i = hi + 1; i < rows.length; i++) {
     const r = rows[i]; if (!r || r.every(c => c == null || c === "")) continue;
@@ -3149,13 +3157,13 @@ function parseProjetosSheet(rows) {
     const empresa = (org.match(/^(BR\d{2}|PT\d{2})/i) || [""])[0].toUpperCase();
     const buM = org.match(/BU\s+[A-Za-zÀ-ÿ]+/i); const bu = buM ? buM[0] : org;
     const fase = String(iFase >= 0 ? (r[iFase] ?? "") : "").trim();
+    const iniRaw = iIni >= 0 ? r[iIni] : "", fimRaw = iFim >= 0 ? r[iFim] : "";
     projs.push({
       nome, pep, pepBase: pepBase(pep),
       cliente: String(iCli >= 0 ? (r[iCli] ?? "") : "").trim(),
       gerente: String(iGer >= 0 ? (r[iGer] ?? "") : "").trim(),
       empresa, bu, fase,
-      inicio: String(iIni >= 0 ? (r[iIni] ?? "") : "").trim(),
-      fim: String(iFim >= 0 ? (r[iFim] ?? "") : "").trim(),
+      inicioKey: ymKey(iniRaw), fimKey: ymKey(fimRaw),
       inativ: /INATIV/i.test(nome), concluido: fase === "40",
     });
   }
@@ -3178,8 +3186,9 @@ function ProjetosConfView({ records }) {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array", raw: false });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", blankrows: false, raw: false });
+        // cellDates+raw: datas viram Date (p/ delimitar a janela ativa do projeto).
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array", cellDates: true, raw: true });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", blankrows: false, raw: true });
         const { projs: p, error } = parseProjetosSheet(rows);
         if (error && !p.length) { setMsg(error); return; }
         setProjs(p); const at = new Date().toISOString(); setImportedAt(at);
@@ -3191,103 +3200,131 @@ function ProjetosConfView({ records }) {
   }
   function limpar() { setProjs([]); setImportedAt(""); setMsg(""); try { localStorage.removeItem(PROJ_LS_KEY); localStorage.removeItem(PROJ_LS_KEY + "_at"); } catch {} }
 
-  // receita reconhecida por PEP base
-  const recByPep = {};
-  records.forEach(r => { const pb = pepBase(r.pep); if (!pb) return; const e = recByPep[pb] || (recByPep[pb] = { valor: 0, comps: new Set() }); e.valor += (r.valorTotal || 0); if (r.competencia) e.comps.add(r.competencia); });
+  const compKey = c => { const [mm, yy] = String(c || "").split("/"); return yy && mm ? `${yy}-${mm.padStart(2, "0")}` : ""; };
+  const mLabel = c => { const [mm, yy] = String(c || "").split("/"); return yy ? `${mm}/${yy.slice(2)}` : c; };
+  const short = v => v >= 1000 ? (v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "k" : v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+  // meses (competências) presentes nas receitas, em ordem cronológica
+  const months = [...new Set(records.map(r => r.competencia).filter(Boolean))].sort((a, b) => compKey(a).localeCompare(compKey(b)));
+  const monthKeys = months.map(compKey);
+  // receita reconhecida por PEP base + competência
+  const cellMap = {};
+  records.forEach(r => { const pb = pepBase(r.pep); if (!pb || !r.competencia) return; const k = pb + "|" + r.competencia; cellMap[k] = (cellMap[k] || 0) + (r.valorTotal || 0); });
   const empresasComReceita = new Set(records.map(r => String(r.empresa || "").toUpperCase()));
 
   const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ));
   const empresas = [...new Set(ativos.map(p => p.empresa).filter(Boolean))].sort();
-  const enriched = ativos.map(p => {
-    const rec = recByPep[p.pepBase];
-    return { ...p, temReceita: !!rec, valor: rec ? rec.valor : 0, ncomp: rec ? rec.comps.size : 0,
-             ultima: rec ? [...rec.comps].sort().slice(-1)[0] : "", buLoaded: empresasComReceita.has(p.empresa) };
+  const rows = ativos.map(p => {
+    const buLoaded = empresasComReceita.has(p.empresa);
+    const cells = months.map((m, i) => {
+      const ck = monthKeys[i];
+      const val = cellMap[p.pepBase + "|" + m] || 0;
+      const inWin = (!p.inicioKey || ck >= p.inicioKey) && (!p.fimKey || ck <= p.fimKey);
+      return { val, st: val > 0 ? "rec" : (inWin && buLoaded ? "gap" : "none") };
+    });
+    const nGap = cells.filter(c => c.st === "gap").length;
+    const total = cells.reduce((s, c) => s + c.val, 0);
+    return { ...p, buLoaded, cells, nGap, total };
   });
-  const filtered = enriched.filter(p => {
-    if (fEmp && p.empresa !== fEmp) return false;
-    if (soGap && p.temReceita) return false;
-    if (q && !matchQuery(q, [p.nome, p.pep, p.cliente, p.gerente, p.empresa])) return false;
-    return true;
-  }).sort((a, b) => (a.empresa + a.pep).localeCompare(b.empresa + b.pep));
 
-  const totAtivos = enriched.length, comRec = enriched.filter(p => p.temReceita).length, semRec = totAtivos - comRec;
-  // resumo por empresa
-  const porEmp = empresas.map(e => {
-    const g = enriched.filter(p => p.empresa === e);
-    return { empresa: e, total: g.length, com: g.filter(p => p.temReceita).length, loaded: empresasComReceita.has(e) };
-  });
-  const exportar = () => downloadCSV("FCamara_Projetos_sem_receita.csv",
-    ["PEP", "Projeto", "Cliente", "Empresa", "BU", "Gerente", "Fase", "Início", "Fim", "Tem receita?", "Receita reconhecida"],
-    filtered.map(p => [p.pep, p.nome, p.cliente, p.empresa, p.bu, p.gerente, p.fase, p.inicio, p.fim, p.temReceita ? "Sim" : "NÃO", brl(p.valor)]));
+  let shown = rows;
+  if (fEmp) shown = shown.filter(p => p.empresa === fEmp);
+  if (q) shown = shown.filter(p => matchQuery(q, [p.nome, p.pep, p.cliente, p.gerente, p.empresa]));
+  if (soGap) shown = shown.filter(p => p.nGap > 0);
+  shown = shown.sort((a, b) => (b.nGap - a.nGap) || (a.empresa + a.pep).localeCompare(b.empresa + b.pep));
+
+  const totAtivos = rows.length, comGap = rows.filter(p => p.nGap > 0).length, totGaps = rows.reduce((s, p) => s + p.nGap, 0);
+  const porEmp = empresas.map(e => { const g = rows.filter(p => p.empresa === e); return { empresa: e, total: g.length, gap: g.filter(p => p.nGap > 0).length, loaded: empresasComReceita.has(e) }; });
+  const exportar = () => downloadCSV("FCamara_Projetos_conferencia_mensal.csv",
+    ["PEP", "Projeto", "Cliente", "Empresa", "Gerente", "Fase", "Meses s/ receita", ...months],
+    shown.map(p => [p.pep, p.nome, p.cliente, p.empresa, p.gerente, p.fase, p.nGap, ...p.cells.map(c => c.st === "rec" ? c.val.toFixed(2).replace(".", ",") : c.st === "gap" ? "SEM RECEITA" : "")]));
 
   const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, fontSize: 13, background: "#fff", color: T.ink };
 
   if (!projs.length) return (
     <Card style={{ padding: 28, textAlign: "center" }}>
       <div style={{ fontSize: 30, marginBottom: 8 }}>📋</div>
-      <div style={{ fontWeight: 700, fontSize: 15, color: T.ink, marginBottom: 6 }}>Confira os projetos ativos contra a receita</div>
-      <div style={{ fontSize: 13, color: T.muted, maxWidth: 520, margin: "0 auto 16px" }}>Importe o export de projetos (SAP). O app extrai o PEP, cruza com as receitas reconhecidas e aponta os projetos ativos <b>sem receita</b> — possível receita não lançada. Fica salvo no navegador; re-importe para atualizar.</div>
+      <div style={{ fontWeight: 700, fontSize: 15, color: T.ink, marginBottom: 6 }}>Conferência mensal — projetos ativos × receita</div>
+      <div style={{ fontSize: 13, color: T.muted, maxWidth: 540, margin: "0 auto 16px" }}>Importe o export de projetos (SAP). O app extrai o PEP, cruza com as receitas reconhecidas <b>mês a mês</b> e aponta, para cada projeto ativo, em quais competências <b>faltou receita</b>. Fica salvo no navegador; re-importe para atualizar.</div>
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={e => onFile(e.target.files[0])} />
       <Btn icon="download" onClick={() => fileRef.current?.click()}>Importar planilha de projetos</Btn>
       {msg && <div style={{ marginTop: 12, fontSize: 12.5, color: T.danger }}>{msg}</div>}
     </Card>
   );
 
+  const thName = { position: "sticky", left: 0, zIndex: 2, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, minWidth: 250 };
+  const thMes = { padding: "9px 6px", fontSize: 11.5, fontWeight: 700, color: T.ink, borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.lineSoft}`, whiteSpace: "nowrap", textAlign: "center", minWidth: 62 };
+  const tdName = { position: "sticky", left: 0, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, minWidth: 250, maxWidth: 340 };
+  const tdCell = { padding: "6px 6px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, textAlign: "center", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: 11.5 };
+
   return (
     <div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={e => onFile(e.target.files[0])} />
         <Btn small icon="download" onClick={() => fileRef.current?.click()}>Reimportar</Btn>
-        <Btn small onClick={exportar}>Exportar sem receita</Btn>
+        <Btn small onClick={exportar}>Exportar Excel</Btn>
         <Btn small onClick={limpar}>Limpar</Btn>
         <span style={{ fontSize: 11.5, color: T.muted }}>{projs.length} no arquivo{importedAt ? ` · importado ${fmtDT ? fmtDT(importedAt) : new Date(importedAt).toLocaleString("pt-BR")}` : ""}{msg ? ` · ${msg}` : ""}</span>
       </div>
 
-      {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
         <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Projetos ativos</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ink }}>{totAtivos}</div></Card>
-        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Com receita reconhecida</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ok }}>{comRec}</div></Card>
-        <Card style={{ padding: 14, border: `1px solid ${semRec ? T.dangerLine : T.line}`, background: semRec ? T.dangerBg : "#fff" }}><div style={{ fontSize: 11.5, color: T.muted }}>SEM receita</div><div style={{ fontSize: 24, fontWeight: 800, color: semRec ? T.danger : T.ok }}>{semRec}</div></Card>
+        <Card style={{ padding: 14, border: `1px solid ${comGap ? T.dangerLine : T.line}`, background: comGap ? T.dangerBg : "#fff" }}><div style={{ fontSize: 11.5, color: T.muted }}>Com lacuna mensal</div><div style={{ fontSize: 24, fontWeight: 800, color: comGap ? T.danger : T.ok }}>{comGap}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Meses sem receita (total)</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ink }}>{totGaps}</div></Card>
       </div>
 
-      {/* Cobertura por empresa */}
       <Card style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, marginBottom: 8 }}>Cobertura por empresa</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, marginBottom: 8 }}>Cobertura por empresa <span style={{ fontWeight: 400, color: T.muted }}>(projetos com lacuna / total)</span></div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {porEmp.map(e => (
             <button key={e.empresa} onClick={() => setFEmp(fEmp === e.empresa ? "" : e.empresa)} title={e.loaded ? "" : "Receita desta empresa ainda não foi importada no sistema"}
-              style={{ cursor: "pointer", border: `1px solid ${fEmp === e.empresa ? T.brand : T.line}`, background: fEmp === e.empresa ? T.brandTint || "#fff0ea" : "#fff", borderRadius: 10, padding: "6px 10px", fontSize: 12 }}>
-              <b style={{ color: T.ink }}>{e.empresa}</b> · {e.com}/{e.total}{!e.loaded && <span style={{ color: T.warn || "#c2891a" }}> · BU não carregada</span>}
+              style={{ cursor: "pointer", border: `1px solid ${fEmp === e.empresa ? T.brand : T.line}`, background: fEmp === e.empresa ? (T.brandTint || "#fff0ea") : "#fff", borderRadius: 10, padding: "6px 10px", fontSize: 12 }}>
+              <b style={{ color: T.ink }}>{e.empresa}</b> · {e.loaded ? `${e.gap}/${e.total}` : `${e.total}`}{!e.loaded && <span style={{ color: T.warn || "#c2891a" }}> · BU não carregada</span>}
             </button>
           ))}
         </div>
       </Card>
 
-      {/* filtros */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <input placeholder="PEP, cliente, gerente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
         <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
-        <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={soGap} onChange={e => setSoGap(e.target.checked)} />só sem receita</label>
+        <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={soGap} onChange={e => setSoGap(e.target.checked)} />só com lacuna</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incConcluidos} onChange={e => setIncConcluidos(e.target.checked)} />incluir concluídos</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInativos} onChange={e => setIncInativos(e.target.checked)} />incluir inativos</label>
       </div>
 
-      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{filtered.length}</b> projeto(s).</div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 11.5, color: T.muted }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#f0fdf4", border: "1px solid #86efac" }} />receita no mês</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#fef2f2", border: `1px solid ${T.danger}` }} />ativo, sem receita</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "transparent", border: `1px solid ${T.line}` }} />fora da vigência</span>
+      </div>
+
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> projeto(s) · {months.length} competência(s).</div>
       <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ maxHeight: 520, overflowY: "auto" }}>
-          {filtered.map((p, i) => (
-            <div key={p.pep + i} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.lineSoft}`, flexWrap: "wrap" }}>
-              <span style={{ fontFamily: "monospace", fontSize: 11.5, color: T.ink, minWidth: 120 }}>{p.pep || "—"}</span>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{p.nome}</div>
-                <div style={{ fontSize: 11, color: T.muted }}>{p.cliente} · {p.empresa} {p.bu ? "· " + p.bu : ""} · {p.gerente}</div>
-              </div>
-              {p.temReceita
-                ? <Badge label={`receita ${brl(p.valor)}`} color="green" small />
-                : (p.buLoaded ? <Badge label="SEM receita" color="red" small /> : <Badge label="BU não carregada" color="orange" small />)}
-            </div>
-          ))}
-          {!filtered.length && <div style={{ padding: 20, textAlign: "center", color: T.muted, fontSize: 13 }}>Nenhum projeto com esse filtro.</div>}
+        <div style={{ maxHeight: 560, overflow: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+            <thead><tr>
+              <th style={thName}>Projeto</th>
+              {months.map(m => <th key={m} style={thMes}>{mLabel(m)}</th>)}
+            </tr></thead>
+            <tbody>
+              {shown.map((p, ri) => (
+                <tr key={p.pep + ri}>
+                  <td style={tdName}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
+                    <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{p.pep} · {p.empresa} · {p.cliente}{p.nGap > 0 ? ` · ${p.nGap} mês(es) sem receita` : ""}</div>
+                  </td>
+                  {p.cells.map((c, ci) => {
+                    const s = c.st === "rec" ? { background: "#f0fdf4", color: "#166534", weight: 700, txt: short(c.val) }
+                            : c.st === "gap" ? { background: "#fef2f2", color: T.danger, weight: 700, txt: "—" }
+                            : { background: "transparent", color: T.faint, weight: 400, txt: "·" };
+                    return <td key={ci} style={{ ...tdCell, background: s.background, color: s.color, fontWeight: s.weight }} title={c.st === "rec" ? brl(c.val) : c.st === "gap" ? "Projeto ativo neste mês, sem receita reconhecida" : "Fora da vigência do projeto"}>{s.txt}</td>;
+                  })}
+                </tr>
+              ))}
+              {!shown.length && <tr><td style={tdName} colSpan={months.length + 1}><div style={{ padding: 14, textAlign: "center", color: T.muted }}>Nenhum projeto com esse filtro.</div></td></tr>}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>
