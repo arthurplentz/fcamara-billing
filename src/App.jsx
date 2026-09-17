@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-flag · #131";
+const APP_BUILD = "projetos-flag · #132";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3181,7 +3181,7 @@ function ProjetosConfView({ records }) {
   const [incFlagados, setIncFlagados] = useState(false);
   const [soNaoFlag, setSoNaoFlag] = useState(false);
   const [flags, setFlags] = useState(() => { try { const j = localStorage.getItem(PROJ_FLAGS_KEY); return j ? JSON.parse(j) : {}; } catch { return {}; } });
-  const toggleFlag = pep => { if (!pep) return; setFlags(f => { const n = { ...f }; if (n[pep]) delete n[pep]; else n[pep] = true; try { localStorage.setItem(PROJ_FLAGS_KEY, JSON.stringify(n)); } catch {} return n; }); };
+  const toggleFlag = k => { if (!k) return; setFlags(f => { const n = { ...f }; if (n[k]) delete n[k]; else n[k] = true; try { localStorage.setItem(PROJ_FLAGS_KEY, JSON.stringify(n)); } catch {} return n; }); };
   const [soGap, setSoGap] = useState(true);
   const [fEmp, setFEmp] = useState("");
   const [q, setQ] = useState("");
@@ -3224,7 +3224,8 @@ function ProjetosConfView({ records }) {
   const empresas = [...new Set(ativos.map(p => p.empresa).filter(Boolean))].sort();
   const rows = ativos.map(p => {
     const buLoaded = empresasComReceita.has(p.empresa);
-    const flagged = !!flags[p.pep];
+    const fk = p.pep || `${p.empresa}|${p.cliente}|${p.nome}`;
+    const flagged = !!flags[fk];
     const cells = months.map((m, i) => {
       const ck = monthKeys[i];
       const val = cellMap[p.pepBase + "|" + m] || 0;
@@ -3234,7 +3235,7 @@ function ProjetosConfView({ records }) {
     const nGap = cells.filter(c => c.st === "gap").length;
     const total = cells.reduce((s, c) => s + c.val, 0);
     // flagado como interno = "resolvido": não conta como lacuna em aberto.
-    return { ...p, buLoaded, flagged, cells, nGap, nGapOpen: flagged ? 0 : nGap, total };
+    return { ...p, _fk: fk, buLoaded, flagged, cells, nGap, nGapOpen: flagged ? 0 : nGap, total };
   });
 
   let shown = rows;
@@ -3323,10 +3324,10 @@ function ProjetosConfView({ records }) {
             </tr></thead>
             <tbody>
               {shown.map((p, ri) => (
-                <tr key={p.pep + ri} style={p.flagged ? { opacity: .6 } : null}>
+                <tr key={p._fk + ri} style={p.flagged ? { opacity: .6 } : null}>
                   <td style={{ ...tdName, background: p.flagged ? "#f6f5f3" : tdName.background }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button onClick={() => toggleFlag(p.pep)} title={p.flagged ? "Interno — clique para desmarcar" : "Marcar como interno / sem receita esperada"}
+                      <button onClick={() => toggleFlag(p._fk)} title={p.flagged ? "Interno — clique para desmarcar" : "Marcar como interno / sem receita esperada"}
                         style={{ cursor: "pointer", flex: "0 0 auto", border: `1px solid ${p.flagged ? T.brand : T.line}`, background: p.flagged ? (T.brandTint || "#fff0ea") : "#fff", color: p.flagged ? T.brand : T.muted, borderRadius: 6, padding: "1px 6px", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap" }}>
                         {p.flagged ? "✓ interno" : "⚑ interno"}
                       </button>
