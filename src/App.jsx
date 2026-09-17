@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "notas-data-raw · #126";
+const APP_BUILD = "projetos-conferencia · #127";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3121,6 +3121,179 @@ function ProfContinuityView({ records }) {
   );
 }
 
+// ── Conferência: projetos ativos (export do SAP) × receita reconhecida ─────────
+// Importa a planilha de projetos, extrai o PEP do nome, cruza com as receitas
+// reconhecidas (por PEP base) e sinaliza projetos ATIVOS sem receita — separando
+// "gap real" de "BU ainda não carregada". Client-side + localStorage (persiste no
+// navegador; re-importe para atualizar). Não grava no banco.
+const PROJ_LS_KEY = "fc_projetos_ativos_v1";
+function parseProjetosSheet(rows) {
+  if (!rows.length) return { projs: [], error: "Arquivo vazio." };
+  let hi = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const h = (rows[i] || []).map(c => stripAcc(String(c || "")).toLowerCase());
+    if (h.some(x => x.includes("projeto")) && h.some(x => x.includes("fase"))) { hi = i; break; }
+  }
+  if (hi < 0) return { projs: [], error: "Layout não reconhecido — esperado o export de projetos (colunas Projeto, Fase, Organização de serviços)." };
+  const H = (rows[hi] || []).map(c => stripAcc(String(c || "")).toLowerCase());
+  const col = (...cs) => { for (const c of cs) { const i = H.findIndex(h => h.includes(c)); if (i >= 0) return i; } return -1; };
+  const iNome = col("projeto"), iGer = col("gerente"), iCli = col("cliente"),
+        iOrg = col("organiza"), iFase = col("fase"), iIni = col("inicio"), iFim = col("fim");
+  const pepRe = /((?:BR|PT)\d{2}[A-Z]{2,4}\d{3,})/i;
+  const projs = [];
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r || r.every(c => c == null || c === "")) continue;
+    const nome = String(r[iNome] ?? "").trim(); if (!nome) continue;
+    const m = nome.match(pepRe); const pep = m ? m[1].toUpperCase() : "";
+    const org = String(iOrg >= 0 ? (r[iOrg] ?? "") : "").trim();
+    const empresa = (org.match(/^(BR\d{2}|PT\d{2})/i) || [""])[0].toUpperCase();
+    const buM = org.match(/BU\s+[A-Za-zÀ-ÿ]+/i); const bu = buM ? buM[0] : org;
+    const fase = String(iFase >= 0 ? (r[iFase] ?? "") : "").trim();
+    projs.push({
+      nome, pep, pepBase: pepBase(pep),
+      cliente: String(iCli >= 0 ? (r[iCli] ?? "") : "").trim(),
+      gerente: String(iGer >= 0 ? (r[iGer] ?? "") : "").trim(),
+      empresa, bu, fase,
+      inicio: String(iIni >= 0 ? (r[iIni] ?? "") : "").trim(),
+      fim: String(iFim >= 0 ? (r[iFim] ?? "") : "").trim(),
+      inativ: /INATIV/i.test(nome), concluido: fase === "40",
+    });
+  }
+  return { projs, error: projs.length ? "" : "Nenhum projeto encontrado no arquivo." };
+}
+
+function ProjetosConfView({ records }) {
+  const [projs, setProjs] = useState(() => { try { const j = localStorage.getItem(PROJ_LS_KEY); return j ? JSON.parse(j) : []; } catch { return []; } });
+  const [importedAt, setImportedAt] = useState(() => { try { return localStorage.getItem(PROJ_LS_KEY + "_at") || ""; } catch { return ""; } });
+  const [incConcluidos, setIncConcluidos] = useState(false);
+  const [incInativos, setIncInativos] = useState(false);
+  const [soGap, setSoGap] = useState(true);
+  const [fEmp, setFEmp] = useState("");
+  const [q, setQ] = useState("");
+  const [msg, setMsg] = useState("");
+  const fileRef = useRef();
+
+  function onFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array", raw: false });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", blankrows: false, raw: false });
+        const { projs: p, error } = parseProjetosSheet(rows);
+        if (error && !p.length) { setMsg(error); return; }
+        setProjs(p); const at = new Date().toISOString(); setImportedAt(at);
+        try { localStorage.setItem(PROJ_LS_KEY, JSON.stringify(p)); localStorage.setItem(PROJ_LS_KEY + "_at", at); } catch {}
+        setMsg(`${p.length} projeto(s) importado(s).`);
+      } catch (err) { setMsg("Erro ao ler o arquivo: " + err.message); }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function limpar() { setProjs([]); setImportedAt(""); setMsg(""); try { localStorage.removeItem(PROJ_LS_KEY); localStorage.removeItem(PROJ_LS_KEY + "_at"); } catch {} }
+
+  // receita reconhecida por PEP base
+  const recByPep = {};
+  records.forEach(r => { const pb = pepBase(r.pep); if (!pb) return; const e = recByPep[pb] || (recByPep[pb] = { valor: 0, comps: new Set() }); e.valor += (r.valorTotal || 0); if (r.competencia) e.comps.add(r.competencia); });
+  const empresasComReceita = new Set(records.map(r => String(r.empresa || "").toUpperCase()));
+
+  const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ));
+  const empresas = [...new Set(ativos.map(p => p.empresa).filter(Boolean))].sort();
+  const enriched = ativos.map(p => {
+    const rec = recByPep[p.pepBase];
+    return { ...p, temReceita: !!rec, valor: rec ? rec.valor : 0, ncomp: rec ? rec.comps.size : 0,
+             ultima: rec ? [...rec.comps].sort().slice(-1)[0] : "", buLoaded: empresasComReceita.has(p.empresa) };
+  });
+  const filtered = enriched.filter(p => {
+    if (fEmp && p.empresa !== fEmp) return false;
+    if (soGap && p.temReceita) return false;
+    if (q && !matchQuery(q, [p.nome, p.pep, p.cliente, p.gerente, p.empresa])) return false;
+    return true;
+  }).sort((a, b) => (a.empresa + a.pep).localeCompare(b.empresa + b.pep));
+
+  const totAtivos = enriched.length, comRec = enriched.filter(p => p.temReceita).length, semRec = totAtivos - comRec;
+  // resumo por empresa
+  const porEmp = empresas.map(e => {
+    const g = enriched.filter(p => p.empresa === e);
+    return { empresa: e, total: g.length, com: g.filter(p => p.temReceita).length, loaded: empresasComReceita.has(e) };
+  });
+  const exportar = () => downloadCSV("FCamara_Projetos_sem_receita.csv",
+    ["PEP", "Projeto", "Cliente", "Empresa", "BU", "Gerente", "Fase", "Início", "Fim", "Tem receita?", "Receita reconhecida"],
+    filtered.map(p => [p.pep, p.nome, p.cliente, p.empresa, p.bu, p.gerente, p.fase, p.inicio, p.fim, p.temReceita ? "Sim" : "NÃO", brl(p.valor)]));
+
+  const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, fontSize: 13, background: "#fff", color: T.ink };
+
+  if (!projs.length) return (
+    <Card style={{ padding: 28, textAlign: "center" }}>
+      <div style={{ fontSize: 30, marginBottom: 8 }}>📋</div>
+      <div style={{ fontWeight: 700, fontSize: 15, color: T.ink, marginBottom: 6 }}>Confira os projetos ativos contra a receita</div>
+      <div style={{ fontSize: 13, color: T.muted, maxWidth: 520, margin: "0 auto 16px" }}>Importe o export de projetos (SAP). O app extrai o PEP, cruza com as receitas reconhecidas e aponta os projetos ativos <b>sem receita</b> — possível receita não lançada. Fica salvo no navegador; re-importe para atualizar.</div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={e => onFile(e.target.files[0])} />
+      <Btn icon="download" onClick={() => fileRef.current?.click()}>Importar planilha de projetos</Btn>
+      {msg && <div style={{ marginTop: 12, fontSize: 12.5, color: T.danger }}>{msg}</div>}
+    </Card>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={e => onFile(e.target.files[0])} />
+        <Btn small icon="download" onClick={() => fileRef.current?.click()}>Reimportar</Btn>
+        <Btn small onClick={exportar}>Exportar sem receita</Btn>
+        <Btn small onClick={limpar}>Limpar</Btn>
+        <span style={{ fontSize: 11.5, color: T.muted }}>{projs.length} no arquivo{importedAt ? ` · importado ${fmtDT ? fmtDT(importedAt) : new Date(importedAt).toLocaleString("pt-BR")}` : ""}{msg ? ` · ${msg}` : ""}</span>
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Projetos ativos</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ink }}>{totAtivos}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Com receita reconhecida</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ok }}>{comRec}</div></Card>
+        <Card style={{ padding: 14, border: `1px solid ${semRec ? T.dangerLine : T.line}`, background: semRec ? T.dangerBg : "#fff" }}><div style={{ fontSize: 11.5, color: T.muted }}>SEM receita</div><div style={{ fontSize: 24, fontWeight: 800, color: semRec ? T.danger : T.ok }}>{semRec}</div></Card>
+      </div>
+
+      {/* Cobertura por empresa */}
+      <Card style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, marginBottom: 8 }}>Cobertura por empresa</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {porEmp.map(e => (
+            <button key={e.empresa} onClick={() => setFEmp(fEmp === e.empresa ? "" : e.empresa)} title={e.loaded ? "" : "Receita desta empresa ainda não foi importada no sistema"}
+              style={{ cursor: "pointer", border: `1px solid ${fEmp === e.empresa ? T.brand : T.line}`, background: fEmp === e.empresa ? T.brandTint || "#fff0ea" : "#fff", borderRadius: 10, padding: "6px 10px", fontSize: 12 }}>
+              <b style={{ color: T.ink }}>{e.empresa}</b> · {e.com}/{e.total}{!e.loaded && <span style={{ color: T.warn || "#c2891a" }}> · BU não carregada</span>}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* filtros */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        <input placeholder="PEP, cliente, gerente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
+        <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
+        <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={soGap} onChange={e => setSoGap(e.target.checked)} />só sem receita</label>
+        <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incConcluidos} onChange={e => setIncConcluidos(e.target.checked)} />incluir concluídos</label>
+        <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInativos} onChange={e => setIncInativos(e.target.checked)} />incluir inativos</label>
+      </div>
+
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{filtered.length}</b> projeto(s).</div>
+      <Card style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ maxHeight: 520, overflowY: "auto" }}>
+          {filtered.map((p, i) => (
+            <div key={p.pep + i} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${T.lineSoft}`, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "monospace", fontSize: 11.5, color: T.ink, minWidth: 120 }}>{p.pep || "—"}</span>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{p.nome}</div>
+                <div style={{ fontSize: 11, color: T.muted }}>{p.cliente} · {p.empresa} {p.bu ? "· " + p.bu : ""} · {p.gerente}</div>
+              </div>
+              {p.temReceita
+                ? <Badge label={`receita ${brl(p.valor)}`} color="green" small />
+                : (p.buLoaded ? <Badge label="SEM receita" color="red" small /> : <Badge label="BU não carregada" color="orange" small />)}
+            </div>
+          ))}
+          {!filtered.length && <div style={{ padding: 20, textAlign: "center", color: T.muted, fontSize: 13 }}>Nenhum projeto com esse filtro.</div>}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec={} }) {
   const [aba, setAba] = useState("conferencias");
   const [open, setOpen] = useState("");
@@ -3188,11 +3361,12 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
     <div>
       <PageHead icon="check" title="Validações do sistema" sub="confere se o faturamento está batendo"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["conferencias","Conferências"],["continuidade","Continuidade de profissionais"]].map(([id,label])=>(
+        {[["conferencias","Conferências"],["continuidade","Continuidade de profissionais"],["projetos","Projetos ativos × receita"]].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
       {aba==="continuidade" && <ProfContinuityView records={records}/>}
+      {aba==="projetos" && <ProjetosConfView records={records}/>}
       {aba==="conferencias" && <>
       <Card style={{padding:16,marginBottom:16,border:`1px solid ${totExc?T.dangerLine:T.okLine}`,background:totExc?T.dangerBg:T.okBg}}>
         <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
