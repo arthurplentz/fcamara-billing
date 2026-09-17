@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-timeline · #129";
+const APP_BUILD = "projetos-flag · #130";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3127,6 +3127,7 @@ function ProfContinuityView({ records }) {
 // "gap real" de "BU ainda não carregada". Client-side + localStorage (persiste no
 // navegador; re-importe para atualizar). Não grava no banco.
 const PROJ_LS_KEY = "fc_projetos_ativos_v1";
+const PROJ_FLAGS_KEY = "fc_projetos_flags_v1";
 function parseProjetosSheet(rows) {
   if (!rows.length) return { projs: [], error: "Arquivo vazio." };
   let hi = -1;
@@ -3177,6 +3178,9 @@ function ProjetosConfView({ records }) {
   const [incConcluidos, setIncConcluidos] = useState(false);
   const [incInativos, setIncInativos] = useState(false);
   const [incInternos, setIncInternos] = useState(false);
+  const [incFlagados, setIncFlagados] = useState(false);
+  const [flags, setFlags] = useState(() => { try { const j = localStorage.getItem(PROJ_FLAGS_KEY); return j ? JSON.parse(j) : {}; } catch { return {}; } });
+  const toggleFlag = pep => { if (!pep) return; setFlags(f => { const n = { ...f }; if (n[pep]) delete n[pep]; else n[pep] = true; try { localStorage.setItem(PROJ_FLAGS_KEY, JSON.stringify(n)); } catch {} return n; }); };
   const [soGap, setSoGap] = useState(true);
   const [fEmp, setFEmp] = useState("");
   const [q, setQ] = useState("");
@@ -3215,7 +3219,7 @@ function ProjetosConfView({ records }) {
   const empresasComReceita = new Set(records.map(r => String(r.empresa || "").toUpperCase()));
 
   const isInterno = p => p.interno ?? /(?:BR|PT)\d{2}INP/i.test(p.pep || "");
-  const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ) && (incInternos || !isInterno(p)));
+  const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ) && (incInternos || !isInterno(p)) && (incFlagados || !flags[p.pep]));
   const empresas = [...new Set(ativos.map(p => p.empresa).filter(Boolean))].sort();
   const rows = ativos.map(p => {
     const buLoaded = empresasComReceita.has(p.empresa);
@@ -3295,6 +3299,7 @@ function ProjetosConfView({ records }) {
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incConcluidos} onChange={e => setIncConcluidos(e.target.checked)} />incluir concluídos</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInativos} onChange={e => setIncInativos(e.target.checked)} />incluir inativos</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInternos} onChange={e => setIncInternos(e.target.checked)} />incluir internos (INP)</label>
+        <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incFlagados} onChange={e => setIncFlagados(e.target.checked)} />incluir flagados como interno</label>
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 11.5, color: T.muted }}>
@@ -3303,7 +3308,7 @@ function ProjetosConfView({ records }) {
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "transparent", border: `1px solid ${T.line}` }} />fora da vigência</span>
       </div>
 
-      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> projeto(s) · {months.length} competência(s).</div>
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> projeto(s) · {months.length} competência(s){Object.keys(flags).length ? ` · ${Object.keys(flags).length} flagado(s) como interno${incFlagados ? "" : " (ocultos)"}` : ""}.</div>
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ maxHeight: 560, overflow: "auto" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
@@ -3315,7 +3320,13 @@ function ProjetosConfView({ records }) {
               {shown.map((p, ri) => (
                 <tr key={p.pep + ri}>
                   <td style={tdName}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => toggleFlag(p.pep)} title="Marcar como interno / sem receita esperada (esconde da conferência)"
+                        style={{ cursor: "pointer", flex: "0 0 auto", border: `1px solid ${flags[p.pep] ? T.brand : T.line}`, background: flags[p.pep] ? (T.brandTint || "#fff0ea") : "#fff", color: flags[p.pep] ? T.brand : T.muted, borderRadius: 6, padding: "1px 6px", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {flags[p.pep] ? "✓ interno" : "⚑ interno"}
+                      </button>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
+                    </div>
                     <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{p.pep} · {p.empresa} · {p.cliente}{p.nGap > 0 ? ` · ${p.nGap} mês(es) sem receita` : ""}</div>
                   </td>
                   {p.cells.map((c, ci) => {
