@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-cliente-col · #133";
+const APP_BUILD = "import-aba-consolidada · #134";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -834,7 +834,14 @@ function ImportModal({ onImport, onClose }) {
     reader.onload=e=>{
       try {
         const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array",cellDates:false});
-        const sheetName=layout==="te" ? (wb.SheetNames.find(n=>n.toLowerCase().includes("time")&&n.toLowerCase().includes("expense"))||wb.SheetNames[0]) : wb.SheetNames[0];
+        // Acha a aba certa por nome mesmo no arquivo consolidado (Resumo + várias abas).
+        const low=n=>String(n).toLowerCase();
+        const pick=fn=>wb.SheetNames.find(fn);
+        const sheetName=
+            layout==="te"     ? (pick(n=>low(n).includes("time")&&low(n).includes("expense"))||wb.SheetNames[0])
+          : layout==="feewip" ? (pick(n=>low(n).includes("fee")||low(n).includes("wip"))||wb.SheetNames[0])
+          : layout==="usage"  ? (pick(n=>low(n).includes("usage"))||wb.SheetNames[0])
+          :                     wb.SheetNames[0];
         const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:""});
         const {records,errors}=
             layout==="feewip" ? parseRevenueRows(rows, comp, { empresaFixa:empresa, tipoFallback:tipoFb })
