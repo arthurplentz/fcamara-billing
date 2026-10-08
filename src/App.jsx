@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "import-aba-consolidada · #134";
+const APP_BUILD = "visao-por-pep · #135";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3497,6 +3497,159 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
   );
 }
 
+// Visão por projeto (por PEP) — cruza RECEITA da carga × PROJETOS ATIVOS (import
+// de Validações, no navegador). União dos dois lados: projeto ativo com receita
+// (ok), projeto ativo sem receita (falta reconhecer), receita sem projeto ativo.
+// Linha do tempo mês a mês. Mostra o que falta reconhecimento de receita.
+function ProjectPepView({ records }) {
+  const [fEmp, setFEmp] = useState("");
+  const [q, setQ] = useState("");
+  const [show, setShow] = useState("falta"); // falta | todos | semproj
+
+  let projs = []; try { const j = localStorage.getItem(PROJ_LS_KEY); projs = j ? JSON.parse(j) : []; } catch {}
+  let flags = {}; try { const j = localStorage.getItem(PROJ_FLAGS_KEY); flags = j ? JSON.parse(j) : {}; } catch {}
+  const flagKey = p => p.pep || `${p.empresa}|${p.cliente}|${p.nome}`;
+  const isInterno = p => p.interno ?? /(?:BR|PT)\d{2}INP/i.test(p.pep || "");
+  const ativoProj = p => !p.concluido && !p.inativ && !isInterno(p) && !flags[flagKey(p)];
+  const projByPep = {};
+  projs.forEach(p => { if (!ativoProj(p)) return; const k = p.pepBase || pepBase(p.pep); if (k && !projByPep[k]) projByPep[k] = p; });
+
+  const compKey = c => { const [mm, yy] = String(c || "").split("/"); return yy && mm ? `${yy}-${mm.padStart(2, "0")}` : ""; };
+  const mLabel = c => { const [mm, yy] = String(c || "").split("/"); return yy ? `${mm}/${yy.slice(2)}` : c; };
+  const short = v => v >= 1000 ? (v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "k" : v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+  const months = [...new Set(records.map(r => r.competencia).filter(Boolean))].sort((a, b) => compKey(a).localeCompare(compKey(b)));
+  const monthKeys = months.map(compKey);
+  const empresasComReceita = new Set(records.map(r => String(r.empresa || "").toUpperCase()));
+
+  const revByPep = {};
+  records.forEach(r => { const k = pepBase(r.pep); if (!k) return; const e = revByPep[k] || (revByPep[k] = { total: 0, comps: {}, cli: {}, empresa: String(r.empresa || "").toUpperCase() }); const v = r.valorTotal || 0; e.total += v; if (r.competencia) e.comps[r.competencia] = (e.comps[r.competencia] || 0) + v; const c = (r.cliente || "").trim(); if (c) e.cli[c] = (e.cli[c] || 0) + 1; });
+  const bestCli = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+
+  const keys = [...new Set([...Object.keys(projByPep), ...Object.keys(revByPep)])];
+  const rows = keys.map(k => {
+    const proj = projByPep[k], rev = revByPep[k];
+    const empresa = (proj?.empresa) || (rev?.empresa) || "";
+    const loaded = empresasComReceita.has(empresa);
+    const cliente = proj?.cliente || bestCli(rev?.cli) || "—";
+    const nome = proj?.nome || (rev ? `Receita · ${k}` : k);
+    const total = rev?.total || 0;
+    const cells = months.map((m, i) => {
+      const val = rev?.comps[m] || 0;
+      const inWin = proj ? ((!proj.inicioKey || monthKeys[i] >= proj.inicioKey) && (!proj.fimKey || monthKeys[i] <= proj.fimKey)) : false;
+      return { val, st: val > 0 ? "rec" : (proj && inWin && loaded ? "gap" : "none") };
+    });
+    const nGap = cells.filter(c => c.st === "gap").length;
+    const status = (proj && rev) ? "ok" : (proj && !rev) ? (loaded ? "falta" : "naoCarregada") : "semproj";
+    return { k, status, empresa, cliente, nome, total, cells, nGap };
+  });
+
+  const empresas = [...new Set(rows.map(r => r.empresa).filter(Boolean))].sort();
+  let shown = rows;
+  if (fEmp) shown = shown.filter(r => r.empresa === fEmp);
+  if (q) shown = shown.filter(r => matchQuery(q, [r.nome, r.k, r.cliente, r.empresa]));
+  if (show === "falta") shown = shown.filter(r => r.status === "falta" || (r.status === "ok" && r.nGap > 0));
+  else if (show === "semproj") shown = shown.filter(r => r.status === "semproj");
+  const rank = r => r.status === "falta" ? 0 : (r.status === "ok" && r.nGap > 0 ? 1 : (r.status === "semproj" ? 2 : 3));
+  shown = shown.sort((a, b) => rank(a) - rank(b) || b.total - a.total || a.k.localeCompare(b.k));
+
+  const kFalta = rows.filter(r => r.status === "falta").length;
+  const kGap = rows.filter(r => r.status === "ok" && r.nGap > 0).length;
+  const kSemProj = rows.filter(r => r.status === "semproj").length;
+  const kOk = rows.filter(r => r.status === "ok" && r.nGap === 0).length;
+
+  const stTxt = r => r.status === "falta" ? "SEM RECEITA" : r.status === "ok" ? (r.nGap > 0 ? `${r.nGap} mês(es) s/ receita` : "OK") : r.status === "semproj" ? "Receita sem projeto ativo" : "BU não carregada";
+  const exportar = () => downloadCSV("FCamara_VisaoPorPEP.csv",
+    ["PEP", "Projeto", "Cliente", "Empresa", "Status", "Receita total", ...months],
+    shown.map(r => [r.k, r.nome, r.cliente, r.empresa, stTxt(r), r.total.toFixed(2).replace(".", ","), ...r.cells.map(c => c.val > 0 ? c.val.toFixed(2).replace(".", ",") : (c.st === "gap" ? "SEM RECEITA" : ""))]));
+
+  const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, fontSize: 13, background: "#fff", color: T.ink };
+  const thName = { position: "sticky", left: 0, zIndex: 2, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, width: 230, minWidth: 230, maxWidth: 230 };
+  const thCli = { ...thName, left: 230, width: 160, minWidth: 160, maxWidth: 160, borderLeft: `1px solid ${T.lineSoft}` };
+  const thSt = { ...thName, left: 390, width: 120, minWidth: 120, maxWidth: 120, borderLeft: `1px solid ${T.lineSoft}` };
+  const thMes = { padding: "9px 6px", fontSize: 11.5, fontWeight: 700, color: T.ink, borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.lineSoft}`, whiteSpace: "nowrap", textAlign: "center", minWidth: 62 };
+  const tdName = { position: "sticky", left: 0, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, width: 230, minWidth: 230, maxWidth: 230 };
+  const tdCli = { position: "sticky", left: 230, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, width: 160, minWidth: 160, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: T.ink };
+  const tdSt = { position: "sticky", left: 390, zIndex: 1, background: T.canvas, padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, width: 120, minWidth: 120, maxWidth: 120 };
+  const tdCell = { padding: "6px 6px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, textAlign: "center", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: 11.5 };
+  const stBadge = r => {
+    const map = { falta: { bg: "#fef2f2", c: T.danger, t: "sem receita" }, ok: r.nGap > 0 ? { bg: "#fff7ed", c: "#c2630f", t: `${r.nGap} s/ rec.` } : { bg: "#f0fdf4", c: "#166534", t: "ok" }, semproj: { bg: "#eff6ff", c: "#1d4ed8", t: "sem projeto" }, naoCarregada: { bg: "#f4f4f5", c: T.muted, t: "BU não carreg." } }[r.status];
+    return <span style={{ fontSize: 10.5, fontWeight: 700, color: map.c, background: map.bg, border: `1px solid ${map.c}22`, borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" }}>{map.t}</span>;
+  };
+
+  return (
+    <div>
+      <PageHead icon="chart" title="Visão por projeto" sub="por PEP — receita da carga × projetos ativos, mês a mês" />
+
+      {!projs.length && (
+        <Card style={{ padding: 14, marginBottom: 14, border: `1px solid ${T.warnLine || "#f0d8a8"}`, background: T.warnBg || "#fdf6e8" }}>
+          <div style={{ fontSize: 13, color: T.warn || "#8a6d1a" }}>Para cruzar com os projetos ativos, importe o export de projetos em <b>Validações → Projetos ativos × receita</b>. Sem isso, tudo aparece como "receita sem projeto".</div>
+        </Card>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
+        <Card style={{ padding: 14, border: `1px solid ${kFalta ? T.dangerLine : T.line}`, background: kFalta ? T.dangerBg : "#fff" }}><div style={{ fontSize: 11.5, color: T.muted }}>Projetos ativos SEM receita</div><div style={{ fontSize: 24, fontWeight: 800, color: kFalta ? T.danger : T.ok }}>{kFalta}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Com lacuna mensal</div><div style={{ fontSize: 24, fontWeight: 800, color: kGap ? "#c2630f" : T.ok }}>{kGap}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Receita sem projeto ativo</div><div style={{ fontSize: 24, fontWeight: 800, color: "#1d4ed8" }}>{kSemProj}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Projetos ativos OK</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ink }}>{kOk}</div></Card>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        <input placeholder="PEP, projeto, cliente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
+        <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
+        <select value={show} onChange={e => setShow(e.target.value)} style={inp}>
+          <option value="falta">Mostrar: falta reconhecer</option>
+          <option value="semproj">Mostrar: receita sem projeto</option>
+          <option value="todos">Mostrar: tudo</option>
+        </select>
+        <Btn small onClick={exportar}>Exportar Excel</Btn>
+      </div>
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 11.5, color: T.muted }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#f0fdf4", border: "1px solid #86efac" }} />receita no mês</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#fef2f2", border: `1px solid ${T.danger}` }} />ativo, sem receita</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#eff6ff", border: "1px solid #1d4ed8" }} />receita sem projeto</span>
+      </div>
+
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> PEP(s) · {months.length} competência(s).</div>
+      <Card style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ maxHeight: 580, overflow: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+            <thead><tr>
+              <th style={thName}>PEP / Projeto</th>
+              <th style={thCli}>Cliente</th>
+              <th style={thSt}>Status</th>
+              {months.map(m => <th key={m} style={thMes}>{mLabel(m)}</th>)}
+            </tr></thead>
+            <tbody>
+              {shown.map((r, ri) => {
+                const tint = r.status === "semproj" ? "#f8fbff" : r.status === "naoCarregada" ? "#fafafa" : T.canvas;
+                return (
+                  <tr key={r.k + ri}>
+                    <td style={{ ...tdName, background: tint }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</div>
+                      <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{r.k} · {r.empresa} · {brl(r.total)}</div>
+                    </td>
+                    <td style={{ ...tdCli, background: tint }} title={r.cliente}>{r.cliente || "—"}</td>
+                    <td style={{ ...tdSt, background: tint }}>{stBadge(r)}</td>
+                    {r.cells.map((c, ci) => {
+                      const s = c.st === "rec" ? { background: "#f0fdf4", color: "#166534", weight: 700, txt: short(c.val) }
+                              : c.st === "gap" ? { background: "#fef2f2", color: T.danger, weight: 700, txt: "—" }
+                              : { background: "transparent", color: T.faint, weight: 400, txt: "·" };
+                      return <td key={ci} style={{ ...tdCell, background: s.background, color: s.color, fontWeight: s.weight }} title={c.st === "rec" ? brl(c.val) : c.st === "gap" ? "Projeto ativo neste mês, sem receita reconhecida" : ""}>{s.txt}</td>;
+                    })}
+                  </tr>
+                );
+              })}
+              {!shown.length && <tr><td style={tdName} colSpan={months.length + 3}><div style={{ padding: 16, textAlign: "center", color: T.muted }}>Nenhum PEP com esse filtro.</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // Visão por projeto — linha do tempo. Escolhe um cliente e vê cada PEP mês a mês,
 // com o faturável e a distribuição por etapa (faturado / liberado / em andamento /
 // não iniciado). Só renderiza ao escolher o cliente — mapa focado.
@@ -6650,7 +6803,7 @@ function AppInner() {
           )}
           {page==="projeto"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ProjectTimelineView records={recordsView} clients={clients} fatByRec={fatByRec} varByRec={varByRec}/>
+              <ProjectPepView records={recordsView}/>
             </div>
           )}
           {page==="report"&&isComercial&&(
