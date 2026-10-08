@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "visao-por-pep · #136";
+const APP_BUILD = "visao-pep-bu-sort · #137";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3506,6 +3506,8 @@ function ProjectPepView({ records }) {
   const [q, setQ] = useState("");
   const [show, setShow] = useState("falta"); // falta | todos | semproj
   const [detail, setDetail] = useState(null); // PEP base clicado → modal de detalhe
+  const [fBu, setFBu] = useState("");
+  const [sort, setSort] = useState("status"); // status | az | valor
 
   let projs = []; try { const j = localStorage.getItem(PROJ_LS_KEY); projs = j ? JSON.parse(j) : []; } catch {}
   let flags = {}; try { const j = localStorage.getItem(PROJ_FLAGS_KEY); flags = j ? JSON.parse(j) : {}; } catch {}
@@ -3542,17 +3544,22 @@ function ProjectPepView({ records }) {
     });
     const nGap = cells.filter(c => c.st === "gap").length;
     const status = (proj && rev) ? "ok" : (proj && !rev) ? (loaded ? "falta" : "naoCarregada") : "semproj";
-    return { k, status, empresa, cliente, nome, total, cells, nGap };
+    return { k, status, empresa, bu: proj?.bu || "", cliente, nome, total, cells, nGap };
   });
 
   const empresas = [...new Set(rows.map(r => r.empresa).filter(Boolean))].sort();
+  const bus = [...new Set(rows.map(r => r.bu).filter(Boolean))].sort();
   let shown = rows;
   if (fEmp) shown = shown.filter(r => r.empresa === fEmp);
-  if (q) shown = shown.filter(r => matchQuery(q, [r.nome, r.k, r.cliente, r.empresa]));
+  if (fBu) shown = shown.filter(r => r.bu === fBu);
+  if (q) shown = shown.filter(r => matchQuery(q, [r.nome, r.k, r.cliente, r.empresa, r.bu]));
   if (show === "falta") shown = shown.filter(r => r.status === "falta" || (r.status === "ok" && r.nGap > 0));
   else if (show === "semproj") shown = shown.filter(r => r.status === "semproj");
   const rank = r => r.status === "falta" ? 0 : (r.status === "ok" && r.nGap > 0 ? 1 : (r.status === "semproj" ? 2 : 3));
-  shown = shown.sort((a, b) => rank(a) - rank(b) || b.total - a.total || a.k.localeCompare(b.k));
+  const cmp = sort === "az" ? (a, b) => a.cliente.localeCompare(b.cliente, "pt-BR") || a.nome.localeCompare(b.nome, "pt-BR")
+            : sort === "valor" ? (a, b) => b.total - a.total || a.k.localeCompare(b.k)
+            : (a, b) => rank(a) - rank(b) || b.total - a.total || a.k.localeCompare(b.k);
+  shown = shown.sort(cmp);
 
   const kFalta = rows.filter(r => r.status === "falta").length;
   const kGap = rows.filter(r => r.status === "ok" && r.nGap > 0).length;
@@ -3598,6 +3605,12 @@ function ProjectPepView({ records }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <input placeholder="PEP, projeto, cliente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
         <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
+        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}</select>
+        <select value={sort} onChange={e => setSort(e.target.value)} style={inp} title="Ordenar">
+          <option value="status">Ordenar: status</option>
+          <option value="az">Ordenar: cliente A→Z</option>
+          <option value="valor">Ordenar: maior valor</option>
+        </select>
         <select value={show} onChange={e => setShow(e.target.value)} style={inp}>
           <option value="falta">Mostrar: falta reconhecer</option>
           <option value="semproj">Mostrar: receita sem projeto</option>
@@ -3629,7 +3642,7 @@ function ProjectPepView({ records }) {
                   <tr key={r.k + ri}>
                     <td style={{ ...tdName, background: tint, cursor: "pointer" }} onClick={() => setDetail(r.k)} title="Ver detalhe (profissional × mês)">
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: T.brand, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</div>
-                      <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{r.k} · {r.empresa} · {brl(r.total)}</div>
+                      <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{r.k} · {r.empresa}{r.bu ? ` · ${r.bu}` : ""} · {brl(r.total)}</div>
                     </td>
                     <td style={{ ...tdCli, background: tint }} title={r.cliente}>{r.cliente || "—"}</td>
                     <td style={{ ...tdSt, background: tint }}>{stBadge(r)}</td>
