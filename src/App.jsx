@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "visao-por-pep · #135";
+const APP_BUILD = "visao-por-pep · #136";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3505,6 +3505,7 @@ function ProjectPepView({ records }) {
   const [fEmp, setFEmp] = useState("");
   const [q, setQ] = useState("");
   const [show, setShow] = useState("falta"); // falta | todos | semproj
+  const [detail, setDetail] = useState(null); // PEP base clicado → modal de detalhe
 
   let projs = []; try { const j = localStorage.getItem(PROJ_LS_KEY); projs = j ? JSON.parse(j) : []; } catch {}
   let flags = {}; try { const j = localStorage.getItem(PROJ_FLAGS_KEY); flags = j ? JSON.parse(j) : {}; } catch {}
@@ -3626,8 +3627,8 @@ function ProjectPepView({ records }) {
                 const tint = r.status === "semproj" ? "#f8fbff" : r.status === "naoCarregada" ? "#fafafa" : T.canvas;
                 return (
                   <tr key={r.k + ri}>
-                    <td style={{ ...tdName, background: tint }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</div>
+                    <td style={{ ...tdName, background: tint, cursor: "pointer" }} onClick={() => setDetail(r.k)} title="Ver detalhe (profissional × mês)">
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.brand, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</div>
                       <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{r.k} · {r.empresa} · {brl(r.total)}</div>
                     </td>
                     <td style={{ ...tdCli, background: tint }} title={r.cliente}>{r.cliente || "—"}</td>
@@ -3646,13 +3647,58 @@ function ProjectPepView({ records }) {
           </table>
         </div>
       </Card>
+
+      {detail && (() => {
+        const recs = records.filter(r => pepBase(r.pep) === detail);
+        const dmonths = [...new Set(recs.map(r => r.competencia).filter(Boolean))].sort((a, b) => compKey(a).localeCompare(compKey(b)));
+        const grp = {};
+        recs.forEach(r => { const who = (r.profissional || r.tipo || "—"); const g = grp[who] || (grp[who] = { who, tipo: r.tipo, cells: {}, tot: 0 }); const v = r.valorTotal || 0; g.cells[r.competencia] = (g.cells[r.competencia] || 0) + v; g.tot += v; });
+        const grows = Object.values(grp).sort((a, b) => b.tot - a.tot);
+        const totMonth = dmonths.map(m => grows.reduce((s, g) => s + (g.cells[m] || 0), 0));
+        const total = grows.reduce((s, g) => s + g.tot, 0);
+        const proj = projByPep[detail];
+        const dth = { padding: "7px 8px", fontSize: 11, color: T.muted, borderBottom: `1px solid ${T.line}`, whiteSpace: "nowrap", textAlign: "right" };
+        const dtd = { padding: "6px 8px", fontSize: 12, borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
+        return (
+          <Modal title={proj?.nome || `PEP ${detail}`} subtitle={`${detail} · ${(proj?.cliente || bestCli(revByPep[detail]?.cli)) || "—"}`} onClose={() => setDetail(null)} wide>
+            <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>
+              {proj ? <>Projeto ativo · {proj.empresa}{proj.bu ? " · " + proj.bu : ""}{proj.gerente ? " · " + proj.gerente : ""}{proj.fase ? " · fase " + proj.fase : ""}</> : <>Receita sem projeto ativo correspondente</>}
+              {" · "}<b style={{ color: T.ink }}>Total {brl(total)}</b> · {recs.length} registro(s)
+            </div>
+            {dmonths.length === 0 ? <div style={{ color: T.muted, fontSize: 13 }}>Sem receita lançada para este PEP.</div> : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead><tr>
+                    <th style={{ ...dth, textAlign: "left" }}>Profissional / Tipo</th>
+                    {dmonths.map(m => <th key={m} style={dth}>{mLabel(m)}</th>)}
+                    <th style={{ ...dth, color: T.ink, fontWeight: 800 }}>Total</th>
+                  </tr></thead>
+                  <tbody>
+                    {grows.map((g, i) => (
+                      <tr key={i}>
+                        <td style={{ ...dtd, textAlign: "left", fontWeight: 600, color: T.ink, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }} title={g.who}>{g.who}<span style={{ color: T.muted, fontWeight: 400 }}> · {g.tipo}</span></td>
+                        {dmonths.map(m => <td key={m} style={{ ...dtd, color: g.cells[m] ? T.ink : T.faint }}>{g.cells[m] ? brl(g.cells[m]) : "—"}</td>)}
+                        <td style={{ ...dtd, fontWeight: 700, color: T.ink }}>{brl(g.tot)}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={{ ...dtd, textAlign: "left", fontWeight: 800, color: T.ink, borderTop: `2px solid ${T.line}` }}>Total</td>
+                      {totMonth.map((v, i) => <td key={i} style={{ ...dtd, fontWeight: 800, color: T.ink, borderTop: `2px solid ${T.line}` }}>{brl(v)}</td>)}
+                      <td style={{ ...dtd, fontWeight: 800, color: T.brand, borderTop: `2px solid ${T.line}` }}>{brl(total)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
 
-// Visão por projeto — linha do tempo. Escolhe um cliente e vê cada PEP mês a mês,
-// com o faturável e a distribuição por etapa (faturado / liberado / em andamento /
-// não iniciado). Só renderiza ao escolher o cliente — mapa focado.
+// Visão por projeto (drilldown por cliente) — versão antiga, mantida como componente
+// auxiliar (não roteada). Escolhe um cliente e vê cada PEP mês a mês.
 function ProjectTimelineView({ records, clients, fatByRec={}, varByRec={} }) {
   const [cliente, setCliente] = useState("");
   const [qProf, setQProf] = useState("");
