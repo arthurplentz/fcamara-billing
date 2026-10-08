@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "sembu-sempep · #138";
+const APP_BUILD = "pep-nome-periodo · #139";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3313,7 +3313,7 @@ function ProjetosConfView({ records }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <input placeholder="PEP, cliente, gerente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
         <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
-        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}<option value="__none__">Sem BU</option></select>
+        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}</select>
         <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={soGap} onChange={e => setSoGap(e.target.checked)} />só com lacuna</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incConcluidos} onChange={e => setIncConcluidos(e.target.checked)} />incluir concluídos</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInativos} onChange={e => setIncInativos(e.target.checked)} />incluir inativos</label>
@@ -3512,6 +3512,8 @@ function ProjectPepView({ records }) {
   const [detail, setDetail] = useState(null); // PEP base clicado → modal de detalhe
   const [fBu, setFBu] = useState("");
   const [sort, setSort] = useState("status"); // status | az | valor
+  const [perDe, setPerDe] = useState("");
+  const [perAte, setPerAte] = useState("");
 
   let projs = []; try { const j = localStorage.getItem(PROJ_LS_KEY); projs = j ? JSON.parse(j) : []; } catch {}
   let flags = {}; try { const j = localStorage.getItem(PROJ_FLAGS_KEY); flags = j ? JSON.parse(j) : {}; } catch {}
@@ -3525,7 +3527,8 @@ function ProjectPepView({ records }) {
   const mLabel = c => { const [mm, yy] = String(c || "").split("/"); return yy ? `${mm}/${yy.slice(2)}` : c; };
   const short = v => v >= 1000 ? (v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "k" : v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
-  const months = [...new Set(records.map(r => r.competencia).filter(Boolean))].sort((a, b) => compKey(a).localeCompare(compKey(b)));
+  const allMonths = [...new Set(records.map(r => r.competencia).filter(Boolean))].sort((a, b) => compKey(a).localeCompare(compKey(b)));
+  const months = allMonths.filter(m => (!perDe || compKey(m) >= compKey(perDe)) && (!perAte || compKey(m) <= compKey(perAte)));
   const monthKeys = months.map(compKey);
   const empresasComReceita = new Set(records.map(r => String(r.empresa || "").toUpperCase()));
 
@@ -3609,7 +3612,9 @@ function ProjectPepView({ records }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <input placeholder="PEP, projeto, cliente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
         <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
-        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}<option value="__none__">Sem BU</option></select>
+        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}</select>
+        <select value={perDe} onChange={e => setPerDe(e.target.value)} style={inp} title="Período: de"><option value="">De: início</option>{allMonths.map(m => <option key={m} value={m}>{m}</option>)}</select>
+        <select value={perAte} onChange={e => setPerAte(e.target.value)} style={inp} title="Período: até"><option value="">Até: fim</option>{allMonths.map(m => <option key={m} value={m}>{m}</option>)}</select>
         <select value={sort} onChange={e => setSort(e.target.value)} style={inp} title="Ordenar">
           <option value="status">Ordenar: status</option>
           <option value="az">Ordenar: cliente A→Z</option>
@@ -3644,8 +3649,8 @@ function ProjectPepView({ records }) {
                 const tint = r.status === "semproj" ? "#f8fbff" : r.status === "naoCarregada" ? "#fafafa" : T.canvas;
                 return (
                   <tr key={r.k + ri}>
-                    <td style={{ ...tdName, background: tint, cursor: "pointer" }} onClick={() => setDetail(r.k)} title="Ver detalhe (profissional × mês)">
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.brand, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</div>
+                    <td style={{ ...tdName, background: tint, cursor: "pointer", verticalAlign: "top" }} onClick={() => setDetail(r.k)} title={`${r.nome}\n(clique para ver o detalhe)`}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.brand, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.25 }}>{r.nome}</div>
                       <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{r.k} · {r.empresa}{r.bu ? ` · ${r.bu}` : ""} · {brl(r.total)}</div>
                     </td>
                     <td style={{ ...tdCli, background: tint }} title={r.cliente}>{r.cliente || "—"}</td>
