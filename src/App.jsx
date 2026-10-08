@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "pep-nome-periodo · #139";
+const APP_BUILD = "pep-sticky-checado · #140";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3135,6 +3135,7 @@ function ProfContinuityView({ records }) {
 // navegador; re-importe para atualizar). Não grava no banco.
 const PROJ_LS_KEY = "fc_projetos_ativos_v1";
 const PROJ_FLAGS_KEY = "fc_projetos_flags_v1";
+const PROJ_CHECK_KEY = "fc_projetos_checado_v1";
 function parseProjetosSheet(rows) {
   if (!rows.length) return { projs: [], error: "Arquivo vazio." };
   let hi = -1;
@@ -3514,6 +3515,9 @@ function ProjectPepView({ records }) {
   const [sort, setSort] = useState("status"); // status | az | valor
   const [perDe, setPerDe] = useState("");
   const [perAte, setPerAte] = useState("");
+  const [soNaoCheck, setSoNaoCheck] = useState(false);
+  const [checks, setChecks] = useState(() => { try { const j = localStorage.getItem(PROJ_CHECK_KEY); return j ? JSON.parse(j) : {}; } catch { return {}; } });
+  const toggleCheck = k => { if (!k) return; setChecks(c => { const n = { ...c }; if (n[k]) delete n[k]; else n[k] = true; try { localStorage.setItem(PROJ_CHECK_KEY, JSON.stringify(n)); } catch {} return n; }); };
 
   let projs = []; try { const j = localStorage.getItem(PROJ_LS_KEY); projs = j ? JSON.parse(j) : []; } catch {}
   let flags = {}; try { const j = localStorage.getItem(PROJ_FLAGS_KEY); flags = j ? JSON.parse(j) : {}; } catch {}
@@ -3551,7 +3555,7 @@ function ProjectPepView({ records }) {
     });
     const nGap = cells.filter(c => c.st === "gap").length;
     const status = (proj && rev) ? "ok" : (proj && !rev) ? (loaded ? "falta" : "naoCarregada") : "semproj";
-    return { k, status, empresa, bu: proj?.bu || "", cliente, nome, total, cells, nGap };
+    return { k, status, empresa, bu: proj?.bu || "", cliente, nome, total, cells, nGap, checado: !!checks[k] };
   });
 
   const empresas = [...new Set(rows.map(r => r.empresa).filter(Boolean))].sort();
@@ -3562,6 +3566,7 @@ function ProjectPepView({ records }) {
   if (q) shown = shown.filter(r => matchQuery(q, [r.nome, r.k, r.cliente, r.empresa, r.bu]));
   if (show === "falta") shown = shown.filter(r => r.status === "falta" || (r.status === "ok" && r.nGap > 0));
   else if (show === "semproj") shown = shown.filter(r => r.status === "semproj");
+  if (soNaoCheck) shown = shown.filter(r => !r.checado);
   const rank = r => r.status === "falta" ? 0 : (r.status === "ok" && r.nGap > 0 ? 1 : (r.status === "semproj" ? 2 : 3));
   const cmp = sort === "az" ? (a, b) => a.cliente.localeCompare(b.cliente, "pt-BR") || a.nome.localeCompare(b.nome, "pt-BR")
             : sort === "valor" ? (a, b) => b.total - a.total || a.k.localeCompare(b.k)
@@ -3572,17 +3577,18 @@ function ProjectPepView({ records }) {
   const kGap = rows.filter(r => r.status === "ok" && r.nGap > 0).length;
   const kSemProj = rows.filter(r => r.status === "semproj").length;
   const kOk = rows.filter(r => r.status === "ok" && r.nGap === 0).length;
+  const nCheck = rows.filter(r => r.checado).length;
 
   const stTxt = r => r.status === "falta" ? "SEM RECEITA" : r.status === "ok" ? (r.nGap > 0 ? `${r.nGap} mês(es) s/ receita` : "OK") : r.status === "semproj" ? "Receita sem PEP atrelado" : "BU não carregada";
   const exportar = () => downloadCSV("FCamara_VisaoPorPEP.csv",
-    ["PEP", "Projeto", "Cliente", "Empresa", "Status", "Receita total", ...months],
-    shown.map(r => [r.k, r.nome, r.cliente, r.empresa, stTxt(r), r.total.toFixed(2).replace(".", ","), ...r.cells.map(c => c.val > 0 ? c.val.toFixed(2).replace(".", ",") : (c.st === "gap" ? "SEM RECEITA" : ""))]));
+    ["PEP", "Projeto", "Cliente", "Empresa", "Status", "Checado (FP&A)", "Receita total", ...months],
+    shown.map(r => [r.k, r.nome, r.cliente, r.empresa, stTxt(r), r.checado ? "CHECADO" : "", r.total.toFixed(2).replace(".", ","), ...r.cells.map(c => c.val > 0 ? c.val.toFixed(2).replace(".", ",") : (c.st === "gap" ? "SEM RECEITA" : ""))]));
 
   const inp = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, fontSize: 13, background: "#fff", color: T.ink };
-  const thName = { position: "sticky", left: 0, zIndex: 2, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, width: 230, minWidth: 230, maxWidth: 230 };
+  const thName = { position: "sticky", left: 0, top: 0, zIndex: 3, background: T.canvas, textAlign: "left", padding: "9px 12px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: T.muted, borderBottom: `1px solid ${T.line}`, width: 230, minWidth: 230, maxWidth: 230 };
   const thCli = { ...thName, left: 230, width: 160, minWidth: 160, maxWidth: 160, borderLeft: `1px solid ${T.lineSoft}` };
   const thSt = { ...thName, left: 390, width: 120, minWidth: 120, maxWidth: 120, borderLeft: `1px solid ${T.lineSoft}` };
-  const thMes = { padding: "9px 6px", fontSize: 11.5, fontWeight: 700, color: T.ink, borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.lineSoft}`, whiteSpace: "nowrap", textAlign: "center", minWidth: 62 };
+  const thMes = { position: "sticky", top: 0, zIndex: 1, background: T.canvas, padding: "9px 6px", fontSize: 11.5, fontWeight: 700, color: T.ink, borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.lineSoft}`, whiteSpace: "nowrap", textAlign: "center", minWidth: 62 };
   const tdName = { position: "sticky", left: 0, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, width: 230, minWidth: 230, maxWidth: 230 };
   const tdCli = { position: "sticky", left: 230, zIndex: 1, background: T.canvas, padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, width: 160, minWidth: 160, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, color: T.ink };
   const tdSt = { position: "sticky", left: 390, zIndex: 1, background: T.canvas, padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, width: 120, minWidth: 120, maxWidth: 120 };
@@ -3625,6 +3631,7 @@ function ProjectPepView({ records }) {
           <option value="semproj">Mostrar: receita sem PEP</option>
           <option value="todos">Mostrar: tudo</option>
         </select>
+        <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}><input type="checkbox" checked={soNaoCheck} onChange={e => setSoNaoCheck(e.target.checked)} />só não checados</label>
         <Btn small onClick={exportar}>Exportar Excel</Btn>
       </div>
 
@@ -3634,7 +3641,7 @@ function ProjectPepView({ records }) {
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#eff6ff", border: "1px solid #1d4ed8" }} />receita sem PEP atrelado</span>
       </div>
 
-      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> PEP(s) · {months.length} competência(s).</div>
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> PEP(s) · {months.length} competência(s){nCheck ? ` · ${nCheck} checado(s) (FP&A)` : ""}.</div>
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ maxHeight: 580, overflow: "auto" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
@@ -3646,7 +3653,7 @@ function ProjectPepView({ records }) {
             </tr></thead>
             <tbody>
               {shown.map((r, ri) => {
-                const tint = r.status === "semproj" ? "#f8fbff" : r.status === "naoCarregada" ? "#fafafa" : T.canvas;
+                const tint = r.checado ? "#f1faf3" : (r.status === "semproj" ? "#f8fbff" : r.status === "naoCarregada" ? "#fafafa" : T.canvas);
                 return (
                   <tr key={r.k + ri}>
                     <td style={{ ...tdName, background: tint, cursor: "pointer", verticalAlign: "top" }} onClick={() => setDetail(r.k)} title={`${r.nome}\n(clique para ver o detalhe)`}>
@@ -3654,7 +3661,12 @@ function ProjectPepView({ records }) {
                       <div style={{ fontSize: 10.5, color: T.muted, fontFamily: "monospace" }}>{r.k} · {r.empresa}{r.bu ? ` · ${r.bu}` : ""} · {brl(r.total)}</div>
                     </td>
                     <td style={{ ...tdCli, background: tint }} title={r.cliente}>{r.cliente || "—"}</td>
-                    <td style={{ ...tdSt, background: tint }}>{stBadge(r)}</td>
+                    <td style={{ ...tdSt, background: tint }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                        {stBadge(r)}
+                        <button onClick={() => toggleCheck(r.k)} title="Marcar como checado — FP&A pode usar como verídico" style={{ cursor: "pointer", border: `1px solid ${r.checado ? "#16a34a" : T.line}`, background: r.checado ? "#dcfce7" : "#fff", color: r.checado ? "#166534" : T.muted, borderRadius: 6, padding: "1px 6px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{r.checado ? "✓ checado" : "checar"}</button>
+                      </div>
+                    </td>
                     {r.cells.map((c, ci) => {
                       const s = c.st === "rec" ? { background: "#f0fdf4", color: "#166534", weight: 700, txt: short(c.val) }
                               : c.st === "gap" ? { background: "#fef2f2", color: T.danger, weight: 700, txt: "—" }
