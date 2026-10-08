@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "visao-pep-bu-sort · #137";
+const APP_BUILD = "sembu-sempep · #138";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3191,6 +3191,7 @@ function ProjetosConfView({ records }) {
   const toggleFlag = k => { if (!k) return; setFlags(f => { const n = { ...f }; if (n[k]) delete n[k]; else n[k] = true; try { localStorage.setItem(PROJ_FLAGS_KEY, JSON.stringify(n)); } catch {} return n; }); };
   const [soGap, setSoGap] = useState(true);
   const [fEmp, setFEmp] = useState("");
+  const [fBu, setFBu] = useState("");
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState("");
   const fileRef = useRef();
@@ -3229,6 +3230,7 @@ function ProjetosConfView({ records }) {
   const isInterno = p => p.interno ?? /(?:BR|PT)\d{2}INP/i.test(p.pep || "");
   const ativos = projs.filter(p => (incConcluidos || !p.concluido) && (incInativos || !p.inativ) && (incInternos || !isInterno(p)));
   const empresas = [...new Set(ativos.map(p => p.empresa).filter(Boolean))].sort();
+  const bus = [...new Set(ativos.map(p => p.bu).filter(Boolean))].sort();
   const rows = ativos.map(p => {
     const buLoaded = empresasComReceita.has(p.empresa);
     const fk = p.pep || `${p.empresa}|${p.cliente}|${p.nome}`;
@@ -3247,6 +3249,7 @@ function ProjetosConfView({ records }) {
 
   let shown = rows;
   if (fEmp) shown = shown.filter(p => p.empresa === fEmp);
+  if (fBu) shown = shown.filter(p => fBu === "__none__" ? !p.bu : p.bu === fBu);
   if (q) shown = shown.filter(p => matchQuery(q, [p.nome, p.pep, p.cliente, p.gerente, p.empresa]));
   if (soNaoFlag) shown = shown.filter(p => !p.flagged);
   if (soGap) shown = shown.filter(p => p.nGap > 0);
@@ -3310,6 +3313,7 @@ function ProjetosConfView({ records }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <input placeholder="PEP, cliente, gerente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
         <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
+        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}<option value="__none__">Sem BU</option></select>
         <label style={{ fontSize: 12.5, color: T.ink, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={soGap} onChange={e => setSoGap(e.target.checked)} />só com lacuna</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incConcluidos} onChange={e => setIncConcluidos(e.target.checked)} />incluir concluídos</label>
         <label style={{ fontSize: 12.5, color: T.muted, display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={incInativos} onChange={e => setIncInativos(e.target.checked)} />incluir inativos</label>
@@ -3551,7 +3555,7 @@ function ProjectPepView({ records }) {
   const bus = [...new Set(rows.map(r => r.bu).filter(Boolean))].sort();
   let shown = rows;
   if (fEmp) shown = shown.filter(r => r.empresa === fEmp);
-  if (fBu) shown = shown.filter(r => r.bu === fBu);
+  if (fBu) shown = shown.filter(r => fBu === "__none__" ? !r.bu : r.bu === fBu);
   if (q) shown = shown.filter(r => matchQuery(q, [r.nome, r.k, r.cliente, r.empresa, r.bu]));
   if (show === "falta") shown = shown.filter(r => r.status === "falta" || (r.status === "ok" && r.nGap > 0));
   else if (show === "semproj") shown = shown.filter(r => r.status === "semproj");
@@ -3566,7 +3570,7 @@ function ProjectPepView({ records }) {
   const kSemProj = rows.filter(r => r.status === "semproj").length;
   const kOk = rows.filter(r => r.status === "ok" && r.nGap === 0).length;
 
-  const stTxt = r => r.status === "falta" ? "SEM RECEITA" : r.status === "ok" ? (r.nGap > 0 ? `${r.nGap} mês(es) s/ receita` : "OK") : r.status === "semproj" ? "Receita sem projeto ativo" : "BU não carregada";
+  const stTxt = r => r.status === "falta" ? "SEM RECEITA" : r.status === "ok" ? (r.nGap > 0 ? `${r.nGap} mês(es) s/ receita` : "OK") : r.status === "semproj" ? "Receita sem PEP atrelado" : "BU não carregada";
   const exportar = () => downloadCSV("FCamara_VisaoPorPEP.csv",
     ["PEP", "Projeto", "Cliente", "Empresa", "Status", "Receita total", ...months],
     shown.map(r => [r.k, r.nome, r.cliente, r.empresa, stTxt(r), r.total.toFixed(2).replace(".", ","), ...r.cells.map(c => c.val > 0 ? c.val.toFixed(2).replace(".", ",") : (c.st === "gap" ? "SEM RECEITA" : ""))]));
@@ -3581,7 +3585,7 @@ function ProjectPepView({ records }) {
   const tdSt = { position: "sticky", left: 390, zIndex: 1, background: T.canvas, padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, width: 120, minWidth: 120, maxWidth: 120 };
   const tdCell = { padding: "6px 6px", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`, textAlign: "center", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: 11.5 };
   const stBadge = r => {
-    const map = { falta: { bg: "#fef2f2", c: T.danger, t: "sem receita" }, ok: r.nGap > 0 ? { bg: "#fff7ed", c: "#c2630f", t: `${r.nGap} s/ rec.` } : { bg: "#f0fdf4", c: "#166534", t: "ok" }, semproj: { bg: "#eff6ff", c: "#1d4ed8", t: "sem projeto" }, naoCarregada: { bg: "#f4f4f5", c: T.muted, t: "BU não carreg." } }[r.status];
+    const map = { falta: { bg: "#fef2f2", c: T.danger, t: "sem receita" }, ok: r.nGap > 0 ? { bg: "#fff7ed", c: "#c2630f", t: `${r.nGap} s/ rec.` } : { bg: "#f0fdf4", c: "#166534", t: "ok" }, semproj: { bg: "#eff6ff", c: "#1d4ed8", t: "sem PEP" }, naoCarregada: { bg: "#f4f4f5", c: T.muted, t: "BU não carreg." } }[r.status];
     return <span style={{ fontSize: 10.5, fontWeight: 700, color: map.c, background: map.bg, border: `1px solid ${map.c}22`, borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" }}>{map.t}</span>;
   };
 
@@ -3591,21 +3595,21 @@ function ProjectPepView({ records }) {
 
       {!projs.length && (
         <Card style={{ padding: 14, marginBottom: 14, border: `1px solid ${T.warnLine || "#f0d8a8"}`, background: T.warnBg || "#fdf6e8" }}>
-          <div style={{ fontSize: 13, color: T.warn || "#8a6d1a" }}>Para cruzar com os projetos ativos, importe o export de projetos em <b>Validações → Projetos ativos × receita</b>. Sem isso, tudo aparece como "receita sem projeto".</div>
+          <div style={{ fontSize: 13, color: T.warn || "#8a6d1a" }}>Para cruzar com os projetos ativos, importe o export de projetos em <b>Validações → Projetos ativos × receita</b>. Sem isso, tudo aparece como "receita sem PEP atrelado".</div>
         </Card>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
         <Card style={{ padding: 14, border: `1px solid ${kFalta ? T.dangerLine : T.line}`, background: kFalta ? T.dangerBg : "#fff" }}><div style={{ fontSize: 11.5, color: T.muted }}>Projetos ativos SEM receita</div><div style={{ fontSize: 24, fontWeight: 800, color: kFalta ? T.danger : T.ok }}>{kFalta}</div></Card>
         <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Com lacuna mensal</div><div style={{ fontSize: 24, fontWeight: 800, color: kGap ? "#c2630f" : T.ok }}>{kGap}</div></Card>
-        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Receita sem projeto ativo</div><div style={{ fontSize: 24, fontWeight: 800, color: "#1d4ed8" }}>{kSemProj}</div></Card>
+        <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Receita sem PEP atrelado</div><div style={{ fontSize: 24, fontWeight: 800, color: "#1d4ed8" }}>{kSemProj}</div></Card>
         <Card style={{ padding: 14 }}><div style={{ fontSize: 11.5, color: T.muted }}>Projetos ativos OK</div><div style={{ fontSize: 24, fontWeight: 800, color: T.ink }}>{kOk}</div></Card>
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         <input placeholder="PEP, projeto, cliente…" value={q} onChange={e => setQ(e.target.value)} style={{ ...inp, minWidth: 220, flex: 1 }} />
         <select value={fEmp} onChange={e => setFEmp(e.target.value)} style={inp}><option value="">Todas as empresas</option>{empresas.map(e => <option key={e} value={e}>{e}</option>)}</select>
-        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}</select>
+        <select value={fBu} onChange={e => setFBu(e.target.value)} style={inp} title="BU (da base de projetos)"><option value="">Todas as BUs</option>{bus.map(b => <option key={b} value={b}>{b}</option>)}<option value="__none__">Sem BU</option></select>
         <select value={sort} onChange={e => setSort(e.target.value)} style={inp} title="Ordenar">
           <option value="status">Ordenar: status</option>
           <option value="az">Ordenar: cliente A→Z</option>
@@ -3613,7 +3617,7 @@ function ProjectPepView({ records }) {
         </select>
         <select value={show} onChange={e => setShow(e.target.value)} style={inp}>
           <option value="falta">Mostrar: falta reconhecer</option>
-          <option value="semproj">Mostrar: receita sem projeto</option>
+          <option value="semproj">Mostrar: receita sem PEP</option>
           <option value="todos">Mostrar: tudo</option>
         </select>
         <Btn small onClick={exportar}>Exportar Excel</Btn>
@@ -3622,7 +3626,7 @@ function ProjectPepView({ records }) {
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 11.5, color: T.muted }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#f0fdf4", border: "1px solid #86efac" }} />receita no mês</span>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#fef2f2", border: `1px solid ${T.danger}` }} />ativo, sem receita</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#eff6ff", border: "1px solid #1d4ed8" }} />receita sem projeto</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: "#eff6ff", border: "1px solid #1d4ed8" }} />receita sem PEP atrelado</span>
       </div>
 
       <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Mostrando <b style={{ color: T.ink }}>{shown.length}</b> PEP(s) · {months.length} competência(s).</div>
@@ -3675,7 +3679,7 @@ function ProjectPepView({ records }) {
         return (
           <Modal title={proj?.nome || `PEP ${detail}`} subtitle={`${detail} · ${(proj?.cliente || bestCli(revByPep[detail]?.cli)) || "—"}`} onClose={() => setDetail(null)} wide>
             <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>
-              {proj ? <>Projeto ativo · {proj.empresa}{proj.bu ? " · " + proj.bu : ""}{proj.gerente ? " · " + proj.gerente : ""}{proj.fase ? " · fase " + proj.fase : ""}</> : <>Receita sem projeto ativo correspondente</>}
+              {proj ? <>Projeto ativo · {proj.empresa}{proj.bu ? " · " + proj.bu : ""}{proj.gerente ? " · " + proj.gerente : ""}{proj.fase ? " · fase " + proj.fase : ""}</> : <>Receita sem PEP atrelado a projeto ativo</>}
               {" · "}<b style={{ color: T.ink }}>Total {brl(total)}</b> · {recs.length} registro(s)
             </div>
             {dmonths.length === 0 ? <div style={{ color: T.muted, fontSize: 13 }}>Sem receita lançada para este PEP.</div> : (
