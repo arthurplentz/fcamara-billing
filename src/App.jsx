@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "pep-sticky-checado · #140";
+const APP_BUILD = "projetos-db-compartilhado · #141";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -3180,22 +3180,20 @@ function parseProjetosSheet(rows) {
   return { projs, error: projs.length ? "" : "Nenhum projeto encontrado no arquivo." };
 }
 
-function ProjetosConfView({ records }) {
-  const [projs, setProjs] = useState(() => { try { const j = localStorage.getItem(PROJ_LS_KEY); return j ? JSON.parse(j) : []; } catch { return []; } });
-  const [importedAt, setImportedAt] = useState(() => { try { return localStorage.getItem(PROJ_LS_KEY + "_at") || ""; } catch { return ""; } });
+function ProjetosConfView({ records, projetos = [], marks = {}, onImportProjetos, onToggleMark }) {
+  const projs = projetos;
   const [incConcluidos, setIncConcluidos] = useState(false);
   const [incInativos, setIncInativos] = useState(false);
   const [incInternos, setIncInternos] = useState(false);
-  const [incFlagados, setIncFlagados] = useState(false);
   const [soNaoFlag, setSoNaoFlag] = useState(false);
-  const [flags, setFlags] = useState(() => { try { const j = localStorage.getItem(PROJ_FLAGS_KEY); return j ? JSON.parse(j) : {}; } catch { return {}; } });
-  const toggleFlag = k => { if (!k) return; setFlags(f => { const n = { ...f }; if (n[k]) delete n[k]; else n[k] = true; try { localStorage.setItem(PROJ_FLAGS_KEY, JSON.stringify(n)); } catch {} return n; }); };
   const [soGap, setSoGap] = useState(true);
   const [fEmp, setFEmp] = useState("");
   const [fBu, setFBu] = useState("");
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState("");
   const fileRef = useRef();
+  const flagKey = p => p.pep || `${p.empresa}|${p.cliente}|${p.nome}`;
+  const toggleFlag = k => { if (k && onToggleMark) onToggleMark(k, "interno"); };
 
   function onFile(file) {
     if (!file) return;
@@ -3207,14 +3205,13 @@ function ProjetosConfView({ records }) {
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", blankrows: false, raw: true });
         const { projs: p, error } = parseProjetosSheet(rows);
         if (error && !p.length) { setMsg(error); return; }
-        setProjs(p); const at = new Date().toISOString(); setImportedAt(at);
-        try { localStorage.setItem(PROJ_LS_KEY, JSON.stringify(p)); localStorage.setItem(PROJ_LS_KEY + "_at", at); } catch {}
-        setMsg(`${p.length} projeto(s) importado(s).`);
+        setMsg(`${p.length} projeto(s) enviando para a base compartilhada…`);
+        onImportProjetos && onImportProjetos(p);
       } catch (err) { setMsg("Erro ao ler o arquivo: " + err.message); }
     };
     reader.readAsArrayBuffer(file);
   }
-  function limpar() { setProjs([]); setImportedAt(""); setMsg(""); try { localStorage.removeItem(PROJ_LS_KEY); localStorage.removeItem(PROJ_LS_KEY + "_at"); } catch {} }
+  function limpar() { if (onImportProjetos && window.confirm("Limpar a base de projetos compartilhada (todos verão vazio)?")) onImportProjetos([]); }
 
   const compKey = c => { const [mm, yy] = String(c || "").split("/"); return yy && mm ? `${yy}-${mm.padStart(2, "0")}` : ""; };
   const mLabel = c => { const [mm, yy] = String(c || "").split("/"); return yy ? `${mm}/${yy.slice(2)}` : c; };
@@ -3235,7 +3232,7 @@ function ProjetosConfView({ records }) {
   const rows = ativos.map(p => {
     const buLoaded = empresasComReceita.has(p.empresa);
     const fk = p.pep || `${p.empresa}|${p.cliente}|${p.nome}`;
-    const flagged = !!flags[fk];
+    const flagged = !!marks[fk]?.interno;
     const cells = months.map((m, i) => {
       const ck = monthKeys[i];
       const val = cellMap[p.pepBase + "|" + m] || 0;
@@ -3290,7 +3287,7 @@ function ProjetosConfView({ records }) {
         <Btn small icon="download" onClick={() => fileRef.current?.click()}>Reimportar</Btn>
         <Btn small onClick={exportar}>Exportar Excel</Btn>
         <Btn small onClick={limpar}>Limpar</Btn>
-        <span style={{ fontSize: 11.5, color: T.muted }}>{projs.length} no arquivo{importedAt ? ` · importado ${fmtDT ? fmtDT(importedAt) : new Date(importedAt).toLocaleString("pt-BR")}` : ""}{msg ? ` · ${msg}` : ""}</span>
+        <span style={{ fontSize: 11.5, color: T.muted }}>{projs.length} projeto(s) na base{msg ? ` · ${msg}` : ""}</span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 14 }}>
@@ -3369,7 +3366,7 @@ function ProjetosConfView({ records }) {
   );
 }
 
-function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec={} }) {
+function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec={}, projetos=[], marks={}, onImportProjetos, onToggleMark }) {
   const [aba, setAba] = useState("conferencias");
   const [open, setOpen] = useState("");
   const bill = (r) => (r.valorTotal||0) + (varByRec[r.id]||0);
@@ -3441,7 +3438,7 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
         ))}
       </div>
       {aba==="continuidade" && <ProfContinuityView records={records}/>}
-      {aba==="projetos" && <ProjetosConfView records={records}/>}
+      {aba==="projetos" && <ProjetosConfView records={records} projetos={projetos} marks={marks} onImportProjetos={onImportProjetos} onToggleMark={onToggleMark}/>}
       {aba==="conferencias" && <>
       <Card style={{padding:16,marginBottom:16,border:`1px solid ${totExc?T.dangerLine:T.okLine}`,background:totExc?T.dangerBg:T.okBg}}>
         <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
@@ -3506,7 +3503,7 @@ function ValidatorsView({ records, notes, faturamentos=[], fatByRec={}, varByRec
 // de Validações, no navegador). União dos dois lados: projeto ativo com receita
 // (ok), projeto ativo sem receita (falta reconhecer), receita sem projeto ativo.
 // Linha do tempo mês a mês. Mostra o que falta reconhecimento de receita.
-function ProjectPepView({ records }) {
+function ProjectPepView({ records, projetos = [], marks = {}, onToggleMark }) {
   const [fEmp, setFEmp] = useState("");
   const [q, setQ] = useState("");
   const [show, setShow] = useState("falta"); // falta | todos | semproj
@@ -3516,14 +3513,13 @@ function ProjectPepView({ records }) {
   const [perDe, setPerDe] = useState("");
   const [perAte, setPerAte] = useState("");
   const [soNaoCheck, setSoNaoCheck] = useState(false);
-  const [checks, setChecks] = useState(() => { try { const j = localStorage.getItem(PROJ_CHECK_KEY); return j ? JSON.parse(j) : {}; } catch { return {}; } });
-  const toggleCheck = k => { if (!k) return; setChecks(c => { const n = { ...c }; if (n[k]) delete n[k]; else n[k] = true; try { localStorage.setItem(PROJ_CHECK_KEY, JSON.stringify(n)); } catch {} return n; }); };
+  const checks = {}; Object.entries(marks).forEach(([k, m]) => { if (m?.checado) checks[k] = true; });
+  const toggleCheck = k => { if (k && onToggleMark) onToggleMark(k, "checado"); };
 
-  let projs = []; try { const j = localStorage.getItem(PROJ_LS_KEY); projs = j ? JSON.parse(j) : []; } catch {}
-  let flags = {}; try { const j = localStorage.getItem(PROJ_FLAGS_KEY); flags = j ? JSON.parse(j) : {}; } catch {}
+  const projs = projetos;
   const flagKey = p => p.pep || `${p.empresa}|${p.cliente}|${p.nome}`;
   const isInterno = p => p.interno ?? /(?:BR|PT)\d{2}INP/i.test(p.pep || "");
-  const ativoProj = p => !p.concluido && !p.inativ && !isInterno(p) && !flags[flagKey(p)];
+  const ativoProj = p => !p.concluido && !p.inativ && !isInterno(p) && !marks[flagKey(p)]?.interno;
   const projByPep = {};
   projs.forEach(p => { if (!ativoProj(p)) return; const k = p.pepBase || pepBase(p.pep); if (k && !projByPep[k]) projByPep[k] = p; });
 
@@ -6151,6 +6147,8 @@ function AppInner() {
   const [variacoes, setVariacoes] = useState([]);        // variações de receita pós-fechamento
   const [mural, setMural] = useState({ id:null, frase:"", autor:"", lembretes:[] });
   const [aliases, setAliases] = useState([]);        // DE→PARA de clientes
+  const [projetos, setProjetos] = useState([]);      // base de projetos ativos (compartilhada)
+  const [projMarks, setProjMarks] = useState({});    // marcas por PEP (interno/checado)
   const aliasMapRef = useRef({});                    // { nomeNormalizado(de) -> para }
   const buildAliasMap = (list) => { const m={}; (list||[]).forEach(a=>{ if(a.de&&a.para) m[_normCliNome(a.de)]=a.para; }); return m; };
   const [dataReady, setDataRdy] = useState(false);
@@ -6170,14 +6168,30 @@ function AppInner() {
   const reloadFaturamentos = useCallback(async () => { try { setFaturamentos(await db.fetchFaturamentos()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
   const reloadVariacoes = useCallback(async () => { try { setVariacoes(await db.fetchVariacoes()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
   const reloadMural = useCallback(async () => { try { setMural(await db.fetchMural()); } catch(e){ /* mural: tabela pode não existir ainda */ } }, []);
+  const reloadProjetos = useCallback(async () => { try { setProjetos(await db.loadActiveProjects()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
+  const reloadProjMarks = useCallback(async () => { try { setProjMarks(await db.loadProjectMarks()); } catch(e){ /* idem */ } }, []);
+  async function handleImportProjetos(list) {
+    try { await db.replaceActiveProjects(list); await reloadProjetos(); toast(`${list.length} projeto(s) na base compartilhada.`); }
+    catch(e){ toast("Erro ao salvar projetos: "+e.message, "error"); }
+  }
+  async function handleToggleMark(key, field) {
+    if (!key) return;
+    const cur = projMarks[key] || {};
+    const next = { interno: !!cur.interno, checado: !!cur.checado };
+    next[field] = !next[field];
+    const checadoPor = field === "checado" ? (next.checado ? (user?.name || "") : "") : (cur.checadoPor || "");
+    setProjMarks(m => ({ ...m, [key]: { interno: next.interno, checado: next.checado, checadoPor } }));
+    try { await db.setProjectMark(key, { interno: next.interno, checado: next.checado, checado_por: checadoPor }); }
+    catch(e){ toast("Erro ao salvar marca: "+e.message, "error"); reloadProjMarks(); }
+  }
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setProjetos([]); setProjMarks({}); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[])])
-      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[]), db.loadActiveProjects().catch(()=>[]), db.loadProjectMarks().catch(()=>({}))])
+      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al, pj, pm]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); setProjetos(pj); setProjMarks(pm); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -6878,12 +6892,12 @@ function AppInner() {
           )}
           {page==="valida"&&(
             <div style={{maxWidth:1000,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ValidatorsView records={records} notes={notes} faturamentos={faturamentos} fatByRec={fatByRec} varByRec={varByRec}/>
+              <ValidatorsView records={records} notes={notes} faturamentos={faturamentos} fatByRec={fatByRec} varByRec={varByRec} projetos={projetos} marks={projMarks} onImportProjetos={handleImportProjetos} onToggleMark={handleToggleMark}/>
             </div>
           )}
           {page==="projeto"&&(
             <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
-              <ProjectPepView records={recordsView}/>
+              <ProjectPepView records={recordsView} projetos={projetos} marks={projMarks} onToggleMark={handleToggleMark}/>
             </div>
           )}
           {page==="report"&&isComercial&&(
