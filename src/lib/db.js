@@ -475,6 +475,55 @@ export async function deleteClientAlias(de) {
   if (error) throw error;
 }
 
+// ─── PROJETOS ATIVOS (base compartilhada) + marcas (interno/checado) ──────────
+function dbToProj(row) {
+  return {
+    nome: row.nome || "", pep: row.pep || "", pepBase: row.pep_base || "",
+    cliente: row.cliente || "", gerente: row.gerente || "", empresa: row.empresa || "",
+    bu: row.bu || "", fase: row.fase || "", inicioKey: row.inicio_key || "", fimKey: row.fim_key || "",
+    inativ: !!row.inativ, concluido: !!row.concluido, interno: !!row.interno_auto,
+  };
+}
+function projToDb(p) {
+  return {
+    pep: p.pep || null, pep_base: p.pepBase || null, nome: p.nome || null,
+    cliente: p.cliente || null, gerente: p.gerente || null, empresa: p.empresa || null,
+    bu: p.bu || null, fase: p.fase || null, inicio_key: p.inicioKey || null, fim_key: p.fimKey || null,
+    inativ: !!p.inativ, concluido: !!p.concluido, interno_auto: !!p.interno,
+  };
+}
+export async function loadActiveProjects() {
+  const { data, error } = await supabase.from("active_projects").select("*").limit(5000);
+  if (error) throw error;
+  return (data || []).map(dbToProj);
+}
+export async function replaceActiveProjects(list) {
+  // Substitui a base inteira: apaga tudo e insere o novo import.
+  const { error: delErr } = await supabase.from("active_projects").delete().not("id", "is", null);
+  if (delErr) throw delErr;
+  const size = 500;
+  for (let i = 0; i < list.length; i += size) {
+    const chunk = list.slice(i, i + size).map(projToDb);
+    const { error } = await supabase.from("active_projects").insert(chunk);
+    if (error) throw error;
+  }
+  return list.length;
+}
+export async function loadProjectMarks() {
+  const { data, error } = await supabase.from("project_marks").select("*").limit(5000);
+  if (error) throw error;
+  const map = {};
+  (data || []).forEach(r => { map[r.mark_key] = { interno: !!r.interno, checado: !!r.checado, checadoPor: r.checado_por || "" }; });
+  return map;
+}
+export async function setProjectMark(key, patch) {
+  if (!key) return;
+  const { error } = await supabase.from("project_marks")
+    .upsert({ mark_key: key, ...patch, updated_at: nowISO() }, { onConflict: "mark_key" });
+  if (error) throw error;
+}
+
+
 // ─── MURAL (tela inicial) ────────────────────────────────────────────────────
 export async function fetchMural() {
   const { data, error } = await supabase.from("mural").select("*").order("updated_at", { ascending: false }).limit(1);
