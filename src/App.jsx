@@ -540,6 +540,7 @@ function Icon({ name, size=16, style }) {
     case "folder":   return <svg {...p}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>;
     case "calendar": return <svg {...p}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>;
     case "menu":     return <svg {...p}><path d="M4 7h16M4 12h16M4 17h16"/></svg>;
+    case "chat":     return <svg {...p}><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>;
     case "sun":      return <svg {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>;
     case "moon":     return <svg {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>;
     default:         return null;
@@ -1901,13 +1902,138 @@ function Dashboard({ records, analista, isAdmin, fatByRec={}, varByRec={} }) {
   );
 }
 
+// ─── ASSISTENTE O2C (chat com a base de premissas do Notion) ─────────────────
+// A tela só conversa com a Edge Function "assistente-o2c". As chaves da IA e do
+// Notion ficam no servidor (segredos do Supabase), nunca aqui no navegador.
+const ASSIST_SUGESTOES = [
+  "Qual a data de corte da NF da Três Corações?",
+  "Quais projetos da Viviane exigem PO no corpo da nota?",
+  "Quais projetos ainda não têm o tipo de contrato preenchido?",
+  "Como faturo um cliente de e-commerce?",
+];
+
+// Markdown mínimo: **negrito**, listas com "- " e quebras de linha.
+function AssistText({ text }) {
+  const linhas = String(text||"").split("\n");
+  const inline = (s, k) => s.split(/(\*\*[^*]+\*\*)/g).map((p,i)=> p.startsWith("**")&&p.endsWith("**") ? <strong key={k+"-"+i}>{p.slice(2,-2)}</strong> : <Fragment key={k+"-"+i}>{p}</Fragment>);
+  return (
+    <div style={{fontSize:13.5,lineHeight:1.55,color:T.ink}}>
+      {linhas.map((l,i)=>{
+        const m = l.match(/^\s*[-*•]\s+(.*)$/);
+        if (m) return <div key={i} style={{display:"flex",gap:7,paddingLeft:4}}><span style={{color:T.brand}}>•</span><span>{inline(m[1],i)}</span></div>;
+        const h = l.match(/^#{1,4}\s+(.*)$/);
+        if (h) return <div key={i} style={{fontWeight:700,marginTop:6}}>{inline(h[1],i)}</div>;
+        return l.trim() ? <div key={i}>{inline(l,i)}</div> : <div key={i} style={{height:7}}/>;
+      })}
+    </div>
+  );
+}
+
+function AssistenteView({ user }) {
+  const isMobile = useIsMobile();
+  const [msgs, setMsgs] = useState([]);       // {role:"user"|"assistant", content, fontes?, erro?}
+  const [texto, setTexto] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fimRef = useRef(null);
+  useEffect(()=>{ fimRef.current?.scrollIntoView({behavior:"smooth", block:"end"}); }, [msgs, busy]);
+
+  async function enviar(pergunta) {
+    const q = String(pergunta ?? texto).trim();
+    if (!q || busy) return;
+    const historico = [...msgs.filter(m=>!m.erro), { role:"user", content:q }];
+    setMsgs(prev=>[...prev, { role:"user", content:q }]);
+    setTexto(""); setBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("assistente-o2c", {
+        body:{ messages: historico.map(m=>({ role:m.role, content:m.content })) },
+      });
+      if (error) {
+        let msg = error.message;
+        try { const b = await error.context?.json?.(); if (b?.erro) msg = b.erro; } catch {}
+        throw new Error(msg);
+      }
+      if (data?.erro) throw new Error(data.erro);
+      setMsgs(prev=>[...prev, { role:"assistant", content:data?.resposta||"(sem resposta)", fontes:data?.fontes||[] }]);
+    } catch(e) {
+      const naoPublicado = /Failed to send|not found|404|FunctionsFetchError|FunctionsHttpError/i.test(e.message||"");
+      setMsgs(prev=>[...prev, { role:"assistant", erro:true, content: naoPublicado
+        ? "O assistente ainda não está ativado neste ambiente. Peça ao administrador para publicar a função \"assistente-o2c\" no Supabase (ver README da função)."
+        : `Não consegui responder agora: ${e.message}` }]);
+    } finally { setBusy(false); }
+  }
+
+  const bolha = (m) => ({
+    maxWidth: isMobile ? "92%" : "78%", padding:"11px 14px", borderRadius:14,
+    background: m.role==="user" ? T.brand : m.erro ? T.warnBg : "var(--surface)",
+    color: m.role==="user" ? "#fff" : T.ink,
+    border: m.role==="user" ? "none" : `1px solid ${m.erro?T.warnLine:T.line}`,
+    boxShadow: m.role==="user" ? "none" : T.shSm,
+  });
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:isMobile?"calc(100vh - 120px)":"calc(100vh - 110px)"}}>
+      <PageHead icon="chat" title="Assistente O2C" sub="Pergunte sobre as premissas de faturamento dos clientes. As respostas vêm da base de conhecimento no Notion."
+        right={msgs.length ? <Btn small icon="refresh" onClick={()=>setMsgs([])} disabled={busy}>Nova conversa</Btn> : null}/>
+
+      <Card style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{flex:1,overflowY:"auto",padding:isMobile?14:20,display:"flex",flexDirection:"column",gap:12}}>
+          {!msgs.length && (
+            <div style={{margin:"auto",maxWidth:560,textAlign:"center",padding:"10px 0"}}>
+              <div style={{display:"inline-grid",placeItems:"center",width:52,height:52,borderRadius:16,background:T.brandBg,color:T.brand,marginBottom:12}}><Icon name="chat" size={26}/></div>
+              <div style={{...Ty.h2,fontSize:17,marginBottom:6}}>Olá, {(user?.apelido || user?.name || "").split(" ")[0]}! Como posso ajudar?</div>
+              <div style={{...Ty.small,marginBottom:16}}>Pergunte pelo nome do cliente, do projeto ou pelo PEP. Se algo não estiver cadastrado, eu aviso.</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,justifyContent:"center"}}>
+                {ASSIST_SUGESTOES.map(s=>(
+                  <button key={s} onClick={()=>enviar(s)} className="fc-btn" style={{border:`1px solid ${T.line}`,background:"var(--surface)",color:T.inkSoft,borderRadius:T.rPill,padding:"7px 13px",fontSize:12.5,cursor:"pointer"}}>{s}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          {msgs.map((m,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+              <div style={bolha(m)}>
+                {m.role==="user" ? <div style={{fontSize:13.5,whiteSpace:"pre-wrap"}}>{m.content}</div> : <AssistText text={m.content}/>}
+                {!!m.fontes?.length && (
+                  <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${T.lineSoft}`,display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                    <span style={{fontSize:11,color:T.muted,fontWeight:600}}>Fontes:</span>
+                    {m.fontes.map(f=>(
+                      <a key={f.pep} href={f.url} target="_blank" rel="noreferrer" title={f.projeto}
+                        style={{fontSize:11,fontWeight:600,color:T.brand,background:T.brandBg,borderRadius:T.rPill,padding:"2px 9px",textDecoration:"none"}}>{f.pep}</a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {busy && (
+            <div style={{display:"flex"}}><div style={{...bolha({role:"assistant"}),color:T.muted,fontSize:13}}>Consultando a base…</div></div>
+          )}
+          <div ref={fimRef}/>
+        </div>
+
+        <div style={{borderTop:`1px solid ${T.line}`,padding:isMobile?10:14,display:"flex",gap:8,alignItems:"flex-end"}}>
+          <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={2} disabled={busy}
+            onKeyDown={e=>{ if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+            placeholder="Ex.: Qual o padrão do corpo da nota da Bunzl?"
+            aria-label="Pergunta para o assistente"
+            style={{...inp,resize:"none",flex:1,minHeight:44,maxHeight:140}}/>
+          <Btn primary onClick={()=>enviar()} disabled={busy||!texto.trim()}>Enviar</Btn>
+        </div>
+      </Card>
+      <div style={{...Ty.small,fontSize:11,marginTop:8,textAlign:"center"}}>
+        A IA pode errar. Confira na ficha do projeto (link em “Fontes”) antes de faturar. Para corrigir uma premissa, edite no Notion.
+      </div>
+    </div>
+  );
+}
+
 // ─── SIDEBAR / NAV ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
   { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
   { group:"Reconhecimento & Faturamento Receita", links:[ {id:"time",icon:"list",label:"Minha visão"}, {id:"dash",icon:"chart",label:"Dashboard"}, {id:"concil",icon:"receipt",label:"Conciliação de notas"}, {id:"reports",icon:"file",label:"Relatórios"}, {id:"projeto",icon:"chart",label:"Visão por projeto"}, {id:"represados",icon:"alert",label:"Represados"}, {id:"valida",icon:"check",label:"Validações"} ] },
   { group:"Cadastros", links:[ {id:"clients",icon:"building",label:"Clientes"} ] },
-  { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
+  { group:"Operação",    links:[ {id:"tasks",icon:"task",label:"Tarefas"}, {id:"assistente",icon:"chat",label:"Assistente O2C"} ] },
 ];
 
 const ADMIN_NAV_SECTION = { group:"Administração", links:[ {id:"dados",icon:"import",label:"Importar documentos"}, {id:"correcoes",icon:"pencil",label:"Correções"}, {id:"bu",icon:"building",label:"Classificar BU"}, {id:"aliases",icon:"building",label:"Unificar clientes"}, {id:"comercial",icon:"chart",label:"Visão comercial"}, {id:"report",icon:"file",label:"Report semanal (comercial)"}, {id:"previsao",icon:"chart",label:"Previsão & Saúde"}, {id:"access",icon:"lock",label:"Gestão de acessos"} ] };
@@ -6918,6 +7044,11 @@ function AppInner() {
           {page==="clients"&&(
             <div style={{maxWidth:1140,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
               <ClientsView clients={clients} isAdmin={isAdmin} isViewer={isViewer} onSave={handleClientSave} onDelete={handleClientDelete} onBulkImport={handleClientsImport} onMerge={handleClientsMerge}/>
+            </div>
+          )}
+          {page==="assistente"&&!isComercial&&(
+            <div style={{maxWidth:900,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <AssistenteView user={user}/>
             </div>
           )}
           {page==="tasks"&&(
