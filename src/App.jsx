@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-reset · #145";
+const APP_BUILD = "rotinas-link · #146";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4805,6 +4805,10 @@ const ROTINAS_SEED = [
   _rt("Viviane Wellida","Financial Controls","(Rotinas a detalhar)",{pr:"Novo — padrão a definir."}),
 ];
 
+// Liga a pessoa logada à rotina sem exigir nome idêntico: ignora acento/caixa e
+// casa quando os nomes de um são subconjunto do outro ("Beatriz" ↔ "Beatriz Goulart").
+function rtNorm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim(); }
+function rtSamePerson(a, b){ const na=rtNorm(a), nb=rtNorm(b); if(!na||!nb) return false; if(na===nb) return true; const ta=na.split(" "), tb=nb.split(" "); const sa=new Set(ta), sb=new Set(tb); return ta.every(t=>sb.has(t)) || tb.every(t=>sa.has(t)); }
 function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); for(let d=1;d<=last;d++){ const wd=new Date(y,m1-1,d).getDay(); if(wd!==0&&wd!==6){ c++; if(c===n) return d; } } return last; }
 function rtIsoWeek(dd){ const d=new Date(Date.UTC(dd.getFullYear(),dd.getMonth(),dd.getDate())); const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const wk=Math.ceil((((d-ys)/86400000)+1)/7); return `${d.getUTCFullYear()}-W${String(wk).padStart(2,"0")}`; }
 function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
@@ -4851,7 +4855,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
   const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina])];
 
   // ── Minhas / Da pessoa ──
-  const mine = routines.filter(r=>r.ativo!==false).filter(r=> pessoa ? r.pessoa===pessoa : true)
+  const mine = routines.filter(r=>r.ativo!==false).filter(r=> pessoa ? rtSamePerson(r.pessoa, pessoa) : true)
     .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa]) : true);
   const cadOrder = { mensal:0, semanal:1, diaria:2 };
   const mineSorted = [...mine].sort((a,b)=> (cadOrder[a.cadencia]??3)-(cadOrder[b.cadencia]??3) || (rtDueDay(a,...mes.split("-").map(Number))||99)-(rtDueDay(b,...mes.split("-").map(Number))||99) || a.titulo.localeCompare(b.titulo));
@@ -4885,7 +4889,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
           <div key={cad} style={{marginBottom:16}}>
             <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 8px"}}>{CAD_LABEL[cad]||cad}</div>
             <Card style={{padding:0,overflow:"hidden"}}>
-              {grp.map((r,i)=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck = !isViewer && (isAdmin || r.pessoa===user?.name);
+              {grp.map((r,i)=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck = !isViewer && (isAdmin || rtSamePerson(r.pessoa, user?.name));
                 return (
                   <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 14px",borderBottom:i<grp.length-1?`1px solid ${T.lineSoft}`:"none",background:st.bg}}>
                     <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, periodOf(r), e.target.checked)} style={{marginTop:3,width:17,height:17,cursor:canCheck?"pointer":"default"}}/>
@@ -4900,7 +4904,12 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
             </Card>
           </div>
         );})}
-        {!mine.length && <Card style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma rotina {pessoa?`para ${pessoa}`:""}. {isAdmin?"Vá em Cadastro para adicionar ou semear.":""}</Card>}
+        {!mine.length && <Card style={{padding:24,textAlign:"center",color:T.muted}}>
+          Nenhuma rotina {pessoa?<b>para “{pessoa}”</b>:""}.
+          {isAdmin
+            ? " Vá em Cadastro para adicionar ou semear."
+            : <> Seu nome de acesso é <b>“{user?.name}”</b> — se suas rotinas estão cadastradas com um nome diferente, peça à gestão para alinhar o nome.</>}
+        </Card>}
       </>)}
 
       {aba==="time" && isAdmin && (<>
