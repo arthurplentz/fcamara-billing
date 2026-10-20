@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-time · #143";
+const APP_BUILD = "rotinas-incluir · #144";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4913,7 +4913,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
       {aba==="cadastro" && isAdmin && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <Btn icon="plus" onClick={()=>setEdit({ pessoa:pessoa||"", area:"", titulo:"", cliente:"", cadencia:"mensal", prazoTxt:"", prazoTipo:"livre", prazoValor:"", premissa:"", ativo:true })}>Nova rotina</Btn>
-          {!routines.length && <Btn onClick={()=>{ if(window.confirm(`Semear ${ROTINAS_SEED.length} rotinas iniciais?`)) onSeed(ROTINAS_SEED); }}>Semear rotinas iniciais ({ROTINAS_SEED.length})</Btn>}
+          {(() => { const miss = ROTINAS_SEED.filter(s=>!routines.some(r=>r.pessoa===s.pessoa&&r.titulo===s.titulo)); return miss.length ? <Btn onClick={()=>{ if(window.confirm(`Incluir ${miss.length} rotina(s) conhecida(s) da lista do time? (não duplica as que já existem)`)) onSeed(miss); }}>Incluir rotinas conhecidas ({miss.length})</Btn> : null; })()}
           <input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
         </div>
         <Card style={{padding:0,overflow:"hidden"}}>
