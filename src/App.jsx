@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-link · #146";
+const APP_BUILD = "rotinas-dash · #147";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4815,7 +4815,7 @@ function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const la
 
 function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed }) {
   const ymNow = new Date().toISOString().slice(0,7);
-  const [aba, setAba] = useState("minhas");
+  const [aba, setAba] = useState("dash");
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
   const [mes, setMes] = useState(ymNow);
   const [q, setQ] = useState("");
@@ -4828,108 +4828,166 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
   // diária reinicia todo dia; semanal a cada semana (ISO); mensal por mês.
   const weekKey = rtIsoWeek(new Date());
   const periodOf = (r) => r.cadencia==="diaria" ? todayStr : r.cadencia==="semanal" ? weekKey : mes;
+  // buckets de tempo (inspirado em Todoist/Things): atrasado → hoje → semana → futuro → feito.
+  const BUCKET_ORD = { atrasado:0, hoje:1, semana:2, futuro:3, feito:4 };
   const statusOf = (r) => {
     const periodo = periodOf(r);
     const d = done[`${r.id}|${periodo}`];
     if (r.cadencia==="diaria") {
-      if (d?.feito) return { k:"feito", label:"feito hoje", color:"#166534", bg:"#f0fdf4" };
-      return { k:"pendente", label:"hoje", color:T.muted, bg:"transparent" };
+      if (d?.feito) return { k:"feito", bucket:"feito", label:"feito hoje", color:"#166534", bg:"#f0fdf4" };
+      return { k:"pendente", bucket:"hoje", label:"hoje", color:T.muted, bg:"transparent" };
     }
     if (r.cadencia==="semanal") {
-      if (d?.feito) return { k:"feito", label:"feito esta semana", color:"#166534", bg:"#f0fdf4" };
-      return { k:"pendente", label:"esta semana", color:T.muted, bg:"transparent" };
+      if (d?.feito) return { k:"feito", bucket:"feito", label:"feito esta semana", color:"#166534", bg:"#f0fdf4" };
+      return { k:"pendente", bucket:"semana", label:"esta semana", color:T.muted, bg:"transparent" };
     }
     const [yy,mm]=mes.split("-").map(Number);
     const due = rtDueDay(r, yy, mm);
     const dueStr = due ? `${yy}-${String(mm).padStart(2,"0")}-${String(due).padStart(2,"0")}` : "";
     if (d?.feito) {
-      if (dueStr && d.feitoEm && d.feitoEm > dueStr) return { k:"atraso", label:`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)} (atraso)`, color:"#c2630f", bg:"#fff7ed" };
-      return { k:"feito", label: d.feitoEm?`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)}`:"feito", color:"#166534", bg:"#f0fdf4" };
+      if (dueStr && d.feitoEm && d.feitoEm > dueStr) return { k:"atraso", bucket:"feito", label:`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)} (atraso)`, color:"#c2630f", bg:"#fff7ed" };
+      return { k:"feito", bucket:"feito", label: d.feitoEm?`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)}`:"feito", color:"#166534", bg:"#f0fdf4" };
     }
-    if (dueStr && dueStr < todayStr) return { k:"atrasado", label:"atrasado", color:T.danger, bg:"#fef2f2" };
-    return { k:"pendente", label: due?`vence dia ${due}`:"pendente", color:T.muted, bg:"transparent" };
+    if (dueStr && dueStr < todayStr) { const od=Math.round((new Date(todayStr)-new Date(dueStr))/86400000); return { k:"atrasado", bucket:"atrasado", label:`atrasado ${od}d`, color:T.danger, bg:"#fef2f2" }; }
+    if (dueStr && dueStr === todayStr) return { k:"pendente", bucket:"hoje", label:"vence hoje", color:"#c2630f", bg:"#fff7ed" };
+    return { k:"pendente", bucket:"futuro", label: due?`vence dia ${due}`:"sem prazo", color:T.muted, bg:"transparent" };
   };
   const isFeito = (r) => !!done[`${r.id}|${periodOf(r)}`]?.feito;
+  const canEditar = (r) => !isViewer && (isAdmin || rtSamePerson(r.pessoa, user?.name)); // só mexe nas suas
 
   const pessoasComRotina = [...new Set(routines.map(r=>r.pessoa).filter(Boolean))].sort();
   const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina])];
+  const ativos = routines.filter(r=>r.ativo!==false);
 
-  // ── Minhas / Da pessoa ──
-  const mine = routines.filter(r=>r.ativo!==false).filter(r=> pessoa ? rtSamePerson(r.pessoa, pessoa) : true)
+  // ── Lista filtrada (aba por pessoa) ──
+  const mine = ativos.filter(r=> pessoa ? rtSamePerson(r.pessoa, pessoa) : true)
     .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa]) : true);
   const cadOrder = { mensal:0, semanal:1, diaria:2 };
   const mineSorted = [...mine].sort((a,b)=> (cadOrder[a.cadencia]??3)-(cadOrder[b.cadencia]??3) || (rtDueDay(a,...mes.split("-").map(Number))||99)-(rtDueDay(b,...mes.split("-").map(Number))||99) || a.titulo.localeCompare(b.titulo));
   const totMine = mine.length, feitMine = mine.filter(isFeito).length, atrMine = mine.filter(r=>statusOf(r).k==="atrasado").length;
-
   const CAD_LABEL = { mensal:"Mensais", semanal:"Semanais", diaria:"Diárias" };
+
+  // ── Métricas por pessoa (visão do time) ──
+  const statsPessoa = pessoasOpts.map(p=>{ const rs=ativos.filter(r=>r.pessoa===p); const feit=rs.filter(isFeito).length; const atr=rs.filter(r=>statusOf(r).k==="atrasado").length; const pend=rs.length-feit; const pct=rs.length?Math.round(feit/rs.length*100):0; return { p, tot:rs.length, feit, atr, pend, pct }; }).filter(s=>s.tot>0);
+  const timeOrd = [...statsPessoa].sort((a,b)=> b.atr-a.atr || a.pct-b.pct || a.p.localeCompare(b.p)); // pior primeiro
+
+  // ── Dashboard (eu) ──
+  const minhas = ativos.filter(r=> rtSamePerson(r.pessoa, user?.name||"__none__"));
+  const minhasPend = minhas.filter(r=>!isFeito(r)).map(r=>({r,st:statusOf(r)})).sort((a,b)=> (BUCKET_ORD[a.st.bucket]??9)-(BUCKET_ORD[b.st.bucket]??9) || a.r.titulo.localeCompare(b.r.titulo));
+  const myAtr = minhas.filter(r=>statusOf(r).bucket==="atrasado").length;
+  const myHoje = minhas.filter(r=>!isFeito(r)&&statusOf(r).bucket==="hoje").length;
+  const myFeit = minhas.filter(isFeito).length;
+  const timeAtr = statsPessoa.reduce((s,x)=>s+x.atr,0);
+  const timePct = statsPessoa.length ? Math.round(statsPessoa.reduce((s,x)=>s+x.feit,0)/statsPessoa.reduce((s,x)=>s+x.tot,0)*100) : 0;
+
+  const Bar = ({pct,danger}) => (<div style={{height:6,borderRadius:4,background:T.lineSoft,overflow:"hidden",minWidth:60}}><div style={{height:"100%",width:`${pct}%`,background:danger?T.danger:pct>=100?T.ok:T.brand,borderRadius:4,transition:"width .3s"}}/></div>);
+  const Tile = ({label,val,tone}) => { const c = tone==="danger"?T.danger:tone==="ok"?T.ok:T.ink; const bd = tone==="danger"&&val>0?T.dangerLine:T.line; const bg = tone==="danger"&&val>0?T.dangerBg:"#fff"; return (<Card style={{padding:14,border:`1px solid ${bd}`,background:bg}}><div style={{fontSize:11.5,color:T.muted}}>{label}</div><div style={{fontSize:26,fontWeight:800,color:val>0||tone!=="danger"?c:T.ok,lineHeight:1.1,marginTop:3}}>{val}</div></Card>); };
+
+  const Linha = (r,i,arr,showPessoa) => { const st=statusOf(r); const feito=isFeito(r); const canCheck=canEditar(r);
+    return (
+      <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 14px",borderBottom:i<arr.length-1?`1px solid ${T.lineSoft}`:"none",background:st.bg}}>
+        <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, periodOf(r), e.target.checked)} title={canCheck?"":"Você só pode marcar as suas rotinas"} style={{marginTop:3,width:17,height:17,cursor:canCheck?"pointer":"not-allowed",accentColor:T.ok}}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13.5,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none",opacity:feito?.7:1}}>{r.titulo}{r.cliente?<span style={{color:T.muted,fontWeight:400}}> · {r.cliente}</span>:""}</div>
+          <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{showPessoa?<b style={{color:T.ink2||T.muted,fontWeight:600}}>{r.pessoa}</b>:""}{showPessoa?" · ":""}{r.prazoTxt||"—"}{r.premissa?<span title={r.premissa} style={{cursor:"help"}}> · ⓘ {r.premissa.length>70?r.premissa.slice(0,70)+"…":r.premissa}</span>:""}</div>
+        </div>
+        <span style={{fontSize:10.5,fontWeight:700,color:st.color,whiteSpace:"nowrap",marginTop:2}}>{st.label}</span>
+        {isAdmin && <button onClick={()=>setEdit(r)} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12}}>✎</button>}
+      </div>
+    );
+  };
 
   return (
     <div>
-      <PageHead icon="task" title="Rotinas do time" sub="diárias reiniciam a cada dia · semanais a cada semana · mensais por mês (com prazo)"/>
+      <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["minhas", isAdmin?"Por pessoa":"Minhas rotinas"], ...(isAdmin?[["time","Visão do time"],["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+        {[["dash","Dashboard"],["minhas", isAdmin?"Por pessoa":"Rotinas"],["time","Visão do time"], ...(isAdmin?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
 
+      {aba==="dash" && (<>
+        {/* Minha visão — responde "o que falta eu fazer" (lead with late) */}
+        <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 10px"}}>Minha visão · {user?.name}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:10}}>
+          <Tile label="Atrasadas" val={myAtr} tone="danger"/>
+          <Tile label="Para hoje" val={myHoje}/>
+          <Tile label="Feitas (no período)" val={myFeit} tone="ok"/>
+        </div>
+        {minhas.length===0
+          ? <Card style={{padding:20,textAlign:"center",color:T.muted,marginBottom:22}}>Nenhuma rotina ligada ao seu nome de acesso <b>“{user?.name}”</b>. {isAdmin?"Cadastre ou semeie na aba Cadastro.":"Peça à gestão para alinhar o nome."}</Card>
+          : minhasPend.length===0
+            ? <Card style={{padding:20,textAlign:"center",marginBottom:22,background:"#f0fdf4",border:`1px solid #bbf7d0`}}><div style={{fontSize:20}}>🎉</div><div style={{fontWeight:700,color:"#166534",marginTop:4}}>Tudo em dia! Suas rotinas do período estão concluídas.</div></Card>
+            : <Card style={{padding:0,overflow:"hidden",marginBottom:22}}>
+                <div style={{padding:"9px 14px",borderBottom:`1px solid ${T.line}`,background:T.canvas,fontSize:11.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em"}}>Minhas pendências ({minhasPend.length})</div>
+                {minhasPend.map(({r},i)=>Linha(r,i,minhasPend,false))}
+              </Card>}
+
+        {/* Como está o time — accountability por pessoa */}
+        <div style={{display:"flex",alignItems:"center",gap:10,margin:"0 2px 10px"}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em"}}>Como está o time</div>
+          <div style={{flex:1}}/>
+          <span style={{fontSize:11.5,color:T.muted}}>conclusão geral <b style={{color:T.ink}}>{timePct}%</b>{timeAtr>0?<> · <b style={{color:T.danger}}>{timeAtr}</b> atrasada(s)</>:""}</span>
+        </div>
+        <Card style={{padding:0,overflow:"hidden"}}>
+          {timeOrd.map((s,i)=>(
+            <div key={s.p} onClick={()=>{setPessoa(s.p);setAba("minhas");}} style={{display:"grid",gridTemplateColumns:"1.3fr 1fr auto",gap:12,alignItems:"center",padding:"11px 14px",borderBottom:i<timeOrd.length-1?`1px solid ${T.lineSoft}`:"none",cursor:"pointer"}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:650,color:T.ink,fontSize:13.5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.p}</div>
+                <div style={{fontSize:11,color:T.muted}}>{s.feit}/{s.tot} feitas{s.atr>0?<span style={{color:T.danger,fontWeight:700}}> · {s.atr} atrasada(s)</span>:s.pend>0?` · ${s.pend} pendente(s)`:" · em dia"}</div>
+              </div>
+              <Bar pct={s.pct} danger={s.atr>0}/>
+              <div style={{fontWeight:800,fontSize:14,color:s.atr>0?T.danger:s.pct>=100?T.ok:T.ink,width:42,textAlign:"right"}}>{s.pct}%</div>
+            </div>
+          ))}
+          {!timeOrd.length && <div style={{padding:24,textAlign:"center",color:T.muted}}>Sem rotinas cadastradas ainda.</div>}
+        </Card>
+      </>)}
+
       {aba==="minhas" && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
-          {isAdmin
-            ? <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
-            : <span style={{fontSize:13,fontWeight:700,color:T.ink}}>{user?.name}</span>}
+          <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
           <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
           <input placeholder="Buscar tarefa/cliente…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:14}}>
-          <Card style={{padding:12}}><div style={{fontSize:11.5,color:T.muted}}>Rotinas</div><div style={{fontSize:22,fontWeight:800,color:T.ink}}>{totMine}</div></Card>
-          <Card style={{padding:12}}><div style={{fontSize:11.5,color:T.muted}}>Feitas</div><div style={{fontSize:22,fontWeight:800,color:T.ok}}>{feitMine}</div></Card>
-          <Card style={{padding:12,border:`1px solid ${atrMine?T.dangerLine:T.line}`,background:atrMine?T.dangerBg:"#fff"}}><div style={{fontSize:11.5,color:T.muted}}>Atrasadas</div><div style={{fontSize:22,fontWeight:800,color:atrMine?T.danger:T.ok}}>{atrMine}</div></Card>
+          <Tile label="Rotinas" val={totMine}/>
+          <Tile label="Feitas" val={feitMine} tone="ok"/>
+          <Tile label="Atrasadas" val={atrMine} tone="danger"/>
         </div>
         {["mensal","semanal","diaria"].map(cad=>{ const grp=mineSorted.filter(r=>r.cadencia===cad); if(!grp.length) return null; return (
           <div key={cad} style={{marginBottom:16}}>
             <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 8px"}}>{CAD_LABEL[cad]||cad}</div>
             <Card style={{padding:0,overflow:"hidden"}}>
-              {grp.map((r,i)=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck = !isViewer && (isAdmin || rtSamePerson(r.pessoa, user?.name));
-                return (
-                  <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 14px",borderBottom:i<grp.length-1?`1px solid ${T.lineSoft}`:"none",background:st.bg}}>
-                    <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, periodOf(r), e.target.checked)} style={{marginTop:3,width:17,height:17,cursor:canCheck?"pointer":"default"}}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13.5,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none"}}>{r.titulo}{r.cliente?<span style={{color:T.muted,fontWeight:400}}> · {r.cliente}</span>:""}</div>
-                      <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{isAdmin&&!pessoa?`${r.pessoa} · `:""}{r.prazoTxt||"—"}{r.premissa?<span title={r.premissa} style={{cursor:"help"}}> · ⓘ {r.premissa.length>70?r.premissa.slice(0,70)+"…":r.premissa}</span>:""}</div>
-                    </div>
-                    <span style={{fontSize:10.5,fontWeight:700,color:st.color,whiteSpace:"nowrap",marginTop:2}}>{st.label}</span>
-                    {isAdmin && <button onClick={()=>setEdit(r)} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12}}>✎</button>}
-                  </div>
-                );})}
+              {grp.map((r,i)=>Linha(r,i,grp,isAdmin&&!pessoa))}
             </Card>
           </div>
         );})}
         {!mine.length && <Card style={{padding:24,textAlign:"center",color:T.muted}}>
           Nenhuma rotina {pessoa?<b>para “{pessoa}”</b>:""}.
-          {isAdmin
-            ? " Vá em Cadastro para adicionar ou semear."
-            : <> Seu nome de acesso é <b>“{user?.name}”</b> — se suas rotinas estão cadastradas com um nome diferente, peça à gestão para alinhar o nome.</>}
+          {isAdmin ? " Vá em Cadastro para adicionar ou semear." : ""}
         </Card>}
       </>)}
 
-      {aba==="time" && isAdmin && (<>
+      {aba==="time" && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
+          <span style={{fontSize:12,color:T.muted,alignSelf:"center"}}>pior primeiro · clique numa pessoa para ver as rotinas dela</span>
         </div>
         <Card style={{padding:0,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1.4fr .7fr .7fr .7fr",fontSize:11,textTransform:"uppercase",letterSpacing:".04em",color:T.muted,padding:"9px 14px",borderBottom:`1px solid ${T.line}`,background:T.canvas}}>
-            <div>Pessoa</div><div style={{textAlign:"right"}}>Feitas</div><div style={{textAlign:"right"}}>Atrasadas</div><div style={{textAlign:"right"}}>% concluído</div>
+          <div style={{display:"grid",gridTemplateColumns:"1.4fr .6fr .7fr 1fr .5fr",fontSize:11,textTransform:"uppercase",letterSpacing:".04em",color:T.muted,padding:"9px 14px",borderBottom:`1px solid ${T.line}`,background:T.canvas}}>
+            <div>Pessoa</div><div style={{textAlign:"right"}}>Feitas</div><div style={{textAlign:"right"}}>Atrasadas</div><div>Progresso</div><div style={{textAlign:"right"}}>%</div>
           </div>
-          {pessoasOpts.map(p=>{ const rs=routines.filter(r=>r.ativo!==false&&r.pessoa===p); if(!rs.length) return null;
-            const feit=rs.filter(isFeito).length; const atr=rs.filter(r=>statusOf(r).k==="atrasado").length; const pct=rs.length?Math.round(feit/rs.length*100):0;
-            return (
-              <div key={p} onClick={()=>{setPessoa(p);setAba("minhas");}} style={{display:"grid",gridTemplateColumns:"1.4fr .7fr .7fr .7fr",fontSize:13,padding:"10px 14px",borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer",alignItems:"center"}}>
-                <div style={{fontWeight:650,color:T.ink}}>{p} <span style={{fontSize:11,color:T.muted,fontWeight:400}}>· {rs.length}</span></div>
-                <div style={{textAlign:"right",fontWeight:700,color:T.ok}}>{feit}</div>
-                <div style={{textAlign:"right",fontWeight:700,color:atr?T.danger:T.muted}}>{atr}</div>
-                <div style={{textAlign:"right",fontWeight:700,color:T.ink}}>{pct}%</div>
-              </div>
-            );})}
+          {timeOrd.map((s,i)=>(
+            <div key={s.p} onClick={()=>{setPessoa(s.p);setAba("minhas");}} style={{display:"grid",gridTemplateColumns:"1.4fr .6fr .7fr 1fr .5fr",gap:8,fontSize:13,padding:"11px 14px",borderBottom:i<timeOrd.length-1?`1px solid ${T.lineSoft}`:"none",cursor:"pointer",alignItems:"center"}}>
+              <div style={{fontWeight:650,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.p} <span style={{fontSize:11,color:T.muted,fontWeight:400}}>· {s.tot}</span></div>
+              <div style={{textAlign:"right",fontWeight:700,color:T.ok}}>{s.feit}</div>
+              <div style={{textAlign:"right",fontWeight:700,color:s.atr?T.danger:T.muted}}>{s.atr}</div>
+              <Bar pct={s.pct} danger={s.atr>0}/>
+              <div style={{textAlign:"right",fontWeight:700,color:T.ink}}>{s.pct}%</div>
+            </div>
+          ))}
+          {!timeOrd.length && <div style={{padding:24,textAlign:"center",color:T.muted}}>Sem rotinas cadastradas.</div>}
         </Card>
       </>)}
 
