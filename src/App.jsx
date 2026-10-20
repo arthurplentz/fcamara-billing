@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-incluir · #144";
+const APP_BUILD = "rotinas-reset · #145";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4806,6 +4806,7 @@ const ROTINAS_SEED = [
 ];
 
 function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); for(let d=1;d<=last;d++){ const wd=new Date(y,m1-1,d).getDay(); if(wd!==0&&wd!==6){ c++; if(c===n) return d; } } return last; }
+function rtIsoWeek(dd){ const d=new Date(Date.UTC(dd.getFullYear(),dd.getMonth(),dd.getDate())); const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const wk=Math.ceil((((d-ys)/86400000)+1)/7); return `${d.getUTCFullYear()}-W${String(wk).padStart(2,"0")}`; }
 function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
 
 function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed }) {
@@ -4820,9 +4821,21 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
   const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:"#fff", color:T.ink };
   // últimos 8 meses + atual
   const mesesOpt = []; { const [yy,mm]=ymNow.split("-").map(Number); for(let i=0;i<8;i++){ const d=new Date(yy,mm-1-i,1); mesesOpt.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } }
-  const statusOf = (r, periodo) => {
-    const [yy,mm]=periodo.split("-").map(Number);
+  // diária reinicia todo dia; semanal a cada semana (ISO); mensal por mês.
+  const weekKey = rtIsoWeek(new Date());
+  const periodOf = (r) => r.cadencia==="diaria" ? todayStr : r.cadencia==="semanal" ? weekKey : mes;
+  const statusOf = (r) => {
+    const periodo = periodOf(r);
     const d = done[`${r.id}|${periodo}`];
+    if (r.cadencia==="diaria") {
+      if (d?.feito) return { k:"feito", label:"feito hoje", color:"#166534", bg:"#f0fdf4" };
+      return { k:"pendente", label:"hoje", color:T.muted, bg:"transparent" };
+    }
+    if (r.cadencia==="semanal") {
+      if (d?.feito) return { k:"feito", label:"feito esta semana", color:"#166534", bg:"#f0fdf4" };
+      return { k:"pendente", label:"esta semana", color:T.muted, bg:"transparent" };
+    }
+    const [yy,mm]=mes.split("-").map(Number);
     const due = rtDueDay(r, yy, mm);
     const dueStr = due ? `${yy}-${String(mm).padStart(2,"0")}-${String(due).padStart(2,"0")}` : "";
     if (d?.feito) {
@@ -4832,6 +4845,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
     if (dueStr && dueStr < todayStr) return { k:"atrasado", label:"atrasado", color:T.danger, bg:"#fef2f2" };
     return { k:"pendente", label: due?`vence dia ${due}`:"pendente", color:T.muted, bg:"transparent" };
   };
+  const isFeito = (r) => !!done[`${r.id}|${periodOf(r)}`]?.feito;
 
   const pessoasComRotina = [...new Set(routines.map(r=>r.pessoa).filter(Boolean))].sort();
   const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina])];
@@ -4841,13 +4855,13 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
     .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa]) : true);
   const cadOrder = { mensal:0, semanal:1, diaria:2 };
   const mineSorted = [...mine].sort((a,b)=> (cadOrder[a.cadencia]??3)-(cadOrder[b.cadencia]??3) || (rtDueDay(a,...mes.split("-").map(Number))||99)-(rtDueDay(b,...mes.split("-").map(Number))||99) || a.titulo.localeCompare(b.titulo));
-  const totMine = mine.length, feitMine = mine.filter(r=>done[`${r.id}|${mes}`]?.feito).length, atrMine = mine.filter(r=>statusOf(r,mes).k==="atrasado").length;
+  const totMine = mine.length, feitMine = mine.filter(isFeito).length, atrMine = mine.filter(r=>statusOf(r).k==="atrasado").length;
 
   const CAD_LABEL = { mensal:"Mensais", semanal:"Semanais", diaria:"Diárias" };
 
   return (
     <div>
-      <PageHead icon="task" title="Rotinas do time" sub="marque o que já foi feito no mês — o sistema aponta se saiu no prazo"/>
+      <PageHead icon="task" title="Rotinas do time" sub="diárias reiniciam a cada dia · semanais a cada semana · mensais por mês (com prazo)"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
         {[["minhas", isAdmin?"Por pessoa":"Minhas rotinas"], ...(isAdmin?[["time","Visão do time"],["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
@@ -4871,10 +4885,10 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
           <div key={cad} style={{marginBottom:16}}>
             <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 8px"}}>{CAD_LABEL[cad]||cad}</div>
             <Card style={{padding:0,overflow:"hidden"}}>
-              {grp.map((r,i)=>{ const st=statusOf(r,mes); const feito=!!done[`${r.id}|${mes}`]?.feito; const canCheck = !isViewer && (isAdmin || r.pessoa===user?.name);
+              {grp.map((r,i)=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck = !isViewer && (isAdmin || r.pessoa===user?.name);
                 return (
                   <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 14px",borderBottom:i<grp.length-1?`1px solid ${T.lineSoft}`:"none",background:st.bg}}>
-                    <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, mes, e.target.checked)} style={{marginTop:3,width:17,height:17,cursor:canCheck?"pointer":"default"}}/>
+                    <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, periodOf(r), e.target.checked)} style={{marginTop:3,width:17,height:17,cursor:canCheck?"pointer":"default"}}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13.5,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none"}}>{r.titulo}{r.cliente?<span style={{color:T.muted,fontWeight:400}}> · {r.cliente}</span>:""}</div>
                       <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{isAdmin&&!pessoa?`${r.pessoa} · `:""}{r.prazoTxt||"—"}{r.premissa?<span title={r.premissa} style={{cursor:"help"}}> · ⓘ {r.premissa.length>70?r.premissa.slice(0,70)+"…":r.premissa}</span>:""}</div>
@@ -4898,7 +4912,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
             <div>Pessoa</div><div style={{textAlign:"right"}}>Feitas</div><div style={{textAlign:"right"}}>Atrasadas</div><div style={{textAlign:"right"}}>% concluído</div>
           </div>
           {pessoasOpts.map(p=>{ const rs=routines.filter(r=>r.ativo!==false&&r.pessoa===p); if(!rs.length) return null;
-            const feit=rs.filter(r=>done[`${r.id}|${mes}`]?.feito).length; const atr=rs.filter(r=>statusOf(r,mes).k==="atrasado").length; const pct=rs.length?Math.round(feit/rs.length*100):0;
+            const feit=rs.filter(isFeito).length; const atr=rs.filter(r=>statusOf(r).k==="atrasado").length; const pct=rs.length?Math.round(feit/rs.length*100):0;
             return (
               <div key={p} onClick={()=>{setPessoa(p);setAba("minhas");}} style={{display:"grid",gridTemplateColumns:"1.4fr .7fr .7fr .7fr",fontSize:13,padding:"10px 14px",borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer",alignItems:"center"}}>
                 <div style={{fontWeight:650,color:T.ink}}>{p} <span style={{fontSize:11,color:T.muted,fontWeight:400}}>· {rs.length}</span></div>
