@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-cadastro-todos · #150";
+const APP_BUILD = "rotinas-dedup-nomes · #151";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4839,6 +4839,17 @@ const ROTINAS_SEED = [
 // casa quando os nomes de um são subconjunto do outro ("Beatriz" ↔ "Beatriz Goulart").
 function rtNorm(s){ return String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim(); }
 function rtSamePerson(a, b){ const na=rtNorm(a), nb=rtNorm(b); if(!na||!nb) return false; if(na===nb) return true; const ta=na.split(" "), tb=nb.split(" "); const sa=new Set(ta), sb=new Set(tb); return ta.every(t=>sb.has(t)) || tb.every(t=>sa.has(t)); }
+// Colapsa nomes que são a mesma pessoa (ex.: "Beatriz" e "Beatriz Goulart"),
+// mantendo o nome mais completo; evita duplicar pessoa no filtro e na visão do time.
+function rtDedupePessoas(names){
+  const out=[];
+  for(const n of (names||[])){ if(!n) continue;
+    const i = out.findIndex(o=>rtSamePerson(o,n));
+    if(i<0) out.push(n);
+    else if(rtNorm(n).split(" ").length > rtNorm(out[i]).split(" ").length) out[i]=n;
+  }
+  return out.sort((a,b)=>a.localeCompare(b));
+}
 function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); for(let d=1;d<=last;d++){ const wd=new Date(y,m1-1,d).getDay(); if(wd!==0&&wd!==6){ c++; if(c===n) return d; } } return last; }
 function rtIsoWeek(dd){ const d=new Date(Date.UTC(dd.getFullYear(),dd.getMonth(),dd.getDate())); const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const wk=Math.ceil((((d-ys)/86400000)+1)/7); return `${d.getUTCFullYear()}-W${String(wk).padStart(2,"0")}`; }
 function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
@@ -4904,7 +4915,8 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   // inclui também os usuários do sistema (profiles) para que qualquer um possa
   // ser designado numa subtarefa — inclusive a gestão (ex.: designar para a Dani).
   const nomesProfiles = (profiles||[]).map(p=>p?.name).filter(Boolean);
-  const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina, ...nomesProfiles, ...(user?.name?[user.name]:[])])].sort();
+  // ordem importa: nomes completos (RT_PESSOAS/rotinas) primeiro, p/ serem os canônicos ao colapsar
+  const pessoasOpts = rtDedupePessoas([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina, ...nomesProfiles, ...(user?.name?[user.name]:[])]);
   const ativos = routines.filter(r=>r.ativo!==false);
 
   // ── Lista filtrada (aba por pessoa) ──
@@ -4916,7 +4928,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const CAD_LABEL = { mensal:"Mensais", semanal:"Semanais", diaria:"Diárias" };
 
   // ── Métricas por pessoa (visão do time) ──
-  const statsPessoa = pessoasOpts.map(p=>{ const rs=ativos.filter(r=>r.pessoa===p); const feit=rs.filter(isFeito).length; const atr=rs.filter(r=>statusOf(r).k==="atrasado").length; const pend=rs.length-feit; const pct=rs.length?Math.round(feit/rs.length*100):0; return { p, tot:rs.length, feit, atr, pend, pct }; }).filter(s=>s.tot>0);
+  const statsPessoa = pessoasOpts.map(p=>{ const rs=ativos.filter(r=>rtSamePerson(r.pessoa,p)); const feit=rs.filter(isFeito).length; const atr=rs.filter(r=>statusOf(r).k==="atrasado").length; const pend=rs.length-feit; const pct=rs.length?Math.round(feit/rs.length*100):0; return { p, tot:rs.length, feit, atr, pend, pct }; }).filter(s=>s.tot>0);
   const timeOrd = [...statsPessoa].sort((a,b)=> b.atr-a.atr || a.pct-b.pct || a.p.localeCompare(b.p)); // pior primeiro
 
   // ── Dashboard (eu) ──
