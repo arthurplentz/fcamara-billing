@@ -529,7 +529,7 @@ function dbToRoutine(r) {
     id: r.id, pessoa: r.pessoa || "", area: r.area || "", titulo: r.titulo || "",
     cliente: r.cliente || "", cadencia: r.cadencia || "mensal", prazoTxt: r.prazo_txt || "",
     prazoTipo: r.prazo_tipo || "livre", prazoValor: r.prazo_valor == null ? null : Number(r.prazo_valor),
-    premissa: r.premissa || "", ordem: r.ordem || 0, ativo: r.ativo !== false,
+    premissa: r.premissa || "", descricao: r.descricao || "", ordem: r.ordem || 0, ativo: r.ativo !== false,
   };
 }
 function routineToDb(r) {
@@ -537,7 +537,7 @@ function routineToDb(r) {
     pessoa: r.pessoa || null, area: r.area || null, titulo: r.titulo || null, cliente: r.cliente || null,
     cadencia: r.cadencia || "mensal", prazo_txt: r.prazoTxt || null, prazo_tipo: r.prazoTipo || "livre",
     prazo_valor: r.prazoValor == null || r.prazoValor === "" ? null : Number(r.prazoValor),
-    premissa: r.premissa || null, ordem: r.ordem || 0, ativo: r.ativo !== false,
+    premissa: r.premissa || null, descricao: r.descricao || null, ordem: r.ordem || 0, ativo: r.ativo !== false,
   };
 }
 export async function loadRoutines() {
@@ -574,6 +574,40 @@ export async function setRoutineDone(routineId, periodo, patch) {
   if (patch && patch.remove) { const { error } = await supabase.from("routine_done").delete().eq("routine_id", routineId).eq("periodo", periodo); if (error) throw error; return; }
   const row = { routine_id: routineId, periodo, feito: patch.feito !== false, feito_em: patch.feitoEm || null, feito_por: patch.feitoPor || null, obs: patch.obs || null, updated_at: nowISO() };
   const { error } = await supabase.from("routine_done").upsert(row, { onConflict: "routine_id,periodo" });
+  if (error) throw error;
+}
+
+// ── Subtarefas (routine_subtasks) ────────────────────────────────────────────
+function dbToSubtask(s) {
+  return {
+    id: s.id, routineId: s.routine_id, titulo: s.titulo || "", responsavel: s.responsavel || "",
+    criadoPor: s.criado_por || "", prazo: s.prazo || "", feito: s.feito === true,
+    feitoEm: s.feito_em || "", feitoPor: s.feito_por || "", obs: s.obs || "", ordem: s.ordem || 0,
+  };
+}
+export async function loadSubtasks() {
+  const { data, error } = await supabase.from("routine_subtasks").select("*").limit(20000);
+  if (error) throw error;
+  return (data || []).map(dbToSubtask);
+}
+export async function addSubtask(s) {
+  const row = { routine_id: s.routineId, titulo: s.titulo || null, responsavel: s.responsavel || null,
+    criado_por: s.criadoPor || null, prazo: s.prazo || null, feito: false, ordem: s.ordem || 0 };
+  const { data, error } = await supabase.from("routine_subtasks").insert(row).select("*").single();
+  if (error) throw error; return dbToSubtask(data);
+}
+export async function updateSubtask(id, patch) {
+  const row = {};
+  if (patch.titulo !== undefined) row.titulo = patch.titulo || null;
+  if (patch.responsavel !== undefined) row.responsavel = patch.responsavel || null;
+  if (patch.prazo !== undefined) row.prazo = patch.prazo || null;
+  if (patch.obs !== undefined) row.obs = patch.obs || null;
+  if (patch.feito !== undefined) { row.feito = !!patch.feito; row.feito_em = patch.feito ? (patch.feitoEm || null) : null; row.feito_por = patch.feito ? (patch.feitoPor || null) : null; }
+  const { error } = await supabase.from("routine_subtasks").update(row).eq("id", id);
+  if (error) throw error;
+}
+export async function deleteSubtask(id) {
+  const { error } = await supabase.from("routine_subtasks").delete().eq("id", id);
   if (error) throw error;
 }
 

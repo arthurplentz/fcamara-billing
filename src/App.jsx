@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-quadro · #148";
+const APP_BUILD = "rotinas-subtarefas · #149";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4813,13 +4813,14 @@ function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); 
 function rtIsoWeek(dd){ const d=new Date(Date.UTC(dd.getFullYear(),dd.getMonth(),dd.getDate())); const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const wk=Math.ceil((((d-ys)/86400000)+1)/7); return `${d.getUTCFullYear()}-W${String(wk).padStart(2,"0")}`; }
 function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
 
-function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed }) {
+function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=[], onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask }) {
   const ymNow = new Date().toISOString().slice(0,7);
   const [aba, setAba] = useState("dash");
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
   const [mes, setMes] = useState(ymNow);
   const [q, setQ] = useState("");
-  const [edit, setEdit] = useState(null); // rotina em edição (modal)
+  const [edit, setEdit] = useState(null); // rotina em edição (modal admin)
+  const [detail, setDetail] = useState(null); // rotina aberta no modal de detalhe
   const todayStr = new Date().toISOString().slice(0,10);
 
   const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:"#fff", color:T.ink };
@@ -4854,6 +4855,17 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
   };
   const isFeito = (r) => !!done[`${r.id}|${periodOf(r)}`]?.feito;
   const canEditar = (r) => !isViewer && (isAdmin || rtSamePerson(r.pessoa, user?.name)); // só mexe nas suas
+  // status de uma subtarefa (one-shot com prazo opcional) nos mesmos buckets do quadro.
+  const subStatusOf = (s) => {
+    if (s.feito) return { bucket:"feito", label: s.feitoEm?`feito ${s.feitoEm.slice(8,10)}/${s.feitoEm.slice(5,7)}`:"feito", color:"#166534", bg:"#f0fdf4" };
+    if (s.prazo) {
+      if (s.prazo < todayStr) { const od=Math.round((new Date(todayStr)-new Date(s.prazo))/86400000); return { bucket:"atrasado", label:`atrasado ${od}d`, color:T.danger, bg:"#fef2f2" }; }
+      if (s.prazo === todayStr) return { bucket:"hoje", label:"vence hoje", color:"#c2630f", bg:"#fff7ed" };
+      return { bucket:"futuro", label:`vence ${s.prazo.slice(8,10)}/${s.prazo.slice(5,7)}`, color:T.muted, bg:"transparent" };
+    }
+    return { bucket:"futuro", label:"sem prazo", color:T.muted, bg:"transparent" };
+  };
+  const canToggleSub = (s) => !isViewer && (isAdmin || rtSamePerson(s.responsavel, user?.name) || rtSamePerson(s.criadoPor, user?.name));
 
   const pessoasComRotina = [...new Set(routines.map(r=>r.pessoa).filter(Boolean))].sort();
   const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina])];
@@ -4907,27 +4919,19 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
       </div>
 
       {aba==="dash" && (<>
-        {/* Minha visão — responde "o que falta eu fazer" (lead with late) */}
-        <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 10px"}}>Minha visão · {user?.name}</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:10}}>
-          <Tile label="Atrasadas" val={myAtr} tone="danger"/>
-          <Tile label="Para hoje" val={myHoje}/>
-          <Tile label="Feitas (no período)" val={myFeit} tone="ok"/>
+        {/* Resumo enxuto — o detalhe fica no Quadro */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:22}}>
+          <Tile label="Minhas atrasadas" val={myAtr} tone="danger"/>
+          <Tile label="Minhas p/ hoje" val={myHoje}/>
+          <Tile label="Conclusão do time" val={`${timePct}%`} tone={timeAtr>0?undefined:"ok"}/>
+          <Tile label="Atrasadas no time" val={timeAtr} tone="danger"/>
         </div>
-        {minhas.length===0
-          ? <Card style={{padding:20,textAlign:"center",color:T.muted,marginBottom:22}}>Nenhuma rotina ligada ao seu nome de acesso <b>“{user?.name}”</b>. {isAdmin?"Cadastre ou semeie na aba Cadastro.":"Peça à gestão para alinhar o nome."}</Card>
-          : minhasPend.length===0
-            ? <Card style={{padding:20,textAlign:"center",marginBottom:22,background:"#f0fdf4",border:`1px solid #bbf7d0`}}><div style={{fontSize:20}}>🎉</div><div style={{fontWeight:700,color:"#166534",marginTop:4}}>Tudo em dia! Suas rotinas do período estão concluídas.</div></Card>
-            : <Card style={{padding:0,overflow:"hidden",marginBottom:22}}>
-                <div style={{padding:"9px 14px",borderBottom:`1px solid ${T.line}`,background:T.canvas,fontSize:11.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em"}}>Minhas pendências ({minhasPend.length})</div>
-                {minhasPend.map(({r},i)=>Linha(r,i,minhasPend,false))}
-              </Card>}
 
         {/* Como está o time — accountability por pessoa */}
         <div style={{display:"flex",alignItems:"center",gap:10,margin:"0 2px 10px"}}>
           <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em"}}>Como está o time</div>
           <div style={{flex:1}}/>
-          <span style={{fontSize:11.5,color:T.muted}}>conclusão geral <b style={{color:T.ink}}>{timePct}%</b>{timeAtr>0?<> · <b style={{color:T.danger}}>{timeAtr}</b> atrasada(s)</>:""}</span>
+          <span style={{fontSize:11.5,color:T.muted}}>pior primeiro · clique para abrir no quadro</span>
         </div>
         <Card style={{padding:0,overflow:"hidden"}}>
           {timeOrd.map((s,i)=>(
@@ -4950,51 +4954,74 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
           <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
           <input placeholder="Buscar tarefa/cliente…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
         </div>
-        {!mine.length
-          ? <Card style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma rotina {pessoa?<b>para “{pessoa}”</b>:""}. {isAdmin ? "Vá em Cadastro para adicionar ou semear." : ""}</Card>
-          : (() => {
-            const CAD1 = { mensal:"mensal", semanal:"semanal", diaria:"diária" };
-            const COLS = [
-              { key:"vencidos",   label:"Vencidos",   color:T.danger,     bg:T.dangerBg,       test:st=>st.bucket==="atrasado" },
-              { key:"hoje",       label:"Hoje",       color:"#c2630f",    bg:"#fff7ed",        test:st=>st.bucket==="hoje" },
-              { key:"avencer",    label:"A vencer",   color:T.brand,      bg:"var(--brand-bg)",test:st=>st.bucket==="semana"||st.bucket==="futuro" },
-              { key:"finalizado", label:"Finalizado", color:T.ok,         bg:T.okBg,           test:st=>st.bucket==="feito" },
-            ];
-            return (
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:12,alignItems:"start"}}>
-                {COLS.map(col=>{ const items=mineSorted.filter(r=>col.test(statusOf(r))); return (
-                  <div key={col.key} style={{background:T.canvas,borderRadius:12,border:`1px solid ${T.line}`,borderTop:`3px solid ${col.color}`,overflow:"hidden"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
-                      <span style={{width:9,height:9,borderRadius:"50%",background:col.color}}/>
-                      <span style={{fontWeight:700,fontSize:13,color:T.ink}}>{col.label}</span>
-                      <span style={{marginLeft:"auto",fontSize:12,fontWeight:800,color:col.color,background:col.bg,borderRadius:20,padding:"1px 9px"}}>{items.length}</span>
-                    </div>
-                    <div style={{padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:56}}>
-                      {items.map(r=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck=canEditar(r); return (
-                        <div key={r.id} style={{background:T.surface||"#fff",border:`1px solid ${T.line}`,borderLeft:`3px solid ${col.color}`,borderRadius:9,padding:"9px 10px"}}>
-                          <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                            <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, periodOf(r), e.target.checked)} title={canCheck?"":"Você só pode marcar as suas rotinas"} style={{marginTop:2,width:16,height:16,cursor:canCheck?"pointer":"not-allowed",accentColor:T.ok}}/>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none",opacity:feito?.6:1,wordBreak:"break-word"}}>{r.titulo}</div>
-                              {r.cliente && <div style={{fontSize:11,color:T.muted,marginTop:1}}>{r.cliente}</div>}
-                            </div>
-                            {isAdmin && <button onClick={()=>setEdit(r)} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12,lineHeight:1}}>✎</button>}
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
-                            {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.ink,background:T.canvas,border:`1px solid ${T.line}`,borderRadius:20,padding:"1px 7px"}}>{r.pessoa}</span>}
-                            <span style={{fontSize:10,color:T.muted}}>{CAD1[r.cadencia]||r.cadencia}{r.prazoTxt?` · ${r.prazoTxt}`:""}</span>
-                            <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:st.color,whiteSpace:"nowrap"}}>{st.label}</span>
-                          </div>
-                          {r.premissa && <div title={r.premissa} style={{fontSize:10.5,color:T.muted,marginTop:6,cursor:"help",borderTop:`1px dashed ${T.lineSoft}`,paddingTop:5}}>ⓘ {r.premissa.length>60?r.premissa.slice(0,60)+"…":r.premissa}</div>}
-                        </div>
-                      );})}
-                      {!items.length && <div style={{fontSize:11.5,color:T.muted,textAlign:"center",padding:"12px 0"}}>—</div>}
-                    </div>
+        {(() => {
+          const CAD1 = { mensal:"mensal", semanal:"semanal", diaria:"diária" };
+          const COLS = [
+            { key:"vencidos",   label:"Vencidos",   color:T.danger,     bg:T.dangerBg,       test:st=>st.bucket==="atrasado" },
+            { key:"hoje",       label:"Hoje",       color:"#c2630f",    bg:"#fff7ed",        test:st=>st.bucket==="hoje" },
+            { key:"avencer",    label:"A vencer",   color:T.brand,      bg:"var(--brand-bg)",test:st=>st.bucket==="semana"||st.bucket==="futuro" },
+            { key:"finalizado", label:"Finalizado", color:T.ok,         bg:T.okBg,           test:st=>st.bucket==="feito" },
+          ];
+          const subsByRoutine = {}; subtasks.forEach(s=>{ (subsByRoutine[s.routineId]=subsByRoutine[s.routineId]||[]).push(s); });
+          const mySubs = subtasks.filter(s=> pessoa ? rtSamePerson(s.responsavel, pessoa) : true).filter(s=> q? matchQuery(q,[s.titulo,s.responsavel,s.criadoPor]) : true);
+          if (!mine.length && !mySubs.length) return <Card style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma tarefa {pessoa?<b>para “{pessoa}”</b>:""}. {isAdmin ? "Vá em Cadastro para adicionar ou semear." : ""}</Card>;
+          const titById = {}; routines.forEach(r=>{ titById[r.id]=r.titulo; });
+          return (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12,alignItems:"start"}}>
+              {COLS.map(col=>{ const items=mineSorted.filter(r=>col.test(statusOf(r))); const subItems=mySubs.filter(s=>col.test(subStatusOf(s))); return (
+                <div key={col.key} style={{background:T.canvas,borderRadius:12,border:`1px solid ${T.line}`,borderTop:`3px solid ${col.color}`,overflow:"hidden"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
+                    <span style={{width:9,height:9,borderRadius:"50%",background:col.color}}/>
+                    <span style={{fontWeight:700,fontSize:13,color:T.ink}}>{col.label}</span>
+                    <span style={{marginLeft:"auto",fontSize:12,fontWeight:800,color:col.color,background:col.bg,borderRadius:20,padding:"1px 9px"}}>{items.length+subItems.length}</span>
                   </div>
-                );})}
-              </div>
-            );
-          })()}
+                  <div style={{padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:56}}>
+                    {items.map(r=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck=canEditar(r); const subs=subsByRoutine[r.id]||[]; const subDone=subs.filter(x=>x.feito).length; const temObs=!!done[`${r.id}|${periodOf(r)}`]?.obs; return (
+                      <div key={r.id} onClick={()=>setDetail(r)} style={{background:T.surface||"#fff",border:`1px solid ${T.line}`,borderLeft:`3px solid ${col.color}`,borderRadius:9,padding:"9px 10px",cursor:"pointer"}}>
+                        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                          <input type="checkbox" checked={feito} disabled={!canCheck} onClick={e=>e.stopPropagation()} onChange={e=>{e.stopPropagation();onToggleDone(r.id, periodOf(r), e.target.checked);}} title={canCheck?"":"Você só pode marcar as suas rotinas"} style={{marginTop:2,width:16,height:16,cursor:canCheck?"pointer":"not-allowed",accentColor:T.ok}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none",opacity:feito?.6:1,wordBreak:"break-word"}}>{r.titulo}</div>
+                            {r.cliente && <div style={{fontSize:11,color:T.muted,marginTop:1}}>{r.cliente}</div>}
+                          </div>
+                          {isAdmin && <button onClick={e=>{e.stopPropagation();setEdit(r);}} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12,lineHeight:1}}>✎</button>}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
+                          {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.ink,background:T.canvas,border:`1px solid ${T.line}`,borderRadius:20,padding:"1px 7px"}}>{r.pessoa}</span>}
+                          <span style={{fontSize:10,color:T.muted}}>{CAD1[r.cadencia]||r.cadencia}{r.prazoTxt?` · ${r.prazoTxt}`:""}</span>
+                          <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:st.color,whiteSpace:"nowrap"}}>{st.label}</span>
+                        </div>
+                        {(subs.length>0 || temObs) && <div style={{display:"flex",gap:10,marginTop:7,fontSize:10.5,color:T.muted,borderTop:`1px dashed ${T.lineSoft}`,paddingTop:5}}>
+                          {subs.length>0 && <span>☑ {subDone}/{subs.length} subtarefas</span>}
+                          {temObs && <span>📝 observação</span>}
+                          <span style={{marginLeft:"auto",color:T.brand,fontWeight:600}}>abrir ›</span>
+                        </div>}
+                      </div>
+                    );})}
+                    {subItems.map(s=>{ const st=subStatusOf(s); const canCheck=canToggleSub(s); return (
+                      <div key={s.id} style={{background:T.surface||"#fff",border:`1px dashed ${col.color}`,borderLeft:`3px solid ${col.color}`,borderRadius:9,padding:"9px 10px"}}>
+                        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                          <input type="checkbox" checked={s.feito} disabled={!canCheck} onChange={e=>onToggleSubtask(s.id, e.target.checked)} title={canCheck?"":"Só a pessoa designada (ou quem repassou) pode concluir"} style={{marginTop:2,width:16,height:16,cursor:canCheck?"pointer":"not-allowed",accentColor:T.ok}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:9.5,fontWeight:700,color:col.color,textTransform:"uppercase",letterSpacing:".03em"}}>Subtarefa</div>
+                            <div style={{fontSize:13,fontWeight:650,color:T.ink,textDecoration:s.feito?"line-through":"none",opacity:s.feito?.6:1,wordBreak:"break-word"}}>{s.titulo}</div>
+                            <div style={{fontSize:10.5,color:T.muted,marginTop:1}}>de <b style={{color:T.ink}}>{s.criadoPor||"—"}</b>{titById[s.routineId]?<> · tarefa: {titById[s.routineId]}</>:""}</div>
+                          </div>
+                          {(isAdmin||rtSamePerson(s.criadoPor,user?.name)) && <button onClick={()=>{ if(window.confirm("Remover esta subtarefa?")) onDeleteSubtask(s.id); }} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:13,lineHeight:1}}>✕</button>}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
+                          {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.brand,background:"var(--brand-bg)",borderRadius:20,padding:"1px 7px"}}>{s.responsavel}</span>}
+                          <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:st.color,whiteSpace:"nowrap"}}>{st.label}</span>
+                        </div>
+                      </div>
+                    );})}
+                    {!items.length && !subItems.length && <div style={{fontSize:11.5,color:T.muted,textAlign:"center",padding:"12px 0"}}>—</div>}
+                  </div>
+                </div>
+              );})}
+            </div>
+          );
+        })()}
       </>)}
 
       {aba==="time" && (<>
@@ -5041,7 +5068,76 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
       </>)}
 
       {edit && <RoutineEditModal rotina={edit} onSave={r=>{ onSaveRoutine(r); setEdit(null); }} onClose={()=>setEdit(null)}/>}
+      {detail && <RoutineDetailModal
+        rotina={detail} periodo={periodOf(detail)} doneRec={done[`${detail.id}|${periodOf(detail)}`]||{}}
+        subs={subtasks.filter(s=>s.routineId===detail.id)} pessoasOpts={pessoasOpts}
+        isAdmin={isAdmin} user={user} canObs={canEditar(detail)} subStatusOf={subStatusOf} canToggleSub={canToggleSub}
+        onSetObs={onSetObs} onAddSubtask={onAddSubtask} onToggleSubtask={onToggleSubtask} onUpdateSubtask={onUpdateSubtask} onDeleteSubtask={onDeleteSubtask}
+        onEditRotina={isAdmin?()=>{ setEdit(detail); setDetail(null); }:null} onClose={()=>setDetail(null)}/>}
     </div>
+  );
+}
+
+function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[], isAdmin, user, canObs, subStatusOf, canToggleSub, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask, onEditRotina, onClose }) {
+  const [obs, setObs] = useState(doneRec.obs || "");
+  const [obsDirty, setObsDirty] = useState(false);
+  const [nt, setNt] = useState(""); const [nr, setNr] = useState(""); const [np, setNp] = useState("");
+  const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:T.surface||"#fff", color:T.ink };
+  const CAD1 = { mensal:"Mensal", semanal:"Semanal", diaria:"Diária" };
+  const addSub = () => { const t=nt.trim(); if(!t) return; onAddSubtask({ routineId:rotina.id, titulo:t, responsavel:nr||user?.name||"", prazo:np||"" }); setNt(""); setNr(""); setNp(""); };
+  return (
+    <Modal onClose={onClose} title={rotina.titulo} wide>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",fontSize:12,color:T.muted}}>
+          <span style={{fontWeight:700,color:T.ink}}>{rotina.pessoa}</span>
+          <span>· {CAD1[rotina.cadencia]||rotina.cadencia}</span>
+          {rotina.cliente && <span>· {rotina.cliente}</span>}
+          {rotina.prazoTxt && <span>· prazo: {rotina.prazoTxt}</span>}
+          {onEditRotina && <button onClick={onEditRotina} style={{marginLeft:"auto",...inp,cursor:"pointer",fontSize:12,fontWeight:600}}>✎ Editar rotina</button>}
+        </div>
+
+        {(rotina.descricao || rotina.premissa) && <div>
+          <div style={{fontSize:11.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>Descrição</div>
+          <Card style={{padding:"11px 13px",background:T.canvas}}>
+            {rotina.descricao ? <div style={{fontSize:13,color:T.ink,whiteSpace:"pre-wrap",lineHeight:1.5}}>{rotina.descricao}</div> : <div style={{fontSize:12.5,color:T.muted,fontStyle:"italic"}}>Sem descrição cadastrada.</div>}
+            {rotina.premissa && <div style={{fontSize:12,color:T.muted,marginTop:rotina.descricao?8:0,paddingTop:rotina.descricao?8:0,borderTop:rotina.descricao?`1px dashed ${T.line}`:"none"}}>ⓘ {rotina.premissa}</div>}
+          </Card>
+        </div>}
+
+        <div>
+          <div style={{fontSize:11.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>Observação {canObs?<span style={{fontWeight:400,textTransform:"none"}}>(sua anotação neste período)</span>:<span style={{fontWeight:400,textTransform:"none"}}>(somente leitura)</span>}</div>
+          <textarea value={obs} disabled={!canObs} onChange={e=>{ setObs(e.target.value); setObsDirty(true); }} placeholder={canObs?"Escreva uma observação sobre a execução…":"Sem observação."} rows={3} style={{...inp,width:"100%",resize:"vertical",opacity:canObs?1:.8}}/>
+          {canObs && obsDirty && <div style={{marginTop:6,display:"flex",gap:8}}>
+            <Btn small onClick={()=>{ onSetObs(rotina.id, periodo, obs); setObsDirty(false); }}>Salvar observação</Btn>
+            <Btn small ghost onClick={()=>{ setObs(doneRec.obs||""); setObsDirty(false); }}>Cancelar</Btn>
+          </div>}
+        </div>
+
+        <div>
+          <div style={{fontSize:11.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>Subtarefas {subs.length>0?`(${subs.filter(s=>s.feito).length}/${subs.length})`:""}</div>
+          <Card style={{padding:0,overflow:"hidden"}}>
+            {subs.length===0 && <div style={{padding:"12px 14px",fontSize:12.5,color:T.muted}}>Nenhuma subtarefa. Crie abaixo e atribua a alguém — ela vira um card no quadro da pessoa.</div>}
+            {subs.map((s,i)=>{ const st=subStatusOf(s); const canCheck=canToggleSub(s); return (
+              <div key={s.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 14px",borderBottom:i<subs.length-1?`1px solid ${T.lineSoft}`:"none"}}>
+                <input type="checkbox" checked={s.feito} disabled={!canCheck} onChange={e=>onToggleSubtask(s.id, e.target.checked)} style={{marginTop:2,width:16,height:16,cursor:canCheck?"pointer":"not-allowed",accentColor:T.ok}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.ink,textDecoration:s.feito?"line-through":"none",opacity:s.feito?.6:1}}>{s.titulo}</div>
+                  <div style={{fontSize:11,color:T.muted,marginTop:1}}>para <b style={{color:T.ink}}>{s.responsavel||"—"}</b> · de {s.criadoPor||"—"}{s.prazo?` · ${st.label}`:""}</div>
+                </div>
+                {(isAdmin||rtSamePerson(s.criadoPor,user?.name)) && <button onClick={()=>{ if(window.confirm("Remover subtarefa?")) onDeleteSubtask(s.id); }} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:14}}>✕</button>}
+              </div>
+            );})}
+          </Card>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10,alignItems:"center"}}>
+            <input value={nt} onChange={e=>setNt(e.target.value)} placeholder="Nova subtarefa…" style={{...inp,flex:1,minWidth:160}} onKeyDown={e=>{ if(e.key==="Enter") addSub(); }}/>
+            <select value={nr} onChange={e=>setNr(e.target.value)} style={inp} title="Responsável"><option value="">{user?.name||"Responsável"} (eu)</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
+            <input type="date" value={np} onChange={e=>setNp(e.target.value)} style={inp} title="Prazo (opcional)"/>
+            <Btn small onClick={addSub}>Adicionar</Btn>
+          </div>
+          <div style={{fontSize:11,color:T.muted,marginTop:6}}>Ao atribuir a outra pessoa, a subtarefa aparece como um card novo no quadro dela.</div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -5061,7 +5157,8 @@ function RoutineEditModal({ rotina, onSave, onClose }) {
         <Field label="Tipo de prazo (p/ status)"><select style={inp} value={f.prazoTipo||"livre"} onChange={e=>set("prazoTipo",e.target.value)}><option value="livre">Livre (sem cálculo)</option><option value="dia_mes">Dia do mês</option><option value="dia_util">N-ésimo dia útil</option></select></Field>
         <Field label="Valor (dia do mês ou nº do dia útil)"><input type="number" style={inp} value={f.prazoValor??""} onChange={e=>set("prazoValor",e.target.value)}/></Field>
       </div>
-      <Field label="Premissa / observação"><textarea style={{...inp,minHeight:70,resize:"vertical"}} value={f.premissa||""} onChange={e=>set("premissa",e.target.value)}/></Field>
+      <Field label="Descrição (como fazer — aparece no detalhe da tarefa)"><textarea style={{...inp,minHeight:80,resize:"vertical"}} placeholder="Passo a passo / instruções que o time deve seguir ao executar." value={f.descricao||""} onChange={e=>set("descricao",e.target.value)}/></Field>
+      <Field label="Premissa / observação (resumo curto)"><textarea style={{...inp,minHeight:60,resize:"vertical"}} value={f.premissa||""} onChange={e=>set("premissa",e.target.value)}/></Field>
       <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
         <Btn onClick={onClose}>Cancelar</Btn>
         <Btn primary disabled={!f.pessoa||!f.titulo} onClick={()=>onSave(f)}>Salvar</Btn>
@@ -6515,6 +6612,7 @@ function AppInner() {
   const [projMarks, setProjMarks] = useState({});    // marcas por PEP (interno/checado)
   const [routines, setRoutines] = useState([]);      // rotinas do time (tarefas recorrentes)
   const [routineDone, setRoutineDone] = useState({});// conclusões por rotina|período
+  const [subtasks, setSubtasks] = useState([]);      // subtarefas atribuíveis
   const aliasMapRef = useRef({});                    // { nomeNormalizado(de) -> para }
   const buildAliasMap = (list) => { const m={}; (list||[]).forEach(a=>{ if(a.de&&a.para) m[_normCliNome(a.de)]=a.para; }); return m; };
   const [dataReady, setDataRdy] = useState(false);
@@ -6552,6 +6650,7 @@ function AppInner() {
   }
   const reloadRoutines = useCallback(async () => { try { setRoutines(await db.loadRoutines()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
   const reloadRoutineDone = useCallback(async () => { try { setRoutineDone(await db.loadRoutineDone()); } catch(e){ /* idem */ } }, []);
+  const reloadSubtasks = useCallback(async () => { try { setSubtasks(await db.loadSubtasks()); } catch(e){ /* idem */ } }, []);
   async function handleToggleDone(routineId, periodo, feito) {
     if (!routineId || !periodo) return;
     const k = `${routineId}|${periodo}`;
@@ -6563,14 +6662,40 @@ function AppInner() {
   async function handleSaveRoutine(r) { try { await db.saveRoutine(r); await reloadRoutines(); toast(r.id?"Rotina atualizada":"Rotina criada"); } catch(e){ toast("Erro ao salvar rotina: "+e.message,"error"); } }
   async function handleDeleteRoutine(id) { try { await db.deleteRoutine(id); await reloadRoutines(); toast("Rotina removida"); } catch(e){ toast("Erro ao remover: "+e.message,"error"); } }
   async function handleSeedRoutines(list) { try { await db.insertRoutines(list); await reloadRoutines(); toast(`${list.length} rotina(s) semeada(s).`); } catch(e){ toast("Erro ao semear: "+e.message,"error"); } }
+  // Observação da execução (por rotina|período); preserva o estado de "feito".
+  async function handleSetObs(routineId, periodo, obs) {
+    if (!routineId || !periodo) return;
+    const k = `${routineId}|${periodo}`; const cur = routineDone[k] || {};
+    const feito = cur.feito === true;
+    setRoutineDone(m => ({ ...m, [k]: { ...cur, feito, obs } }));
+    try { await db.setRoutineDone(routineId, periodo, { feito, feitoEm: cur.feitoEm||"", feitoPor: cur.feitoPor||"", obs }); }
+    catch(e){ toast("Erro ao salvar observação: "+e.message,"error"); reloadRoutineDone(); }
+  }
+  async function handleAddSubtask(s) {
+    try { const created = await db.addSubtask({ ...s, criadoPor: user?.name||"" }); setSubtasks(l => [...l, created]); toast(s.responsavel && !rtSamePerson(s.responsavel, user?.name) ? `Subtarefa atribuída a ${s.responsavel}` : "Subtarefa criada"); }
+    catch(e){ toast("Erro ao criar subtarefa: "+e.message,"error"); }
+  }
+  async function handleToggleSubtask(id, feito) {
+    const today = new Date().toISOString().slice(0,10);
+    setSubtasks(l => l.map(s => s.id===id ? { ...s, feito, feitoEm: feito?today:"", feitoPor: feito?(user?.name||""):"" } : s));
+    try { await db.updateSubtask(id, { feito, feitoEm: today, feitoPor: user?.name||"" }); } catch(e){ toast("Erro: "+e.message,"error"); reloadSubtasks(); }
+  }
+  async function handleUpdateSubtask(id, patch) {
+    setSubtasks(l => l.map(s => s.id===id ? { ...s, ...patch } : s));
+    try { await db.updateSubtask(id, patch); } catch(e){ toast("Erro: "+e.message,"error"); reloadSubtasks(); }
+  }
+  async function handleDeleteSubtask(id) {
+    setSubtasks(l => l.filter(s => s.id!==id));
+    try { await db.deleteSubtask(id); } catch(e){ toast("Erro ao remover subtarefa: "+e.message,"error"); reloadSubtasks(); }
+  }
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setProjetos([]); setProjMarks({}); setRoutines([]); setRoutineDone({}); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setProjetos([]); setProjMarks({}); setRoutines([]); setRoutineDone({}); setSubtasks([]); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[]), db.loadActiveProjects().catch(()=>[]), db.loadProjectMarks().catch(()=>({})), db.loadRoutines().catch(()=>[]), db.loadRoutineDone().catch(()=>({}))])
-      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al, pj, pm, ro, rd]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); setProjetos(pj); setProjMarks(pm); setRoutines(ro); setRoutineDone(rd); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[]), db.loadActiveProjects().catch(()=>[]), db.loadProjectMarks().catch(()=>({})), db.loadRoutines().catch(()=>[]), db.loadRoutineDone().catch(()=>({})), db.loadSubtasks().catch(()=>[])])
+      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al, pj, pm, ro, rd, sb]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); setProjetos(pj); setProjMarks(pm); setRoutines(ro); setRoutineDone(rd); setSubtasks(sb); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -7309,8 +7434,9 @@ function AppInner() {
                 ))}
               </div>
               {(tasksTab==="rotinas"||!isAdmin) && (
-                <RoutinesView user={user} isAdmin={isAdmin} isViewer={isViewer} routines={routines} done={routineDone}
-                  onToggleDone={handleToggleDone} onSaveRoutine={handleSaveRoutine} onDeleteRoutine={handleDeleteRoutine} onSeed={handleSeedRoutines}/>
+                <RoutinesView user={user} isAdmin={isAdmin} isViewer={isViewer} routines={routines} done={routineDone} subtasks={subtasks}
+                  onToggleDone={handleToggleDone} onSaveRoutine={handleSaveRoutine} onDeleteRoutine={handleDeleteRoutine} onSeed={handleSeedRoutines}
+                  onSetObs={handleSetObs} onAddSubtask={handleAddSubtask} onToggleSubtask={handleToggleSubtask} onUpdateSubtask={handleUpdateSubtask} onDeleteSubtask={handleDeleteSubtask}/>
               )}
               {tasksTab==="quadro" && isAdmin && (
                 <Kanban tasks={tasks} responsaveis={responsaveis} isAdmin={isAdmin} isViewer={isViewer} competenciaAtual={state.competenciaAtual}
