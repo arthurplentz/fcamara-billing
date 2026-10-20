@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "projetos-db-compartilhado · #141";
+const APP_BUILD = "acesso-time-tarefas · #142";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -1920,8 +1920,16 @@ const COMERCIAL_NAV_SECTIONS = [
 // Páginas que o comercial pode abrir (trava de UI; o RLS trava o dado).
 const COMERCIAL_PAGES = new Set(["dash","projeto","represados","report"]);
 
+// Navegação do TIME (analista/viewer) — nesta fase só Início + Tarefas.
+// A parte de RECEITAS fica só no acesso ADM.
+const TEAM_NAV_SECTIONS = [
+  { group:"", links:[ {id:"home",icon:"home",label:"Início"} ] },
+  { group:"Operação", links:[ {id:"tasks",icon:"task",label:"Tarefas"} ] },
+];
+const TEAM_PAGES = new Set(["home","tasks"]);
+
 function NavLinks({ page, setPage, isAdmin, isComercial, onNavigate }) {
-  const sections = isComercial ? COMERCIAL_NAV_SECTIONS : isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : NAV_SECTIONS;
+  const sections = isComercial ? COMERCIAL_NAV_SECTIONS : isAdmin ? [...NAV_SECTIONS, ADMIN_NAV_SECTION] : TEAM_NAV_SECTIONS;
   return (
     <>
       {sections.map(sec=>(
@@ -4774,7 +4782,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
       </div>
 
       {/* Alerta de conciliação atrasada (notas de dias anteriores sem conciliar) */}
-      {atrasadas>0 && (
+      {isAdmin && atrasadas>0 && (
         <button onClick={()=>onNavigate("concil")} className="fc-btn" style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,borderRadius:T.rLg,padding:"14px 16px",marginBottom:18,cursor:"pointer",color:T.danger}}>
           <Icon name="alert" size={22}/>
           <div style={{flex:1}}>
@@ -4786,7 +4794,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
       )}
 
       {/* Alerta vermelho: receita mudou DEPOIS da NF emitida (nota a cancelar/corrigir) */}
-      {valMudouFat>0 && (
+      {isAdmin && valMudouFat>0 && (
         <button onClick={()=>onNavigate("time")} className="fc-btn" style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,borderRadius:T.rLg,padding:"14px 16px",marginBottom:18,cursor:"pointer",color:T.danger}}>
           <Icon name="alert" size={22}/>
           <div style={{flex:1}}>
@@ -4798,7 +4806,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
       )}
 
       {/* Aviso amarelo: valor alterado em receitas ainda não faturadas */}
-      {valMudou>0 && (
+      {isAdmin && valMudou>0 && (
         <button onClick={()=>onNavigate("time")} className="fc-btn" style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,background:"#fffbeb",border:"1px solid #fde68a",borderRadius:T.rLg,padding:"12px 16px",marginBottom:18,cursor:"pointer",color:"#92400e"}}>
           <Icon name="info" size={20}/>
           <div style={{flex:1}}>
@@ -4811,7 +4819,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
 
       {/* Faturamento do mês + Aniversariantes */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14,marginBottom:18}}>
-        <Card style={{padding:"16px 18px"}}>
+        {isAdmin && (<Card style={{padding:"16px 18px"}}>
           <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:10}}>
             <span style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,flex:1,display:"inline-flex",alignItems:"center",gap:7}}><span style={{color:T.brand}}><Icon name="wallet" size={18}/></span>Faturamento do mês</span>
             <span style={{fontSize:12,color:T.muted}}>{compAtual||"—"}</span>
@@ -4824,7 +4832,7 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
             <div style={{height:10,width:`${pctMes}%`,borderRadius:6,background:`linear-gradient(90deg,${T.brand},${T.accent})`,transition:"width .5s"}}/>
           </div>
           <div style={{fontSize:12,color:T.muted,marginTop:6}}><b style={{color:T.ink}}>{pctMes}%</b> faturado · {doMes.length} registro(s)</div>
-        </Card>
+        </Card>)}
 
         <Card style={{padding:"16px 18px"}}>
           <div style={{fontSize:14,fontWeight:700,fontFamily:T.fontDisplay,color:T.ink,marginBottom:10,display:"flex",alignItems:"center",gap:7}}><span style={{color:T.brand}}><Icon name="gift" size={18}/></span>Aniversariantes de {agora.toLocaleDateString("pt-BR",{month:"long"})}</div>
@@ -4870,9 +4878,9 @@ function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={},
       {/* Pendências */}
       <div style={{fontSize:13,fontWeight:700,color:T.ink,margin:"0 2px 10px"}}>Seus atalhos de hoje</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12}}>
-        <Pend icon="receipt" n={notasPend} label="notas a conciliar" color={T.brand} to="concil"/>
-        <Pend icon="wallet" n={semNota} label="receitas sem nota" color={C.blue.solid} to="concil"/>
-        <Pend icon="alert" n={faltamDatas} label="faturados sem datas" color={T.warn} to="time"/>
+        {isAdmin && <Pend icon="receipt" n={notasPend} label="notas a conciliar" color={T.brand} to="concil"/>}
+        {isAdmin && <Pend icon="wallet" n={semNota} label="receitas sem nota" color={C.blue.solid} to="concil"/>}
+        {isAdmin && <Pend icon="alert" n={faltamDatas} label="faturados sem datas" color={T.warn} to="time"/>}
         <Pend icon="task" n={minhasTarefas} label="tarefas em aberto" color={T.ok} to="tasks"/>
       </div>
     </div>
@@ -6248,6 +6256,8 @@ function AppInner() {
   const recordsView = isComercial ? recordsAtivos.filter(r => r.bu === userBu) : recordsAtivos;
   // Comercial: trava a navegação nas telas permitidas (o RLS trava o dado).
   useEffect(() => { if (isComercial && !COMERCIAL_PAGES.has(page)) setPage("dash"); }, [isComercial, page]);
+  // Time (analista/viewer, não-admin e não-comercial): só Início + Tarefas nesta fase.
+  useEffect(() => { if (!isAdmin && !isComercial && !TEAM_PAGES.has(page)) setPage("home"); }, [isAdmin, isComercial, page]);
   // Trava de UX para o viewer (a trava real é o RLS). Retorna true se bloqueou.
   const blockIfViewer = () => { if (isViewer) { toast("Acesso somente visualização — ação não permitida.", "info"); return true; } return false; };
 
