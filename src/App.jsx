@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-dash · #147";
+const APP_BUILD = "rotinas-quadro · #148";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4901,7 +4901,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
     <div>
       <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["dash","Dashboard"],["minhas", isAdmin?"Por pessoa":"Rotinas"],["time","Visão do time"], ...(isAdmin?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isAdmin?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -4950,23 +4950,51 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleD
           <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
           <input placeholder="Buscar tarefa/cliente…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:14}}>
-          <Tile label="Rotinas" val={totMine}/>
-          <Tile label="Feitas" val={feitMine} tone="ok"/>
-          <Tile label="Atrasadas" val={atrMine} tone="danger"/>
-        </div>
-        {["mensal","semanal","diaria"].map(cad=>{ const grp=mineSorted.filter(r=>r.cadencia===cad); if(!grp.length) return null; return (
-          <div key={cad} style={{marginBottom:16}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 8px"}}>{CAD_LABEL[cad]||cad}</div>
-            <Card style={{padding:0,overflow:"hidden"}}>
-              {grp.map((r,i)=>Linha(r,i,grp,isAdmin&&!pessoa))}
-            </Card>
-          </div>
-        );})}
-        {!mine.length && <Card style={{padding:24,textAlign:"center",color:T.muted}}>
-          Nenhuma rotina {pessoa?<b>para “{pessoa}”</b>:""}.
-          {isAdmin ? " Vá em Cadastro para adicionar ou semear." : ""}
-        </Card>}
+        {!mine.length
+          ? <Card style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma rotina {pessoa?<b>para “{pessoa}”</b>:""}. {isAdmin ? "Vá em Cadastro para adicionar ou semear." : ""}</Card>
+          : (() => {
+            const CAD1 = { mensal:"mensal", semanal:"semanal", diaria:"diária" };
+            const COLS = [
+              { key:"vencidos",   label:"Vencidos",   color:T.danger,     bg:T.dangerBg,       test:st=>st.bucket==="atrasado" },
+              { key:"hoje",       label:"Hoje",       color:"#c2630f",    bg:"#fff7ed",        test:st=>st.bucket==="hoje" },
+              { key:"avencer",    label:"A vencer",   color:T.brand,      bg:"var(--brand-bg)",test:st=>st.bucket==="semana"||st.bucket==="futuro" },
+              { key:"finalizado", label:"Finalizado", color:T.ok,         bg:T.okBg,           test:st=>st.bucket==="feito" },
+            ];
+            return (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:12,alignItems:"start"}}>
+                {COLS.map(col=>{ const items=mineSorted.filter(r=>col.test(statusOf(r))); return (
+                  <div key={col.key} style={{background:T.canvas,borderRadius:12,border:`1px solid ${T.line}`,borderTop:`3px solid ${col.color}`,overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderBottom:`1px solid ${T.line}`}}>
+                      <span style={{width:9,height:9,borderRadius:"50%",background:col.color}}/>
+                      <span style={{fontWeight:700,fontSize:13,color:T.ink}}>{col.label}</span>
+                      <span style={{marginLeft:"auto",fontSize:12,fontWeight:800,color:col.color,background:col.bg,borderRadius:20,padding:"1px 9px"}}>{items.length}</span>
+                    </div>
+                    <div style={{padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:56}}>
+                      {items.map(r=>{ const st=statusOf(r); const feito=isFeito(r); const canCheck=canEditar(r); return (
+                        <div key={r.id} style={{background:T.surface||"#fff",border:`1px solid ${T.line}`,borderLeft:`3px solid ${col.color}`,borderRadius:9,padding:"9px 10px"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                            <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, periodOf(r), e.target.checked)} title={canCheck?"":"Você só pode marcar as suas rotinas"} style={{marginTop:2,width:16,height:16,cursor:canCheck?"pointer":"not-allowed",accentColor:T.ok}}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none",opacity:feito?.6:1,wordBreak:"break-word"}}>{r.titulo}</div>
+                              {r.cliente && <div style={{fontSize:11,color:T.muted,marginTop:1}}>{r.cliente}</div>}
+                            </div>
+                            {isAdmin && <button onClick={()=>setEdit(r)} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12,lineHeight:1}}>✎</button>}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
+                            {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.ink,background:T.canvas,border:`1px solid ${T.line}`,borderRadius:20,padding:"1px 7px"}}>{r.pessoa}</span>}
+                            <span style={{fontSize:10,color:T.muted}}>{CAD1[r.cadencia]||r.cadencia}{r.prazoTxt?` · ${r.prazoTxt}`:""}</span>
+                            <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:st.color,whiteSpace:"nowrap"}}>{st.label}</span>
+                          </div>
+                          {r.premissa && <div title={r.premissa} style={{fontSize:10.5,color:T.muted,marginTop:6,cursor:"help",borderTop:`1px dashed ${T.lineSoft}`,paddingTop:5}}>ⓘ {r.premissa.length>60?r.premissa.slice(0,60)+"…":r.premissa}</div>}
+                        </div>
+                      );})}
+                      {!items.length && <div style={{fontSize:11.5,color:T.muted,textAlign:"center",padding:"12px 0"}}>—</div>}
+                    </div>
+                  </div>
+                );})}
+              </div>
+            );
+          })()}
       </>)}
 
       {aba==="time" && (<>
