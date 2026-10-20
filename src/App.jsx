@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-subtarefas · #149";
+const APP_BUILD = "rotinas-cadastro-todos · #150";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4799,8 +4799,38 @@ const ROTINAS_SEED = [
   _rt("Fernanda Libretti","Financial Controls","Criação de projetos no SAP (Finance/PT/UK) + valores e faturamento",{px:"sob demanda"}),
   _rt("Fernanda Libretti","Financial Controls","Solicitação de cadastro de cliente novo",{px:"sob demanda"}),
   _rt("Fernanda Libretti","Financial Controls","Atender chamados de faturamento e abertura de projeto",{cad:"diaria",px:"sob demanda"}),
-  // placeholders
-  _rt("Tifany Samelo","Contas a Receber","(Rotinas a detalhar)",{pr:"Aguardando envio das atividades."}),
+  // Layza
+  _rt("Layza Morais","Financial Controls","Apontamentos no SharePoint — Casas Bahia",{cli:"Casas Bahia",px:"1º dia útil",pt:"dia_util",pv:1,pr:"Aponta no 1º dia útil, mas há várias correções a pedido do cliente durante a 1ª semana do mês."}),
+  _rt("Layza Morais","Financial Controls","Atendimento aos tickets de faturamento — Hyper",{cli:"Hyper",cad:"diaria",px:"no decorrer do mês",pr:"Maior volume nos primeiros 15/20 dias do mês."}),
+  _rt("Layza Morais","Financial Controls","Atribuição dos tickets abertos ao fechamento controls",{cad:"diaria",px:"diário"}),
+  _rt("Layza Morais","Financial Controls","Report dos tickets em aberto e status à coordenação",{cad:"semanal",px:"terças e quintas"}),
+  _rt("Layza Morais","Financial Controls","Envio dos racionais de alocação",{pr:"Conforme liberação do time Conecta e após comparação com o arquivo enviado pelo time de Health."}),
+  _rt("Layza Morais","Financial Controls","Acompanhamento das aprovações e liberação dos faturamentos",{pr:"Atenção às datas de corte; mensalmente conforme aprovações."}),
+  _rt("Layza Morais","Financial Controls","Envio do BM da Unimed Fesp",{cli:"Unimed Fesp",pr:"Após o faturamento mensal."}),
+  _rt("Layza Morais","Financial Controls","Envio dos represados à gestão",{px:"por volta do dia 18",pt:"dia_mes",pv:18}),
+  _rt("Layza Morais","Financial Controls","Preparação do racional de Health e Hyper",{cli:"Health/Hyper",px:"por volta do dia 18",pt:"dia_mes",pv:18}),
+  _rt("Layza Morais","Financial Controls","Envio dos represados de Dasa à governança do cliente",{cli:"Dasa",px:"por volta do dia 20",pt:"dia_mes",pv:20}),
+  _rt("Layza Morais","Financial Controls","Apoio à equipe (dúvidas de tickets/sistema/atividade diária)",{cad:"diaria",px:"conforme acionamento"}),
+  _rt("Layza Morais","Financial Controls","Abertura de projetos Hyper",{cli:"Hyper",px:"conforme demanda",pr:"Média de 10 por mês."}),
+  _rt("Layza Morais","Financial Controls","Atualização dos status dos projetos gerenciados",{px:"mensal"}),
+  _rt("Layza Morais","Financial Controls","Apoio ao time da Hyper sobre projetos em andamento",{cli:"Hyper",px:"conforme acionamento",pr:"Faturamentos já ocorridos, prorrogação de projetos, alinhamento de antecipações."}),
+  _rt("Layza Morais","Financial Controls","Aprovação de pedidos de compras (tesouraria)",{px:"conforme acionamento"}),
+  _rt("Layza Morais","Financial Controls","Cancelamentos, cartas de correção, ND e baixa para perda",{px:"conforme solicitação do cliente"}),
+  // Tifany
+  _rt("Tifany Samelo","Contas a Receber","Input de NFs no portal dos clientes",{cad:"diaria",px:"conforme demanda",pr:"BTG, C&A, GRANI, IBM, IPSOS, RENNER, TRIBANCO, TELEFONICA."}),
+  _rt("Tifany Samelo","Contas a Receber","Acompanhamento de e-mails",{cad:"diaria",px:"diário"}),
+  _rt("Tifany Samelo","Contas a Receber","Chamados de carta de correção",{px:"conforme demanda"}),
+  _rt("Tifany Samelo","Contas a Receber","Chamados de cancelamento",{px:"conforme demanda"}),
+  _rt("Tifany Samelo","Contas a Receber","Chamados de relatórios de faturamento",{px:"conforme demanda"}),
+  _rt("Tifany Samelo","Contas a Receber","Conferência do envio de todas as empresas",{cad:"diaria",px:"diário"}),
+  _rt("Tifany Samelo","Contas a Receber","Faturamento BR07, BR02, BR09 e DOJO",{cad:"diaria",px:"diário"}),
+  _rt("Tifany Samelo","Contas a Receber","Report de faturamento de todas as empresas",{px:"dia 30",pt:"dia_mes",pv:30}),
+  _rt("Tifany Samelo","Contas a Receber","Fechamento Europa e Portugal",{px:"mensal"}),
+  _rt("Tifany Samelo","Contas a Receber","Acompanhamento de casos de perda p/ abertura de chamado",{cad:"semanal",px:"2x na semana",pr:"Olhar atualização; Erica realiza a baixa no sistema."}),
+  _rt("Tifany Samelo","Contas a Receber","Emissão de Nota de Débito",{px:"conforme demanda"}),
+  _rt("Tifany Samelo","Contas a Receber","Emissão de Invoices",{px:"conforme demanda"}),
+  _rt("Tifany Samelo","Contas a Receber","REPORT — Relação de faturamento 2026 (p/ Luana)",{px:"início do mês",pt:"dia_util",pv:1}),
+  _rt("Tifany Samelo","Contas a Receber","Contato com cliente/comercial quando necessário",{px:"conforme demanda"}),
   _rt("Levicto Ferreira","Financial Controls","(Rotinas a detalhar)",{pr:"Novo — padrão a definir."}),
   _rt("Viviane Wellida","Financial Controls","(Rotinas a detalhar)",{pr:"Novo — padrão a definir."}),
 ];
@@ -4813,7 +4843,8 @@ function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); 
 function rtIsoWeek(dd){ const d=new Date(Date.UTC(dd.getFullYear(),dd.getMonth(),dd.getDate())); const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const wk=Math.ceil((((d-ys)/86400000)+1)/7); return `${d.getUTCFullYear()}-W${String(wk).padStart(2,"0")}`; }
 function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
 
-function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=[], onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask }) {
+function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=[], profiles=[], onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask }) {
+  const podeCadastrar = !isViewer; // cadastro liberado para todo o time (menos viewers)
   const ymNow = new Date().toISOString().slice(0,7);
   const [aba, setAba] = useState("dash");
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
@@ -4825,7 +4856,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
 
   const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:"#fff", color:T.ink };
   // últimos 8 meses + atual
-  const mesesOpt = []; { const [yy,mm]=ymNow.split("-").map(Number); for(let i=0;i<8;i++){ const d=new Date(yy,mm-1-i,1); mesesOpt.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } }
+  const mesesOpt = []; { const [yy,mm]=ymNow.split("-").map(Number); for(let i=-3;i<=8;i++){ const d=new Date(yy,mm-1-i,1); mesesOpt.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } } // 3 meses à frente + atual + 8 atrás
   // diária reinicia todo dia; semanal a cada semana (ISO); mensal por mês.
   const weekKey = rtIsoWeek(new Date());
   const periodOf = (r) => r.cadencia==="diaria" ? todayStr : r.cadencia==="semanal" ? weekKey : mes;
@@ -4834,12 +4865,14 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const statusOf = (r) => {
     const periodo = periodOf(r);
     const d = done[`${r.id}|${periodo}`];
+    // diária/semanal: ao concluir, a tarefa já "reagenda" para a próxima ocorrência
+    // (vai para A vencer) — some de Hoje mas continua visível como recorrente.
     if (r.cadencia==="diaria") {
-      if (d?.feito) return { k:"feito", bucket:"feito", label:"feito hoje", color:"#166534", bg:"#f0fdf4" };
+      if (d?.feito) return { k:"feito", bucket:"futuro", label:"feito · volta amanhã", color:"#166534", bg:"#f0fdf4" };
       return { k:"pendente", bucket:"hoje", label:"hoje", color:T.muted, bg:"transparent" };
     }
     if (r.cadencia==="semanal") {
-      if (d?.feito) return { k:"feito", bucket:"feito", label:"feito esta semana", color:"#166534", bg:"#f0fdf4" };
+      if (d?.feito) return { k:"feito", bucket:"futuro", label:"feito · volta na semana", color:"#166534", bg:"#f0fdf4" };
       return { k:"pendente", bucket:"semana", label:"esta semana", color:T.muted, bg:"transparent" };
     }
     const [yy,mm]=mes.split("-").map(Number);
@@ -4868,7 +4901,10 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const canToggleSub = (s) => !isViewer && (isAdmin || rtSamePerson(s.responsavel, user?.name) || rtSamePerson(s.criadoPor, user?.name));
 
   const pessoasComRotina = [...new Set(routines.map(r=>r.pessoa).filter(Boolean))].sort();
-  const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina])];
+  // inclui também os usuários do sistema (profiles) para que qualquer um possa
+  // ser designado numa subtarefa — inclusive a gestão (ex.: designar para a Dani).
+  const nomesProfiles = (profiles||[]).map(p=>p?.name).filter(Boolean);
+  const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina, ...nomesProfiles, ...(user?.name?[user.name]:[])])].sort();
   const ativos = routines.filter(r=>r.ativo!==false);
 
   // ── Lista filtrada (aba por pessoa) ──
@@ -4913,7 +4949,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
     <div>
       <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isAdmin?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -4984,7 +5020,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
                             <div style={{fontSize:13,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none",opacity:feito?.6:1,wordBreak:"break-word"}}>{r.titulo}</div>
                             {r.cliente && <div style={{fontSize:11,color:T.muted,marginTop:1}}>{r.cliente}</div>}
                           </div>
-                          {isAdmin && <button onClick={e=>{e.stopPropagation();setEdit(r);}} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12,lineHeight:1}}>✎</button>}
+                          {podeCadastrar && <button onClick={e=>{e.stopPropagation();setEdit(r);}} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12,lineHeight:1}}>✎</button>}
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
                           {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.ink,background:T.canvas,border:`1px solid ${T.line}`,borderRadius:20,padding:"1px 7px"}}>{r.pessoa}</span>}
@@ -5046,7 +5082,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         </Card>
       </>)}
 
-      {aba==="cadastro" && isAdmin && (<>
+      {aba==="cadastro" && podeCadastrar && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <Btn icon="plus" onClick={()=>setEdit({ pessoa:pessoa||"", area:"", titulo:"", cliente:"", cadencia:"mensal", prazoTxt:"", prazoTipo:"livre", prazoValor:"", premissa:"", ativo:true })}>Nova rotina</Btn>
           {(() => { const miss = ROTINAS_SEED.filter(s=>!routines.some(r=>r.pessoa===s.pessoa&&r.titulo===s.titulo)); return miss.length ? <Btn onClick={()=>{ if(window.confirm(`Incluir ${miss.length} rotina(s) conhecida(s) da lista do time? (não duplica as que já existem)`)) onSeed(miss); }}>Incluir rotinas conhecidas ({miss.length})</Btn> : null; })()}
@@ -5073,7 +5109,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         subs={subtasks.filter(s=>s.routineId===detail.id)} pessoasOpts={pessoasOpts}
         isAdmin={isAdmin} user={user} canObs={canEditar(detail)} subStatusOf={subStatusOf} canToggleSub={canToggleSub}
         onSetObs={onSetObs} onAddSubtask={onAddSubtask} onToggleSubtask={onToggleSubtask} onUpdateSubtask={onUpdateSubtask} onDeleteSubtask={onDeleteSubtask}
-        onEditRotina={isAdmin?()=>{ setEdit(detail); setDetail(null); }:null} onClose={()=>setDetail(null)}/>}
+        onEditRotina={podeCadastrar?()=>{ setEdit(detail); setDetail(null); }:null} onClose={()=>setDetail(null)}/>}
     </div>
   );
 }
@@ -5130,7 +5166,8 @@ function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[],
           </Card>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10,alignItems:"center"}}>
             <input value={nt} onChange={e=>setNt(e.target.value)} placeholder="Nova subtarefa…" style={{...inp,flex:1,minWidth:160}} onKeyDown={e=>{ if(e.key==="Enter") addSub(); }}/>
-            <select value={nr} onChange={e=>setNr(e.target.value)} style={inp} title="Responsável"><option value="">{user?.name||"Responsável"} (eu)</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
+            <input value={nr} onChange={e=>setNr(e.target.value)} style={{...inp,minWidth:150}} list="rt-resp" placeholder={`Responsável (padrão: ${user?.name||"eu"})`} title="Responsável — digite ou escolha qualquer pessoa"/>
+            <datalist id="rt-resp">{pessoasOpts.map(p=><option key={p} value={p}/>)}</datalist>
             <input type="date" value={np} onChange={e=>setNp(e.target.value)} style={inp} title="Prazo (opcional)"/>
             <Btn small onClick={addSub}>Adicionar</Btn>
           </div>
@@ -7434,7 +7471,7 @@ function AppInner() {
                 ))}
               </div>
               {(tasksTab==="rotinas"||!isAdmin) && (
-                <RoutinesView user={user} isAdmin={isAdmin} isViewer={isViewer} routines={routines} done={routineDone} subtasks={subtasks}
+                <RoutinesView user={user} isAdmin={isAdmin} isViewer={isViewer} routines={routines} done={routineDone} subtasks={subtasks} profiles={profiles}
                   onToggleDone={handleToggleDone} onSaveRoutine={handleSaveRoutine} onDeleteRoutine={handleDeleteRoutine} onSeed={handleSeedRoutines}
                   onSetObs={handleSetObs} onAddSubtask={handleAddSubtask} onToggleSubtask={handleToggleSubtask} onUpdateSubtask={handleUpdateSubtask} onDeleteSubtask={handleDeleteSubtask}/>
               )}
