@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "acesso-time-tarefas · #142";
+const APP_BUILD = "rotinas-time · #143";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4715,6 +4715,252 @@ function ApelidoModal({ atual, onSave, onClose }) {
   );
 }
 
+// ─── ROTINAS DO TIME (tarefas recorrentes) ───────────────────────────────────
+const RT_PESSOAS = [
+  { nome:"Beatriz Goulart", area:"Contas a Receber" }, { nome:"Erica Nascimento", area:"Contas a Receber" },
+  { nome:"Tifany Samelo", area:"Contas a Receber" }, { nome:"Diego Jesus", area:"Financial Controls" },
+  { nome:"Fernanda Libretti", area:"Financial Controls" }, { nome:"Layza Morais", area:"Financial Controls" },
+  { nome:"Levicto Ferreira", area:"Financial Controls" }, { nome:"Priscila Campos", area:"Financial Controls" },
+  { nome:"Viviane Wellida", area:"Financial Controls" },
+];
+// Semente das rotinas (primeira carga). px=prazo texto, pt=tipo(dia_mes|dia_util|livre), pv=valor, cad=cadência, pr=premissa.
+const _rt = (pessoa, area, titulo, o={}) => ({ pessoa, area, titulo, cliente:o.cli||"", cadencia:o.cad||"mensal", prazoTxt:o.px||"", prazoTipo:o.pt||"livre", prazoValor:o.pv??null, premissa:o.pr||"", ativo:true });
+const ROTINAS_SEED = [
+  // Priscila
+  _rt("Priscila Campos","Financial Controls","Verificar tickets + Ariba (Klabin), Portal V360 (MRS) e sistema Anglo",{cad:"diaria",px:"todo dia de manhã"}),
+  _rt("Priscila Campos","Financial Controls","Conferir planilha de represados",{cad:"semanal",px:"3x por semana"}),
+  _rt("Priscila Campos","Financial Controls","Planilha para a contabilidade",{px:"até dia 15",pt:"dia_mes",pv:15}),
+  _rt("Priscila Campos","Financial Controls","Enviar horas Anglo American",{cli:"Anglo American",px:"dias 13–14",pt:"dia_mes",pv:14,pr:"Medição 11→10. Aguardar aprovação da Larissa. 2 CNPJs: IOB e AAI."}),
+  _rt("Priscila Campos","Financial Controls","Enviar medição Direcional",{cli:"Direcional",px:"até 5º dia útil",pt:"dia_util",pv:5,pr:"Medição 1→30. Recebimento da NF até dia 25."}),
+  _rt("Priscila Campos","Financial Controls","Enviar medição Klabin",{cli:"Klabin",px:"até dia 25",pt:"dia_mes",pv:25,pr:"Medição 21→20. Múltiplos CNPJs."}),
+  _rt("Priscila Campos","Financial Controls","Enviar medição MRS (Portal V360)",{cli:"MRS",px:"até dia 8",pt:"dia_mes",pv:8,pr:"Medição 1→30. NF até dia 20."}),
+  _rt("Priscila Campos","Financial Controls","Enviar horas MRV",{cli:"MRV",px:"até dia 10",pt:"dia_mes",pv:10,pr:"Medição 1→30. Aguardar aprovação dos gestores das torres."}),
+  _rt("Priscila Campos","Financial Controls","Enviar horas Poliedro",{cli:"Poliedro",px:"até dia 3",pt:"dia_mes",pv:3,pr:"NF só após liberação da Elaine (sempre em cópia)."}),
+  _rt("Priscila Campos","Financial Controls","Emitir NF Solonetwork",{cli:"Solonetwork",px:"até dia 15",pt:"dia_mes",pv:15}),
+  // Erica
+  _rt("Erica Nascimento","Contas a Receber","Conciliação e preenchimento da debênture",{cad:"diaria",px:"diário"}),
+  _rt("Erica Nascimento","Contas a Receber","Entregar arquivos da debênture para a Daniela",{px:"1º dia útil",pt:"dia_util",pv:1,pr:"Prints dos recebidos/extratos de todas as contas + planilha preenchida."}),
+  _rt("Erica Nascimento","Contas a Receber","Conferência das planilhas de report de fechamento (todas as empresas)",{px:"2º dia útil",pt:"dia_util",pv:2,pr:"Antes do envio da Tif; conferir o e-mail antes de enviar."}),
+  _rt("Erica Nascimento","Contas a Receber","Relatório p/ Luana do total de faturamento (todas as empresas)",{px:"3º dia útil",pt:"dia_util",pv:3,pr:"Após envio de todos os reports. Pendente repassar tarefa p/ Tif."}),
+  // Beatriz
+  _rt("Beatriz Goulart","Contas a Receber","Report de vencidos — Multisector/Logistics",{cad:"semanal",px:"segunda"}),
+  _rt("Beatriz Goulart","Contas a Receber","Report de vencidos — Finance",{cad:"semanal",px:"terça"}),
+  _rt("Beatriz Goulart","Contas a Receber","Reunião de vencidos & represados — Multisector/Logistics",{cad:"semanal",px:"terça"}),
+  _rt("Beatriz Goulart","Contas a Receber","Report de vencidos — Retail & ecommerce",{cad:"semanal",px:"quarta"}),
+  _rt("Beatriz Goulart","Contas a Receber","Report de vencidos — Health e Hyper",{cad:"semanal",px:"quinta"}),
+  _rt("Beatriz Goulart","Contas a Receber","Fcamara, Next e Hyper completo por e-mail p/ Luana",{cad:"semanal",px:"sexta"}),
+  _rt("Beatriz Goulart","Contas a Receber","Compensar contas do razão",{cad:"diaria",px:"diário"}),
+  _rt("Beatriz Goulart","Contas a Receber","Conferência de extrato",{cad:"diaria",px:"diário"}),
+  _rt("Beatriz Goulart","Contas a Receber","Acompanhamento de e-mails + tratativa da base de vencidos",{cad:"diaria",px:"diário"}),
+  _rt("Beatriz Goulart","Contas a Receber","Disparo de cobrança formal + acompanhamento de tickets",{cad:"diaria",px:"diário"}),
+  _rt("Beatriz Goulart","Contas a Receber","Reuniões de vencidos & represados por BU (base atualizada)",{px:"mensal",pr:"Multisector/Logistics, Finance, Retail, Hyper, ecommerce, Health."}),
+  // Diego
+  _rt("Diego Jesus","Financial Controls","Banco Inter — enviar medição/horas",{cli:"Banco Inter",px:"dia 4",pt:"dia_mes",pv:4,pr:"Tudo por e-mail; Larissa em cópia (3rdparty_larissa.netielle@inter.co)."}),
+  _rt("Diego Jesus","Financial Controls","CCPR — enviar horas",{cli:"CCPR",px:"dia 4",pt:"dia_mes",pv:4,pr:"Alocação e projetos; enviar manualmente."}),
+  _rt("Diego Jesus","Financial Controls","Nagem — enviar horas",{cli:"Nagem",px:"dia 3",pt:"dia_mes",pv:3,pr:"Recebem NF até dia 20."}),
+  _rt("Diego Jesus","Financial Controls","Rumo — enviar medição",{cli:"Rumo",px:"dia 1",pt:"dia_mes",pv:1,pr:"Data de corte dia 20. Medição/aprovação por e-mail; liberação de pedidos no portal."}),
+  _rt("Diego Jesus","Financial Controls","Sada Transportes — enviar horas",{cli:"Sada Transportes",px:"dia 4",pt:"dia_mes",pv:4,pr:"NF até dia 20. Tudo por e-mail."}),
+  _rt("Diego Jesus","Financial Controls","Unimed BH — enviar medição",{cli:"Unimed BH",px:"dia 10",pt:"dia_mes",pv:10,pr:"NF até dia 25. Portal Unimed; 1 nota; NF por e-mail."}),
+  _rt("Diego Jesus","Financial Controls","VLI Multimodal — enviar medição",{cli:"VLI Multimodal",px:"dia 25 (NF 1º dia útil seguinte)",pt:"dia_mes",pv:25,pr:"Portal Fieldglass; 2 contratos (11386 e 11447)."}),
+  _rt("Diego Jesus","Financial Controls","Loja Elétrica — enviar horas",{cli:"Loja Elétrica",px:"dia 5",pt:"dia_mes",pv:5}),
+  _rt("Diego Jesus","Financial Controls","Troca Motor (Omnik) — recorrência",{cli:"Troca Motor",px:"data de corte dia 20",pt:"dia_mes",pv:20}),
+  _rt("Diego Jesus","Financial Controls","CBMM — enviar horas",{cli:"CBMM"}),
+  _rt("Diego Jesus","Financial Controls","Unimed Curitiba — enviar horas",{cli:"Unimed Curitiba"}),
+  // Fernanda
+  _rt("Fernanda Libretti","Financial Controls","Birmingham (UK) — fatura",{cli:"Birmingham",px:"até dia 2",pt:"dia_mes",pv:2,pr:"Fechamento antes da virada do mês; contato TMs + cliente p/ autorização e % de fechamento."}),
+  _rt("Fernanda Libretti","Financial Controls","Carrefour — racional + NF",{cli:"Carrefour",px:"racional 1º dia útil; NF até dia 10",pt:"dia_mes",pv:10,pr:"Finance; 5 notas."}),
+  _rt("Fernanda Libretti","Financial Controls","Ouribank — racional + NF",{cli:"Ouribank",px:"racional 1º dia útil; NF até 5º dia útil",pt:"dia_util",pv:5}),
+  _rt("Fernanda Libretti","Financial Controls","Mastercard — emitir NF (valor fixo)",{cli:"Mastercard",px:"dia 01",pt:"dia_mes",pv:1,pr:"Sem racional."}),
+  _rt("Fernanda Libretti","Financial Controls","Grestel (PT) — emitir NF (valor fixo)",{cli:"Grestel",px:"dia 01",pt:"dia_mes",pv:1}),
+  _rt("Fernanda Libretti","Financial Controls","Luxis Baltic (PT) — emitir NF (valor fixo)",{cli:"Luxis Baltic",px:"dia 01",pt:"dia_mes",pv:1}),
+  _rt("Fernanda Libretti","Financial Controls","FCamara UK — faturas de repasse (R&S e FIN/ADM)",{cli:"FCamara UK",px:"1º dia útil",pt:"dia_util",pv:1,pr:"2 faturas de valores diferentes."}),
+  _rt("Fernanda Libretti","Financial Controls","BTG — racional + liberação de NFs",{cli:"BTG",px:"racional 2º dia útil",pt:"dia_util",pv:2,pr:"Portal Vendor; acompanhar WOs diariamente; 20–30 notas."}),
+  _rt("Fernanda Libretti","Financial Controls","BS2 — racional + NF",{cli:"BS2",px:"NF entre dias 14 e 16",pt:"dia_mes",pv:16,pr:"Racional 2º dia útil; 11–16 notas; cliente indica data/rateio. + projeto preço fixo (set)."}),
+  _rt("Fernanda Libretti","Financial Controls","MC Shared Services (PT) — racional",{cli:"MC Shared Services",px:"primeiros dias (sem data fixa)",pr:"Link do cliente; autorização via Payables FC (time encaminha)."}),
+  _rt("Fernanda Libretti","Financial Controls","Banco ABC — NF",{cli:"Banco ABC",px:"data de corte dia 15",pt:"dia_mes",pv:15,pr:"Sem data fixa de racional; 2 notas."}),
+  _rt("Fernanda Libretti","Financial Controls","Banco Digio — NF",{cli:"Banco Digio",px:"data de corte dia 15",pt:"dia_mes",pv:15}),
+  _rt("Fernanda Libretti","Financial Controls","Transunion — NF",{cli:"Transunion",px:"até dia 20",pt:"dia_mes",pv:20,pr:"2 projetos valor fixo; solicitar autorização do cliente."}),
+  _rt("Fernanda Libretti","Financial Controls","Tribanco — horas + NF",{cli:"Tribanco",px:"até dia 20",pt:"dia_mes",pv:20,pr:"Horas com Jira no portal; 1 nota por consultor; corpo indicado no portal."}),
+  _rt("Fernanda Libretti","Financial Controls","Bullla — NF",{cli:"Bullla",px:"data de corte dia 20",pt:"dia_mes",pv:20}),
+  _rt("Fernanda Libretti","Financial Controls","Travelex — NF",{cli:"Travelex",px:"data de corte dia 20",pt:"dia_mes",pv:20}),
+  _rt("Fernanda Libretti","Financial Controls","VR — NF",{cli:"VR",px:"data de corte dia 20",pt:"dia_mes",pv:20,pr:"3 notas no rateio."}),
+  _rt("Fernanda Libretti","Financial Controls","Too Seguros — NF",{cli:"Too Seguros",px:"data de corte dia 20",pt:"dia_mes",pv:20}),
+  _rt("Fernanda Libretti","Financial Controls","Acrisure — NF",{cli:"Acrisure",px:"data de corte dia 20",pt:"dia_mes",pv:20}),
+  _rt("Fernanda Libretti","Financial Controls","ICBC — NF",{cli:"ICBC",px:"data de corte dia 22",pt:"dia_mes",pv:22,pr:"Valor fixo; faturamento via chamado do comercial."}),
+  _rt("Fernanda Libretti","Financial Controls","Tokio Marine — NF",{cli:"Tokio Marine",px:"via chamado do comercial",pr:"Valor fixo."}),
+  _rt("Fernanda Libretti","Financial Controls","C6 Bank — fechamento + NFs",{cli:"C6 Bank",px:"fechamento dia 16; corte 23–25",pt:"dia_mes",pv:16,pr:"Período 16→15; 2 racionais; 19 gestores; 6–7 notas."}),
+  _rt("Fernanda Libretti","Financial Controls","Banqi — fechamento + NF",{cli:"Banqi",px:"fechamento dia 22; corte dia 24",pt:"dia_mes",pv:22,pr:"Período 20→21; 2 racionais; 4 gestores; 1 nota."}),
+  _rt("Fernanda Libretti","Financial Controls","DSS (PT) — fatura",{cli:"DSS",px:"dia 21/22",pt:"dia_mes",pv:21,pr:"Período 20→21; 2 racionais."}),
+  _rt("Fernanda Libretti","Financial Controls","CSC Intercompany — notas de débito",{cli:"CSC",px:"início do mês",pr:"FC Europe, Nação, SGA, Dojo, FC UK e FC BR."}),
+  _rt("Fernanda Libretti","Financial Controls","Planilha de receitas (FCBR, Next, FCPT, UK)",{px:"até dia 15",pt:"dia_mes",pv:15}),
+  _rt("Fernanda Libretti","Financial Controls","Planilha de represados",{px:"até dia 20",pt:"dia_mes",pv:20}),
+  _rt("Fernanda Libretti","Financial Controls","Relatório p/ comercial Fabio (Finance)",{px:"após o fechamento (sem data fixa)"}),
+  _rt("Fernanda Libretti","Financial Controls","Criação de pedidos/chamados (contas a pagar / intercompany)",{cad:"diaria",px:"sob demanda"}),
+  _rt("Fernanda Libretti","Financial Controls","Criação de projetos no SAP (Finance/PT/UK) + valores e faturamento",{px:"sob demanda"}),
+  _rt("Fernanda Libretti","Financial Controls","Solicitação de cadastro de cliente novo",{px:"sob demanda"}),
+  _rt("Fernanda Libretti","Financial Controls","Atender chamados de faturamento e abertura de projeto",{cad:"diaria",px:"sob demanda"}),
+  // placeholders
+  _rt("Tifany Samelo","Contas a Receber","(Rotinas a detalhar)",{pr:"Aguardando envio das atividades."}),
+  _rt("Levicto Ferreira","Financial Controls","(Rotinas a detalhar)",{pr:"Novo — padrão a definir."}),
+  _rt("Viviane Wellida","Financial Controls","(Rotinas a detalhar)",{pr:"Novo — padrão a definir."}),
+];
+
+function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); for(let d=1;d<=last;d++){ const wd=new Date(y,m1-1,d).getDay(); if(wd!==0&&wd!==6){ c++; if(c===n) return d; } } return last; }
+function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
+
+function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed }) {
+  const ymNow = new Date().toISOString().slice(0,7);
+  const [aba, setAba] = useState("minhas");
+  const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
+  const [mes, setMes] = useState(ymNow);
+  const [q, setQ] = useState("");
+  const [edit, setEdit] = useState(null); // rotina em edição (modal)
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:"#fff", color:T.ink };
+  // últimos 8 meses + atual
+  const mesesOpt = []; { const [yy,mm]=ymNow.split("-").map(Number); for(let i=0;i<8;i++){ const d=new Date(yy,mm-1-i,1); mesesOpt.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } }
+  const statusOf = (r, periodo) => {
+    const [yy,mm]=periodo.split("-").map(Number);
+    const d = done[`${r.id}|${periodo}`];
+    const due = rtDueDay(r, yy, mm);
+    const dueStr = due ? `${yy}-${String(mm).padStart(2,"0")}-${String(due).padStart(2,"0")}` : "";
+    if (d?.feito) {
+      if (dueStr && d.feitoEm && d.feitoEm > dueStr) return { k:"atraso", label:`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)} (atraso)`, color:"#c2630f", bg:"#fff7ed" };
+      return { k:"feito", label: d.feitoEm?`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)}`:"feito", color:"#166534", bg:"#f0fdf4" };
+    }
+    if (dueStr && dueStr < todayStr) return { k:"atrasado", label:"atrasado", color:T.danger, bg:"#fef2f2" };
+    return { k:"pendente", label: due?`vence dia ${due}`:"pendente", color:T.muted, bg:"transparent" };
+  };
+
+  const pessoasComRotina = [...new Set(routines.map(r=>r.pessoa).filter(Boolean))].sort();
+  const pessoasOpts = [...new Set([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina])];
+
+  // ── Minhas / Da pessoa ──
+  const mine = routines.filter(r=>r.ativo!==false).filter(r=> pessoa ? r.pessoa===pessoa : true)
+    .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa]) : true);
+  const cadOrder = { mensal:0, semanal:1, diaria:2 };
+  const mineSorted = [...mine].sort((a,b)=> (cadOrder[a.cadencia]??3)-(cadOrder[b.cadencia]??3) || (rtDueDay(a,...mes.split("-").map(Number))||99)-(rtDueDay(b,...mes.split("-").map(Number))||99) || a.titulo.localeCompare(b.titulo));
+  const totMine = mine.length, feitMine = mine.filter(r=>done[`${r.id}|${mes}`]?.feito).length, atrMine = mine.filter(r=>statusOf(r,mes).k==="atrasado").length;
+
+  const CAD_LABEL = { mensal:"Mensais", semanal:"Semanais", diaria:"Diárias" };
+
+  return (
+    <div>
+      <PageHead icon="task" title="Rotinas do time" sub="marque o que já foi feito no mês — o sistema aponta se saiu no prazo"/>
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
+        {[["minhas", isAdmin?"Por pessoa":"Minhas rotinas"], ...(isAdmin?[["time","Visão do time"],["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+          <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {aba==="minhas" && (<>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+          {isAdmin
+            ? <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
+            : <span style={{fontSize:13,fontWeight:700,color:T.ink}}>{user?.name}</span>}
+          <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
+          <input placeholder="Buscar tarefa/cliente…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:14}}>
+          <Card style={{padding:12}}><div style={{fontSize:11.5,color:T.muted}}>Rotinas</div><div style={{fontSize:22,fontWeight:800,color:T.ink}}>{totMine}</div></Card>
+          <Card style={{padding:12}}><div style={{fontSize:11.5,color:T.muted}}>Feitas</div><div style={{fontSize:22,fontWeight:800,color:T.ok}}>{feitMine}</div></Card>
+          <Card style={{padding:12,border:`1px solid ${atrMine?T.dangerLine:T.line}`,background:atrMine?T.dangerBg:"#fff"}}><div style={{fontSize:11.5,color:T.muted}}>Atrasadas</div><div style={{fontSize:22,fontWeight:800,color:atrMine?T.danger:T.ok}}>{atrMine}</div></Card>
+        </div>
+        {["mensal","semanal","diaria"].map(cad=>{ const grp=mineSorted.filter(r=>r.cadencia===cad); if(!grp.length) return null; return (
+          <div key={cad} style={{marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",margin:"0 2px 8px"}}>{CAD_LABEL[cad]||cad}</div>
+            <Card style={{padding:0,overflow:"hidden"}}>
+              {grp.map((r,i)=>{ const st=statusOf(r,mes); const feito=!!done[`${r.id}|${mes}`]?.feito; const canCheck = !isViewer && (isAdmin || r.pessoa===user?.name);
+                return (
+                  <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 14px",borderBottom:i<grp.length-1?`1px solid ${T.lineSoft}`:"none",background:st.bg}}>
+                    <input type="checkbox" checked={feito} disabled={!canCheck} onChange={e=>onToggleDone(r.id, mes, e.target.checked)} style={{marginTop:3,width:17,height:17,cursor:canCheck?"pointer":"default"}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13.5,fontWeight:650,color:T.ink,textDecoration:feito?"line-through":"none"}}>{r.titulo}{r.cliente?<span style={{color:T.muted,fontWeight:400}}> · {r.cliente}</span>:""}</div>
+                      <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>{isAdmin&&!pessoa?`${r.pessoa} · `:""}{r.prazoTxt||"—"}{r.premissa?<span title={r.premissa} style={{cursor:"help"}}> · ⓘ {r.premissa.length>70?r.premissa.slice(0,70)+"…":r.premissa}</span>:""}</div>
+                    </div>
+                    <span style={{fontSize:10.5,fontWeight:700,color:st.color,whiteSpace:"nowrap",marginTop:2}}>{st.label}</span>
+                    {isAdmin && <button onClick={()=>setEdit(r)} title="Editar rotina" style={{border:"none",background:"none",cursor:"pointer",color:T.muted,fontSize:12}}>✎</button>}
+                  </div>
+                );})}
+            </Card>
+          </div>
+        );})}
+        {!mine.length && <Card style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma rotina {pessoa?`para ${pessoa}`:""}. {isAdmin?"Vá em Cadastro para adicionar ou semear.":""}</Card>}
+      </>)}
+
+      {aba==="time" && isAdmin && (<>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+          <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        </div>
+        <Card style={{padding:0,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1.4fr .7fr .7fr .7fr",fontSize:11,textTransform:"uppercase",letterSpacing:".04em",color:T.muted,padding:"9px 14px",borderBottom:`1px solid ${T.line}`,background:T.canvas}}>
+            <div>Pessoa</div><div style={{textAlign:"right"}}>Feitas</div><div style={{textAlign:"right"}}>Atrasadas</div><div style={{textAlign:"right"}}>% concluído</div>
+          </div>
+          {pessoasOpts.map(p=>{ const rs=routines.filter(r=>r.ativo!==false&&r.pessoa===p); if(!rs.length) return null;
+            const feit=rs.filter(r=>done[`${r.id}|${mes}`]?.feito).length; const atr=rs.filter(r=>statusOf(r,mes).k==="atrasado").length; const pct=rs.length?Math.round(feit/rs.length*100):0;
+            return (
+              <div key={p} onClick={()=>{setPessoa(p);setAba("minhas");}} style={{display:"grid",gridTemplateColumns:"1.4fr .7fr .7fr .7fr",fontSize:13,padding:"10px 14px",borderBottom:`1px solid ${T.lineSoft}`,cursor:"pointer",alignItems:"center"}}>
+                <div style={{fontWeight:650,color:T.ink}}>{p} <span style={{fontSize:11,color:T.muted,fontWeight:400}}>· {rs.length}</span></div>
+                <div style={{textAlign:"right",fontWeight:700,color:T.ok}}>{feit}</div>
+                <div style={{textAlign:"right",fontWeight:700,color:atr?T.danger:T.muted}}>{atr}</div>
+                <div style={{textAlign:"right",fontWeight:700,color:T.ink}}>{pct}%</div>
+              </div>
+            );})}
+        </Card>
+      </>)}
+
+      {aba==="cadastro" && isAdmin && (<>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+          <Btn icon="plus" onClick={()=>setEdit({ pessoa:pessoa||"", area:"", titulo:"", cliente:"", cadencia:"mensal", prazoTxt:"", prazoTipo:"livre", prazoValor:"", premissa:"", ativo:true })}>Nova rotina</Btn>
+          {!routines.length && <Btn onClick={()=>{ if(window.confirm(`Semear ${ROTINAS_SEED.length} rotinas iniciais?`)) onSeed(ROTINAS_SEED); }}>Semear rotinas iniciais ({ROTINAS_SEED.length})</Btn>}
+          <input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
+        </div>
+        <Card style={{padding:0,overflow:"hidden"}}>
+          {routines.filter(r=> q?matchQuery(q,[r.titulo,r.cliente,r.pessoa]):true).sort((a,b)=>a.pessoa.localeCompare(b.pessoa)||a.titulo.localeCompare(b.titulo)).map((r,i,arr)=>(
+            <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 14px",borderBottom:i<arr.length-1?`1px solid ${T.lineSoft}`:"none"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:650,color:T.ink}}>{r.titulo}{r.cliente?` · ${r.cliente}`:""}</div>
+                <div style={{fontSize:11,color:T.muted}}>{r.pessoa} · {r.cadencia} · {r.prazoTxt||"sem prazo"}</div>
+              </div>
+              <Btn small onClick={()=>setEdit(r)}>Editar</Btn>
+              <button onClick={()=>{ if(window.confirm("Remover esta rotina?")) onDeleteRoutine(r.id); }} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:16}}>🗑</button>
+            </div>
+          ))}
+          {!routines.length && <div style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma rotina cadastrada. Clique em "Semear rotinas iniciais".</div>}
+        </Card>
+      </>)}
+
+      {edit && <RoutineEditModal rotina={edit} onSave={r=>{ onSaveRoutine(r); setEdit(null); }} onClose={()=>setEdit(null)}/>}
+    </div>
+  );
+}
+
+function RoutineEditModal({ rotina, onSave, onClose }) {
+  const [f, setF] = useState({ ...rotina });
+  const set = (k,v) => setF(s=>({ ...s, [k]:v }));
+  const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:"#fff", color:T.ink, width:"100%" };
+  return (
+    <Modal title={rotina.id?"Editar rotina":"Nova rotina"} onClose={onClose} wide>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Pessoa *"><input style={inp} list="rt-pessoas" value={f.pessoa||""} onChange={e=>{ const p=e.target.value; const found=RT_PESSOAS.find(x=>x.nome===p); set("pessoa",p); if(found&&!f.area) set("area",found.area); }}/><datalist id="rt-pessoas">{RT_PESSOAS.map(p=><option key={p.nome} value={p.nome}/>)}</datalist></Field>
+        <Field label="Área"><select style={inp} value={f.area||""} onChange={e=>set("area",e.target.value)}><option value="">—</option><option>Contas a Receber</option><option>Financial Controls</option></select></Field>
+        <Field label="Título *"><input style={inp} value={f.titulo||""} onChange={e=>set("titulo",e.target.value)}/></Field>
+        <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
+        <Field label="Cadência"><select style={inp} value={f.cadencia||"mensal"} onChange={e=>set("cadencia",e.target.value)}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="diaria">Diária</option></select></Field>
+        <Field label="Prazo (texto)"><input style={inp} placeholder="ex: 1º dia útil / dia 15 / data de corte 20" value={f.prazoTxt||""} onChange={e=>set("prazoTxt",e.target.value)}/></Field>
+        <Field label="Tipo de prazo (p/ status)"><select style={inp} value={f.prazoTipo||"livre"} onChange={e=>set("prazoTipo",e.target.value)}><option value="livre">Livre (sem cálculo)</option><option value="dia_mes">Dia do mês</option><option value="dia_util">N-ésimo dia útil</option></select></Field>
+        <Field label="Valor (dia do mês ou nº do dia útil)"><input type="number" style={inp} value={f.prazoValor??""} onChange={e=>set("prazoValor",e.target.value)}/></Field>
+      </div>
+      <Field label="Premissa / observação"><textarea style={{...inp,minHeight:70,resize:"vertical"}} value={f.premissa||""} onChange={e=>set("premissa",e.target.value)}/></Field>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary disabled={!f.pessoa||!f.titulo} onClick={()=>onSave(f)}>Salvar</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 function HomeView({ user, isAdmin, records, notes, tasks, profiles, fatByRec={}, varByRec={}, mural, onSaveMural, onSaveApelido, onNavigate }) {
   const [editing, setEditing] = useState(false);
   const [editApelido, setEditApelido] = useState(false);
@@ -6138,6 +6384,7 @@ function AppInner() {
   const [authReady, setAuthRdy] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const [page, setPage]         = useState("home");
+  const [tasksTab, setTasksTab] = useState("rotinas");
   const [showImport, setImp]    = useState(false);
   const [showExport, setExp]    = useState(false);
   const [showHistory, setHist]  = useState(false);
@@ -6157,6 +6404,8 @@ function AppInner() {
   const [aliases, setAliases] = useState([]);        // DE→PARA de clientes
   const [projetos, setProjetos] = useState([]);      // base de projetos ativos (compartilhada)
   const [projMarks, setProjMarks] = useState({});    // marcas por PEP (interno/checado)
+  const [routines, setRoutines] = useState([]);      // rotinas do time (tarefas recorrentes)
+  const [routineDone, setRoutineDone] = useState({});// conclusões por rotina|período
   const aliasMapRef = useRef({});                    // { nomeNormalizado(de) -> para }
   const buildAliasMap = (list) => { const m={}; (list||[]).forEach(a=>{ if(a.de&&a.para) m[_normCliNome(a.de)]=a.para; }); return m; };
   const [dataReady, setDataRdy] = useState(false);
@@ -6192,14 +6441,27 @@ function AppInner() {
     try { await db.setProjectMark(key, { interno: next.interno, checado: next.checado, checado_por: checadoPor }); }
     catch(e){ toast("Erro ao salvar marca: "+e.message, "error"); reloadProjMarks(); }
   }
+  const reloadRoutines = useCallback(async () => { try { setRoutines(await db.loadRoutines()); } catch(e){ /* tabela pode não existir ainda */ } }, []);
+  const reloadRoutineDone = useCallback(async () => { try { setRoutineDone(await db.loadRoutineDone()); } catch(e){ /* idem */ } }, []);
+  async function handleToggleDone(routineId, periodo, feito) {
+    if (!routineId || !periodo) return;
+    const k = `${routineId}|${periodo}`;
+    if (feito) { const today = new Date().toISOString().slice(0,10); setRoutineDone(m => ({ ...m, [k]: { feito:true, feitoEm: today, feitoPor: user?.name||"", obs:"" } }));
+      try { await db.setRoutineDone(routineId, periodo, { feito:true, feitoEm: today, feitoPor: user?.name||"" }); } catch(e){ toast("Erro: "+e.message,"error"); reloadRoutineDone(); } }
+    else { setRoutineDone(m => { const n={...m}; delete n[k]; return n; });
+      try { await db.setRoutineDone(routineId, periodo, { remove:true }); } catch(e){ toast("Erro: "+e.message,"error"); reloadRoutineDone(); } }
+  }
+  async function handleSaveRoutine(r) { try { await db.saveRoutine(r); await reloadRoutines(); toast(r.id?"Rotina atualizada":"Rotina criada"); } catch(e){ toast("Erro ao salvar rotina: "+e.message,"error"); } }
+  async function handleDeleteRoutine(id) { try { await db.deleteRoutine(id); await reloadRoutines(); toast("Rotina removida"); } catch(e){ toast("Erro ao remover: "+e.message,"error"); } }
+  async function handleSeedRoutines(list) { try { await db.insertRoutines(list); await reloadRoutines(); toast(`${list.length} rotina(s) semeada(s).`); } catch(e){ toast("Erro ao semear: "+e.message,"error"); } }
 
   useEffect(() => {
-    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setProjetos([]); setProjMarks({}); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
+    if (!user) { setRecords([]); setTasks([]); setHistory([]); setProfiles([]); setClients([]); setTemplates([]); setDeliveries([]); setNotes([]); setFaturamentos([]); setVariacoes([]); setProjetos([]); setProjMarks({}); setRoutines([]); setRoutineDone({}); setMural({ id:null, frase:"", autor:"", lembretes:[] }); return; }
     let active = true;
     // NÃO voltamos para a tela de "Carregando" em recargas — isso desmontaria
     // formulários/modais abertos. A tela de carregamento só aparece na 1ª vez.
-    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[]), db.loadActiveProjects().catch(()=>[]), db.loadProjectMarks().catch(()=>({}))])
-      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al, pj, pm]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); setProjetos(pj); setProjMarks(pm); })
+    Promise.all([db.fetchRecords(), db.fetchTasks(), db.fetchHistory().catch(()=>[]), db.fetchProfiles().catch(()=>[]), db.fetchClients().catch(()=>[]), db.fetchTemplates().catch(()=>[]), db.fetchDeliveries().catch(()=>[]), db.fetchMunicipalNotes().catch(()=>[]), db.fetchMural().catch(()=>({ id:null, frase:"", autor:"", lembretes:[] })), db.fetchFaturamentos().catch(()=>[]), db.fetchVariacoes().catch(()=>[]), db.fetchClientAliases().catch(()=>[]), db.loadActiveProjects().catch(()=>[]), db.loadProjectMarks().catch(()=>({})), db.loadRoutines().catch(()=>[]), db.loadRoutineDone().catch(()=>({}))])
+      .then(([r, t, h, p, c, tm, dv, nt, mu, fa, vr, al, pj, pm, ro, rd]) => { if (!active) return; aliasMapRef.current = buildAliasMap(al); setAliases(al); setRecords(applyClientAliases(r, aliasMapRef.current)); setTasks(t); setHistory(h); setProfiles(p); setClients(c); setTemplates(tm); setDeliveries(dv); setNotes(nt); setMural(mu); setFaturamentos(fa); setVariacoes(vr); setProjetos(pj); setProjMarks(pm); setRoutines(ro); setRoutineDone(rd); })
       .catch(e => { if (active) toast("Erro ao carregar dados: "+e.message, "error"); })
       .finally(() => { if (active) setDataRdy(true); });
     return () => { active = false; };
@@ -6931,11 +7193,22 @@ function AppInner() {
             </div>
           )}
           {page==="tasks"&&(
-            <div style={{padding:isMobile?"18px 14px":"24px 22px"}}>
-              <Kanban tasks={tasks} responsaveis={responsaveis} isAdmin={isAdmin} isViewer={isViewer} competenciaAtual={state.competenciaAtual}
-                templates={templates} deliveries={deliveries}
-                onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}
-                onTemplateSave={handleTemplateSave} onTemplateDelete={handleTemplateDelete} onGenerate={handleGenerateDelivery}/>
+            <div style={{maxWidth:1240,margin:"0 auto",padding:isMobile?"18px 14px":"24px 22px"}}>
+              <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
+                {[["rotinas","Rotinas do time"], ...(isAdmin?[["quadro","Quadro & entregas"]]:[])].map(([id,label])=>(
+                  <button key={id} onClick={()=>setTasksTab(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:tasksTab===id?700:500,color:tasksTab===id?T.brand:T.muted,borderBottom:`2px solid ${tasksTab===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
+                ))}
+              </div>
+              {(tasksTab==="rotinas"||!isAdmin) && (
+                <RoutinesView user={user} isAdmin={isAdmin} isViewer={isViewer} routines={routines} done={routineDone}
+                  onToggleDone={handleToggleDone} onSaveRoutine={handleSaveRoutine} onDeleteRoutine={handleDeleteRoutine} onSeed={handleSeedRoutines}/>
+              )}
+              {tasksTab==="quadro" && isAdmin && (
+                <Kanban tasks={tasks} responsaveis={responsaveis} isAdmin={isAdmin} isViewer={isViewer} competenciaAtual={state.competenciaAtual}
+                  templates={templates} deliveries={deliveries}
+                  onAdd={handleTaskAdd} onUpdate={handleTaskUpdate} onDelete={handleTaskDelete}
+                  onTemplateSave={handleTemplateSave} onTemplateDelete={handleTemplateDelete} onGenerate={handleGenerateDelivery}/>
+              )}
             </div>
           )}
           {page==="bu"&&isAdmin&&(
