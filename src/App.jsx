@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-feito-coluna · #152";
+const APP_BUILD = "rotinas-excluir · #153";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -5108,7 +5108,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
                 <div style={{fontSize:11,color:T.muted}}>{r.pessoa} · {r.cadencia} · {r.prazoTxt||"sem prazo"}</div>
               </div>
               <Btn small onClick={()=>setEdit(r)}>Editar</Btn>
-              <button onClick={()=>{ if(window.confirm("Remover esta rotina?")) onDeleteRoutine(r.id); }} title="Remover" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:16}}>🗑</button>
+              <button onClick={()=>{ if(window.confirm(`⚠️ EXCLUIR a tarefa "${r.titulo}"?\n\nRemove a rotina para TODO O TIME, com subtarefas e histórico de conclusões.\n\nEsta ação NÃO pode ser desfeita.`)) onDeleteRoutine(r.id); }} title="Excluir tarefa" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:16}}>🗑</button>
             </div>
           ))}
           {!routines.length && <div style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma rotina cadastrada. Clique em "Semear rotinas iniciais".</div>}
@@ -5121,12 +5121,13 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         subs={subtasks.filter(s=>s.routineId===detail.id)} pessoasOpts={pessoasOpts}
         isAdmin={isAdmin} user={user} canObs={canEditar(detail)} subStatusOf={subStatusOf} canToggleSub={canToggleSub}
         onSetObs={onSetObs} onAddSubtask={onAddSubtask} onToggleSubtask={onToggleSubtask} onUpdateSubtask={onUpdateSubtask} onDeleteSubtask={onDeleteSubtask}
-        onEditRotina={podeCadastrar?()=>{ setEdit(detail); setDetail(null); }:null} onClose={()=>setDetail(null)}/>}
+        onEditRotina={podeCadastrar?()=>{ setEdit(detail); setDetail(null); }:null}
+        onDelete={podeCadastrar?()=>{ onDeleteRoutine(detail.id); setDetail(null); }:null} onClose={()=>setDetail(null)}/>}
     </div>
   );
 }
 
-function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[], isAdmin, user, canObs, subStatusOf, canToggleSub, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask, onEditRotina, onClose }) {
+function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[], isAdmin, user, canObs, subStatusOf, canToggleSub, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask, onEditRotina, onDelete, onClose }) {
   const [obs, setObs] = useState(doneRec.obs || "");
   const [obsDirty, setObsDirty] = useState(false);
   const [nt, setNt] = useState(""); const [nr, setNr] = useState(""); const [np, setNp] = useState("");
@@ -5185,6 +5186,15 @@ function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[],
           </div>
           <div style={{fontSize:11,color:T.muted,marginTop:6}}>Ao atribuir a outra pessoa, a subtarefa aparece como um card novo no quadro dela.</div>
         </div>
+
+        {onDelete && <div style={{borderTop:`1px solid ${T.line}`,paddingTop:14,marginTop:4}}>
+          <div style={{fontSize:11.5,fontWeight:700,color:T.danger,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>Zona de risco</div>
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>{ if(window.confirm(`⚠️ EXCLUIR a tarefa "${rotina.titulo}"?\n\nIsso remove a rotina para TODO O TIME, junto com as subtarefas e o histórico de conclusões.\n\nEsta ação NÃO pode ser desfeita.`)) onDelete(); }}
+              style={{border:`1px solid ${T.dangerLine}`,background:T.dangerBg,color:T.danger,fontWeight:700,fontSize:13,padding:"8px 14px",borderRadius:8,cursor:"pointer"}}>🗑 Excluir tarefa</button>
+            <span style={{fontSize:11.5,color:T.muted}}>Remove para todos, com subtarefas e histórico. Sem volta.</span>
+          </div>
+        </div>}
       </div>
     </Modal>
   );
@@ -6709,7 +6719,15 @@ function AppInner() {
       try { await db.setRoutineDone(routineId, periodo, { remove:true }); } catch(e){ toast("Erro: "+e.message,"error"); reloadRoutineDone(); } }
   }
   async function handleSaveRoutine(r) { try { await db.saveRoutine(r); await reloadRoutines(); toast(r.id?"Rotina atualizada":"Rotina criada"); } catch(e){ toast("Erro ao salvar rotina: "+e.message,"error"); } }
-  async function handleDeleteRoutine(id) { try { await db.deleteRoutine(id); await reloadRoutines(); toast("Rotina removida"); } catch(e){ toast("Erro ao remover: "+e.message,"error"); } }
+  async function handleDeleteRoutine(id) {
+    try {
+      const subs = subtasks.filter(s=>s.routineId===id);
+      await db.deleteRoutine(id);
+      for (const s of subs) { try { await db.deleteSubtask(s.id); } catch(_){} }
+      if (subs.length) setSubtasks(l => l.filter(s=>s.routineId!==id));
+      await reloadRoutines(); toast("Tarefa removida");
+    } catch(e){ toast("Erro ao remover: "+e.message,"error"); }
+  }
   async function handleSeedRoutines(list) { try { await db.insertRoutines(list); await reloadRoutines(); toast(`${list.length} rotina(s) semeada(s).`); } catch(e){ toast("Erro ao semear: "+e.message,"error"); } }
   // Observação da execução (por rotina|período); preserva o estado de "feito".
   async function handleSetObs(routineId, periodo, obs) {
