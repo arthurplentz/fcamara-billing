@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-agenda · #156";
+const APP_BUILD = "rotinas-manual · #157";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4974,7 +4974,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
     <div>
       <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isDani?[["agenda","Agenda"]]:[]), ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isDani?[["agenda","Agenda"]]:[]), ...(podeCadastrar?[["cadastro","Cadastro"]]:[]), ["manual","Manual"]].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -5124,6 +5124,8 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         <RoutineAgenda list={ativos.filter(r=>(pessoa?rtSamePerson(r.pessoa,pessoa):true)&&matchEmp(r.empresa))} mes={mes} setMes={setMes} mesesOpt={mesesOpt} onOpen={setDetail}/>
       </>)}
 
+      {aba==="manual" && <RoutineManual/>}
+
       {aba==="cadastro" && podeCadastrar && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <Btn icon="plus" onClick={()=>setEdit({ pessoa:pessoa||"", area:"", titulo:"", cliente:"", cadencia:"mensal", prazoTxt:"", prazoTipo:"livre", prazoValor:"", premissa:"", ativo:true })}>Nova rotina</Btn>
@@ -5228,6 +5230,98 @@ function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[],
         </div>}
       </div>
     </Modal>
+  );
+}
+
+// Manual da parte de TAREFAS — mostrado para todos na aba "Manual".
+// Vamos evoluindo este conteúdo conforme as atualizações do sistema.
+const MANUAL_TAREFAS = {
+  atualizado: "22/10/2026",
+  intro: "Este é o guia da área de Tarefas & Rotinas. Aqui o time acompanha as rotinas recorrentes (diárias, semanais e mensais), marca o que já foi feito e distribui subtarefas. Todos enxergam as tarefas de todos; cada um marca apenas as suas.",
+  secoes: [
+    { icon:"🧭", titulo:"As abas", itens:[
+      "**Dashboard** — resumo rápido: suas atrasadas e de hoje, e como o time está (barra de conclusão por pessoa).",
+      "**Quadro** — o seu dia a dia, em 4 colunas (Vencidos · Hoje · A vencer · Finalizado).",
+      "**Visão do time** — o avanço de cada pessoa, do pior para o melhor.",
+      "**Cadastro** — criar, editar e excluir tarefas (liberado para todo o time, menos perfis só-leitura).",
+    ]},
+    { icon:"✅", titulo:"Marcar uma tarefa como feita", itens:[
+      "No Quadro, clique na caixinha (checkbox) do card. A tarefa vai para a coluna **Finalizado**.",
+      "Você só consegue marcar **as suas** tarefas. Nas dos colegas o check fica bloqueado (é só visão).",
+      "Errou? Basta desmarcar que ela volta para a coluna de origem.",
+    ]},
+    { icon:"🗂️", titulo:"As 4 colunas do Quadro", itens:[
+      "**Vencidos** — passou do prazo e não foi feita (mostra há quantos dias).",
+      "**Hoje** — o que é para hoje (diárias do dia e mensais que vencem hoje).",
+      "**A vencer** — o que vence nos próximos dias (semanais e mensais futuras do mês).",
+      "**Finalizado** — o que já foi concluído no período.",
+    ]},
+    { icon:"🔁", titulo:"Diárias, semanais e mensais", itens:[
+      "**Diária** — reinicia todo dia. Marcou hoje, amanhã ela volta como nova em 'Hoje'.",
+      "**Semanal** — reinicia a cada semana.",
+      "**Mensal** — vale pelo mês, com prazo e aviso de atraso.",
+      "Ou seja: marcar hoje não apaga a rotina — ela reaparece sozinha no próximo período.",
+    ]},
+    { icon:"🔎", titulo:"Abrir a tarefa (detalhe)", itens:[
+      "Clique em qualquer card para abrir o detalhe.",
+      "**Descrição** — o 'como fazer' da tarefa (passo a passo cadastrado pela gestão).",
+      "**Observação** — sua anotação daquela execução; cada pessoa escreve a sua.",
+      "**Subtarefas** — veja e crie subtarefas dentro da tarefa.",
+    ]},
+    { icon:"👥", titulo:"Subtarefas (passar algo para alguém)", itens:[
+      "No detalhe da tarefa, escreva a subtarefa, escolha o **responsável** e um prazo (opcional).",
+      "Ao atribuir para outra pessoa, a subtarefa vira um **card novo no quadro dela**, mostrando de quem veio e a tarefa de origem.",
+      "Quem conclui é a pessoa designada (ou quem repassou/gestão). Quem criou pode remover.",
+    ]},
+    { icon:"🏢", titulo:"Empresa", itens:[
+      "Toda tarefa precisa de uma **empresa** (FC Holding, Fcamara, Omnik, Nação Digital, SGA, FC Hyperautomation, Dojo, Nextgeneration, FC Europa, FC UK ou 'Todas').",
+      "É **obrigatório** ao cadastrar/editar. Tarefas antigas sem empresa aparecem com aviso ⚠ — ajuste quando puder.",
+      "No Quadro dá para **filtrar por empresa**. 'Todas' aparece em qualquer filtro.",
+    ]},
+    { icon:"🧰", titulo:"Filtros e busca", itens:[
+      "No Quadro você filtra por **pessoa**, **empresa** e **mês**, e busca por texto (tarefa/cliente).",
+      "O seletor de mês já mostra meses futuros (para planejar) e passados (para conferir).",
+    ]},
+    { icon:"🗑️", titulo:"Excluir tarefa", itens:[
+      "Dá para excluir pelo detalhe (em 'Zona de risco') ou no Cadastro (🗑).",
+      "Pede confirmação. Atenção: remove para **todo o time**, com subtarefas e histórico, e **não tem volta**.",
+    ]},
+    { icon:"❓", titulo:"Problemas comuns", itens:[
+      "**Não vejo minhas tarefas** — seu nome de acesso pode estar diferente do nome na rotina. Avise a gestão para alinhar.",
+      "**Erro ao salvar / 'coluna não encontrada'** — é um ajuste de banco pendente; avise a gestão.",
+      "**Tela desatualizada** — recarregue com Ctrl+Shift+R.",
+    ]},
+  ],
+  changelog: [
+    { data:"22/10", txt:"Campo Empresa obrigatório + filtro por empresa; agenda (calendário) em validação; exclusão com aviso." },
+    { data:"21/10", txt:"Detalhe da tarefa com descrição, observação e subtarefas atribuíveis; quadro em 4 colunas." },
+  ],
+};
+
+function RoutineManual() {
+  return (
+    <div style={{maxWidth:820}}>
+      <Card style={{padding:"14px 16px",marginBottom:14,background:"var(--brand-bg)",border:`1px solid ${T.line}`}}>
+        <div style={{fontSize:14.5,fontWeight:700,color:T.ink,marginBottom:4}}>Manual — Tarefas & Rotinas</div>
+        <div style={{fontSize:12.5,color:T.inkSoft||T.ink,lineHeight:1.55}}>{MANUAL_TAREFAS.intro}</div>
+        <div style={{fontSize:11,color:T.muted,marginTop:8}}>Atualizado em {MANUAL_TAREFAS.atualizado} · este manual vai sendo melhorado conforme o sistema evolui.</div>
+      </Card>
+      {MANUAL_TAREFAS.secoes.map((s,i)=>(
+        <Card key={i} style={{padding:"13px 16px",marginBottom:10}}>
+          <div style={{fontSize:13.5,fontWeight:700,color:T.ink,marginBottom:8}}>{s.icon} {s.titulo}</div>
+          <ul style={{margin:0,paddingLeft:18,display:"flex",flexDirection:"column",gap:5}}>
+            {s.itens.map((it,j)=>(<li key={j} style={{fontSize:12.5,color:T.inkSoft||T.ink,lineHeight:1.5}} dangerouslySetInnerHTML={{__html: it.replace(/\*\*(.+?)\*\*/g, '<b style="color:'+T.ink+'">$1</b>')}}/>))}
+          </ul>
+        </Card>
+      ))}
+      <Card style={{padding:"13px 16px",marginBottom:10,background:T.canvas}}>
+        <div style={{fontSize:12,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:8}}>O que mudou recentemente</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {MANUAL_TAREFAS.changelog.map((c,i)=>(<div key={i} style={{fontSize:12,color:T.inkSoft||T.ink}}><b style={{color:T.ink}}>{c.data}</b> — {c.txt}</div>))}
+        </div>
+      </Card>
+      <div style={{fontSize:11,color:T.muted,textAlign:"center",padding:"6px 0 2px"}}>Dúvidas ou sugestões para o manual? Fale com a gestão.</div>
+    </div>
   );
 }
 
