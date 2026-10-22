@@ -529,7 +529,7 @@ function dbToRoutine(r) {
     id: r.id, pessoa: r.pessoa || "", area: r.area || "", titulo: r.titulo || "",
     cliente: r.cliente || "", cadencia: r.cadencia || "mensal", prazoTxt: r.prazo_txt || "",
     prazoTipo: r.prazo_tipo || "livre", prazoValor: r.prazo_valor == null ? null : Number(r.prazo_valor),
-    premissa: r.premissa || "", descricao: r.descricao || "", ordem: r.ordem || 0, ativo: r.ativo !== false,
+    premissa: r.premissa || "", descricao: r.descricao || "", empresa: r.empresa || "", ordem: r.ordem || 0, ativo: r.ativo !== false,
   };
 }
 function routineToDb(r) {
@@ -537,7 +537,7 @@ function routineToDb(r) {
     pessoa: r.pessoa || null, area: r.area || null, titulo: r.titulo || null, cliente: r.cliente || null,
     cadencia: r.cadencia || "mensal", prazo_txt: r.prazoTxt || null, prazo_tipo: r.prazoTipo || "livre",
     prazo_valor: r.prazoValor == null || r.prazoValor === "" ? null : Number(r.prazoValor),
-    premissa: r.premissa || null, descricao: r.descricao || null, ordem: r.ordem || 0, ativo: r.ativo !== false,
+    premissa: r.premissa || null, descricao: r.descricao || null, empresa: r.empresa || null, ordem: r.ordem || 0, ativo: r.ativo !== false,
   };
 }
 export async function loadRoutines() {
