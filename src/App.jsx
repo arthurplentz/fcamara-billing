@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-agenda-dia · #158";
+const APP_BUILD = "rotinas-agenda-todos · #159";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4862,8 +4862,6 @@ function rtWeekdays(r){ if(r.cadencia==="diaria") return [1,2,3,4,5]; if(r.caden
 
 function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=[], profiles=[], onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask }) {
   const podeCadastrar = !isViewer; // cadastro liberado para todo o time (menos viewers)
-  // Agenda (calendário) — por enquanto só no acesso da Daniela, para validar.
-  const isDani = (user?.email||"").toLowerCase()==="arthurplentz.copy@gmail.com" || rtSamePerson(user?.name,"Daniela");
   const ymNow = new Date().toISOString().slice(0,7);
   const [aba, setAba] = useState("manual");
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
@@ -4974,7 +4972,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
     <div>
       <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["manual","Manual"],["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isDani?[["agenda","Agenda"]]:[]), ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+        {[["manual","Manual"],["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"],["agenda","Agenda"], ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -5116,7 +5114,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         </Card>
       </>)}
 
-      {aba==="agenda" && isDani && (<>
+      {aba==="agenda" && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
           <select value={empFil} onChange={e=>setEmpFil(e.target.value)} style={inp} title="Empresa"><option value="">Todas as empresas</option>{RT_EMPRESAS.filter(x=>x!=="Todas").map(x=><option key={x} value={x}>{x}</option>)}</select>
@@ -5282,6 +5280,13 @@ const MANUAL_TAREFAS = {
       "No Quadro você filtra por **pessoa**, **empresa** e **mês**, e busca por texto (tarefa/cliente).",
       "O seletor de mês já mostra meses futuros (para planejar) e passados (para conferir).",
     ]},
+    { icon:"📅", titulo:"Agenda (calendário)", itens:[
+      "Veja a carga de tarefas como um calendário, em **Mês** ou **Semana**.",
+      "**Mês** — mapa de calor: dias mais carregados ficam com tom mais forte e um número com o total; ajuda a enxergar os picos (ex.: dias 15, 18, 20).",
+      "**Semana** — os 7 dias com as tarefas de cada um; navegue com ‹ › ou o botão **Hoje**.",
+      "Clique num **dia** para ver a lista de tarefas dele; clique numa tarefa para abrir o detalhe.",
+      "As mensais aparecem na data do prazo; diárias e semanais pelo dia da semana. Filtre por pessoa/empresa para ver a carga de alguém.",
+    ]},
     { icon:"🗑️", titulo:"Excluir tarefa", itens:[
       "Dá para excluir pelo detalhe (em 'Zona de risco') ou no Cadastro (🗑).",
       "Pede confirmação. Atenção: remove para **todo o time**, com subtarefas e histórico, e **não tem volta**.",
@@ -5293,7 +5298,8 @@ const MANUAL_TAREFAS = {
     ]},
   ],
   changelog: [
-    { data:"22/10", txt:"Campo Empresa obrigatório + filtro por empresa; agenda (calendário) em validação; exclusão com aviso." },
+    { data:"22/10", txt:"Agenda (calendário mês/semana) liberada para todos — clique no dia para ver as tarefas. Manual como aba inicial." },
+    { data:"22/10", txt:"Campo Empresa obrigatório + filtro por empresa; exclusão de tarefa com aviso." },
     { data:"21/10", txt:"Detalhe da tarefa com descrição, observação e subtarefas atribuíveis; quadro em 4 colunas." },
   ],
 };
