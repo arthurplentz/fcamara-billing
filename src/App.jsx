@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-manual · #157";
+const APP_BUILD = "rotinas-agenda-dia · #158";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4865,7 +4865,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   // Agenda (calendário) — por enquanto só no acesso da Daniela, para validar.
   const isDani = (user?.email||"").toLowerCase()==="arthurplentz.copy@gmail.com" || rtSamePerson(user?.name,"Daniela");
   const ymNow = new Date().toISOString().slice(0,7);
-  const [aba, setAba] = useState("dash");
+  const [aba, setAba] = useState("manual");
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
   const [mes, setMes] = useState(ymNow);
   const [q, setQ] = useState("");
@@ -4974,7 +4974,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
     <div>
       <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isDani?[["agenda","Agenda"]]:[]), ...(podeCadastrar?[["cadastro","Cadastro"]]:[]), ["manual","Manual"]].map(([id,label])=>(
+        {[["manual","Manual"],["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isDani?[["agenda","Agenda"]]:[]), ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -5328,7 +5328,9 @@ function RoutineManual() {
 function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
   const [vista, setVista] = useState("mes");
   const [weekRef, setWeekRef] = useState(()=>new Date());
+  const [dia, setDia] = useState(null); // dia aberto (detalhe)
   const [y,m] = mes.split("-").map(Number);
+  const WDFULL = ["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
   const inp = { padding:"7px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:T.surface||"#fff", color:T.ink };
   const WDLABEL = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const CADTXT = { diaria:"diária", semanal:"semanal", mensal:"mensal" };
@@ -5347,7 +5349,7 @@ function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
   const todayISO=new Date().toISOString().slice(0,10);
   const iso=(dt)=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
   const fmt=(d)=>`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}`;
-  const Chip = ({r}) => (<button onClick={()=>onOpen&&onOpen(r)} title={`${r.titulo}${r.pessoa?" · "+r.pessoa:""}`} style={{display:"block",width:"100%",textAlign:"left",border:"none",borderLeft:`2px solid ${CADCOR[r.cadencia]||T.brand}`,background:"var(--surface)",color:T.ink,borderRadius:4,padding:"2px 5px",fontSize:10.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:3}}>{r.titulo}</button>);
+  const Chip = ({r}) => (<button onClick={e=>{e.stopPropagation();onOpen&&onOpen(r);}} title={`${r.titulo}${r.pessoa?" · "+r.pessoa:""}`} style={{display:"block",width:"100%",textAlign:"left",border:"none",borderLeft:`2px solid ${CADCOR[r.cadencia]||T.brand}`,background:"var(--surface)",color:T.ink,borderRadius:4,padding:"2px 5px",fontSize:10.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:3}}>{r.titulo}</button>);
 
   const firstWd=new Date(y,m-1,1).getDay();
   const cells=[]; for(let i=0;i<firstWd;i++) cells.push(null); for(let d=1;d<=nDays;d++) cells.push(d);
@@ -5377,7 +5379,7 @@ function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
             {WDLABEL.map(w=><div key={w} style={{textAlign:"center",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",padding:"2px 0"}}>{w}</div>)}
             {cells.map((d,i)=>{ if(d===null) return <div key={"e"+i}/>; const dt=new Date(y,m-1,d); const {dated,rec}=tasksOfDate(dt); const load=dated.length+rec.length; const tr=tier(load); const isToday=iso(dt)===todayISO;
               return (
-                <div key={d} style={{minHeight:92,border:`1px solid ${isToday?T.brand:T.line}`,borderRadius:9,padding:6,background:tr.bg,display:"flex",flexDirection:"column"}}>
+                <div key={d} onClick={()=>setDia(dt)} title="Ver tarefas do dia" style={{minHeight:92,border:`1px solid ${isToday?T.brand:T.line}`,borderRadius:9,padding:6,background:tr.bg,display:"flex",flexDirection:"column",cursor:"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",marginBottom:2}}>
                     <span style={{fontSize:12,fontWeight:isToday?800:600,color:isToday?T.brand:T.ink}}>{d}</span>
                     {load>0 && <span style={{marginLeft:"auto",fontSize:10,fontWeight:800,color:tr.c,background:"var(--surface)",borderRadius:20,padding:"0 6px"}}>{load}</span>}
@@ -5394,7 +5396,7 @@ function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
           {weekDays.map((dt,i)=>{ const {dated,rec}=tasksOfDate(dt); const all=[...dated,...rec]; const isToday=iso(dt)===todayISO;
             return (
               <Card key={i} style={{padding:0,overflow:"hidden",border:`1px solid ${isToday?T.brand:T.line}`}}>
-                <div style={{padding:"8px 10px",borderBottom:`1px solid ${T.line}`,background:isToday?"var(--brand-bg)":T.canvas}}>
+                <div onClick={()=>setDia(dt)} title="Ver tarefas do dia" style={{padding:"8px 10px",borderBottom:`1px solid ${T.line}`,background:isToday?"var(--brand-bg)":T.canvas,cursor:"pointer"}}>
                   <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase"}}>{WDLABEL[dt.getDay()]}</div>
                   <div style={{fontSize:14,fontWeight:800,color:isToday?T.brand:T.ink}}>{fmt(dt)} <span style={{fontSize:11,fontWeight:600,color:T.muted}}>· {all.length}</span></div>
                 </div>
@@ -5416,6 +5418,28 @@ function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
           {semData.map(r=><button key={r.id} onClick={()=>onOpen&&onOpen(r)} style={{border:`1px solid ${T.line}`,background:"var(--surface)",borderRadius:20,padding:"3px 10px",fontSize:11,color:T.ink,cursor:"pointer"}}>{r.titulo}<span style={{color:T.muted}}> · {r.pessoa}</span></button>)}
         </div>
       </Card>}
+
+      {dia && (() => { const {dated,rec}=tasksOfDate(dia); const all=[...dated,...rec];
+        return (
+          <Modal title={`${WDFULL[dia.getDay()]}, ${fmt(dia)}`} subtitle={`${all.length} tarefa(s) neste dia`} onClose={()=>setDia(null)}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {all.length===0 && <div style={{fontSize:13,color:T.muted,textAlign:"center",padding:"14px 0"}}>Nenhuma tarefa neste dia.</div>}
+              {all.map(r=>(
+                <button key={r.id} onClick={()=>{ setDia(null); onOpen&&onOpen(r); }} style={{textAlign:"left",border:`1px solid ${T.line}`,borderLeft:`3px solid ${CADCOR[r.cadencia]||T.brand}`,background:"var(--surface)",borderRadius:9,padding:"10px 12px",cursor:"pointer"}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:13.5,fontWeight:650,color:T.ink}}>{r.titulo}</span>
+                    {r.empresa && <span style={{fontSize:10,fontWeight:600,color:T.brand,background:"var(--brand-bg)",borderRadius:20,padding:"1px 7px"}}>{r.empresa}</span>}
+                    <span style={{fontSize:10,fontWeight:700,color:CADCOR[r.cadencia]||T.brand,textTransform:"uppercase"}}>{CADTXT[r.cadencia]}</span>
+                  </div>
+                  <div style={{fontSize:11.5,color:T.muted,marginTop:3}}>{r.pessoa}{r.prazoTxt?` · ${r.prazoTxt}`:""}</div>
+                  {r.premissa && <div style={{fontSize:11,color:T.muted,marginTop:3}}>ⓘ {r.premissa.length>120?r.premissa.slice(0,120)+"…":r.premissa}</div>}
+                  <div style={{fontSize:10.5,color:T.brand,fontWeight:600,marginTop:5}}>abrir detalhe ›</div>
+                </button>
+              ))}
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
