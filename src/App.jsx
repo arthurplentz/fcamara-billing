@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-agenda-todos · #159";
+const APP_BUILD = "rotinas-manual-completo · #160";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -5237,10 +5237,12 @@ const MANUAL_TAREFAS = {
   atualizado: "22/10/2026",
   intro: "Este é o guia da área de Tarefas & Rotinas. Aqui o time acompanha as rotinas recorrentes (diárias, semanais e mensais), marca o que já foi feito e distribui subtarefas. Todos enxergam as tarefas de todos; cada um marca apenas as suas.",
   secoes: [
-    { icon:"🧭", titulo:"As abas", itens:[
-      "**Dashboard** — resumo rápido: suas atrasadas e de hoje, e como o time está (barra de conclusão por pessoa).",
+    { icon:"🧭", titulo:"As abas (o que tem em cada)", itens:[
+      "**Manual** — este guia (abre primeiro). É atualizado conforme o sistema evolui.",
+      "**Dashboard** — resumo rápido: suas atrasadas e de hoje, a conclusão do time e a barra de cada pessoa.",
       "**Quadro** — o seu dia a dia, em 4 colunas (Vencidos · Hoje · A vencer · Finalizado).",
-      "**Visão do time** — o avanço de cada pessoa, do pior para o melhor.",
+      "**Visão do time** — o avanço de cada pessoa (pior primeiro); clique numa pessoa para ver as tarefas dela.",
+      "**Agenda** — calendário (mês/semana) para enxergar a carga de tarefas e os picos do mês.",
       "**Cadastro** — criar, editar e excluir tarefas (liberado para todo o time, menos perfis só-leitura).",
     ]},
     { icon:"✅", titulo:"Marcar uma tarefa como feita", itens:[
@@ -5286,6 +5288,12 @@ const MANUAL_TAREFAS = {
       "**Semana** — os 7 dias com as tarefas de cada um; navegue com ‹ › ou o botão **Hoje**.",
       "Clique num **dia** para ver a lista de tarefas dele; clique numa tarefa para abrir o detalhe.",
       "As mensais aparecem na data do prazo; diárias e semanais pelo dia da semana. Filtre por pessoa/empresa para ver a carga de alguém.",
+    ]},
+    { icon:"✏️", titulo:"Criar e editar tarefas (Cadastro)", itens:[
+      "Em **Cadastro → Nova rotina**: defina pessoa, título, **empresa** (obrigatória), cadência, prazo, descrição e premissa.",
+      "**Prazo** — para a tarefa cair certo nas colunas e na Agenda, use 'Dia do mês' (ex.: 20) ou 'N-ésimo dia útil' (ex.: 1º dia útil). 'Livre' = sob demanda, sem data fixa.",
+      "O botão **Incluir rotinas conhecidas** traz a lista base do time, sem duplicar o que já existe.",
+      "Para editar, clique no ✎ do card ou em **Editar rotina** no detalhe.",
     ]},
     { icon:"🗑️", titulo:"Excluir tarefa", itens:[
       "Dá para excluir pelo detalhe (em 'Zona de risco') ou no Cadastro (🗑).",
