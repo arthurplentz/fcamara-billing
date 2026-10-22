@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-empresa-obrig · #155";
+const APP_BUILD = "rotinas-agenda · #156";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4855,9 +4855,15 @@ function rtDedupePessoas(names){
 function rtNthBizDay(y, m1, n){ let c=0; const last=new Date(y,m1,0).getDate(); for(let d=1;d<=last;d++){ const wd=new Date(y,m1-1,d).getDay(); if(wd!==0&&wd!==6){ c++; if(c===n) return d; } } return last; }
 function rtIsoWeek(dd){ const d=new Date(Date.UTC(dd.getFullYear(),dd.getMonth(),dd.getDate())); const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day); const ys=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const wk=Math.ceil((((d-ys)/86400000)+1)/7); return `${d.getUTCFullYear()}-W${String(wk).padStart(2,"0")}`; }
 function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const last=new Date(y,m1,0).getDate(); return Math.min(r.prazoValor,last); } if(r.prazoTipo==="dia_util"&&r.prazoValor){ return rtNthBizDay(y,m1,r.prazoValor); } return null; }
+// Dias da semana em que uma rotina recorrente cai (0=Dom..6=Sáb), p/ a agenda.
+// Diária = seg a sex; semanal = tenta ler o dia do texto do prazo (ex.: "terças e quintas").
+const RT_WD = [["domingo",0],["segunda",1],["terça",2],["terca",2],["quarta",3],["quinta",4],["sexta",5],["sábado",6],["sabado",6]];
+function rtWeekdays(r){ if(r.cadencia==="diaria") return [1,2,3,4,5]; if(r.cadencia==="semanal"){ const t=(r.prazoTxt||"").toLowerCase(); const s=new Set(); RT_WD.forEach(([w,i])=>{ if(t.includes(w)) s.add(i); }); return s.size?[...s]:[1]; } return []; }
 
 function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=[], profiles=[], onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask }) {
   const podeCadastrar = !isViewer; // cadastro liberado para todo o time (menos viewers)
+  // Agenda (calendário) — por enquanto só no acesso da Daniela, para validar.
+  const isDani = (user?.email||"").toLowerCase()==="arthurplentz.copy@gmail.com" || rtSamePerson(user?.name,"Daniela");
   const ymNow = new Date().toISOString().slice(0,7);
   const [aba, setAba] = useState("dash");
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
@@ -4968,7 +4974,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
     <div>
       <PageHead icon="task" title="Rotinas & entregas do time" sub="todos veem as rotinas de todos · cada um marca as suas · diárias reiniciam no dia, semanais na semana, mensais no mês"/>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${T.line}`,marginBottom:16,flexWrap:"wrap"}}>
-        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
+        {[["dash","Dashboard"],["minhas","Quadro"],["time","Visão do time"], ...(isDani?[["agenda","Agenda"]]:[]), ...(podeCadastrar?[["cadastro","Cadastro"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>setAba(id)} style={{border:"none",background:"none",cursor:"pointer",padding:"8px 14px",fontSize:13,fontWeight:aba===id?700:500,color:aba===id?T.brand:T.muted,borderBottom:`2px solid ${aba===id?T.brand:"transparent"}`,marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -5110,6 +5116,14 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         </Card>
       </>)}
 
+      {aba==="agenda" && isDani && (<>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+          <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
+          <select value={empFil} onChange={e=>setEmpFil(e.target.value)} style={inp} title="Empresa"><option value="">Todas as empresas</option>{RT_EMPRESAS.filter(x=>x!=="Todas").map(x=><option key={x} value={x}>{x}</option>)}</select>
+        </div>
+        <RoutineAgenda list={ativos.filter(r=>(pessoa?rtSamePerson(r.pessoa,pessoa):true)&&matchEmp(r.empresa))} mes={mes} setMes={setMes} mesesOpt={mesesOpt} onOpen={setDetail}/>
+      </>)}
+
       {aba==="cadastro" && podeCadastrar && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <Btn icon="plus" onClick={()=>setEdit({ pessoa:pessoa||"", area:"", titulo:"", cliente:"", cadencia:"mensal", prazoTxt:"", prazoTipo:"livre", prazoValor:"", premissa:"", ativo:true })}>Nova rotina</Btn>
@@ -5214,6 +5228,101 @@ function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[],
         </div>}
       </div>
     </Modal>
+  );
+}
+
+function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
+  const [vista, setVista] = useState("mes");
+  const [weekRef, setWeekRef] = useState(()=>new Date());
+  const [y,m] = mes.split("-").map(Number);
+  const inp = { padding:"7px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:T.surface||"#fff", color:T.ink };
+  const WDLABEL = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const CADTXT = { diaria:"diária", semanal:"semanal", mensal:"mensal" };
+  const CADCOR = { diaria:"#0e7490", semanal:"#7c3aed", mensal:T.brand };
+
+  const mensais = list.filter(r=>r.cadencia==="mensal");
+  const recur = list.filter(r=>r.cadencia!=="mensal");
+  const recurOn = wd => recur.filter(r=>rtWeekdays(r).includes(wd));
+  const tasksOfDate = (dt) => { const day=dt.getDate(), yy=dt.getFullYear(), mm=dt.getMonth()+1; const dated=mensais.filter(r=>rtDueDay(r,yy,mm)===day); const rec=recurOn(dt.getDay()); return { dated, rec }; };
+  const semData = mensais.filter(r=>!rtDueDay(r,y,m));
+
+  const nDays=new Date(y,m,0).getDate();
+  const loads=[]; for(let d=1;d<=nDays;d++){ const {dated,rec}=tasksOfDate(new Date(y,m-1,d)); loads.push(dated.length+rec.length); }
+  const maxLoad=Math.max(1,...loads);
+  const tier=(load)=> load>=Math.max(4,maxLoad*0.66)?{c:T.danger,bg:T.dangerBg}: load>=Math.max(2,maxLoad*0.34)?{c:"#c2630f",bg:"#fff7ed"}: load>0?{c:T.brand,bg:"var(--brand-bg)"}:{c:T.muted,bg:"transparent"};
+  const todayISO=new Date().toISOString().slice(0,10);
+  const iso=(dt)=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+  const fmt=(d)=>`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}`;
+  const Chip = ({r}) => (<button onClick={()=>onOpen&&onOpen(r)} title={`${r.titulo}${r.pessoa?" · "+r.pessoa:""}`} style={{display:"block",width:"100%",textAlign:"left",border:"none",borderLeft:`2px solid ${CADCOR[r.cadencia]||T.brand}`,background:"var(--surface)",color:T.ink,borderRadius:4,padding:"2px 5px",fontSize:10.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:3}}>{r.titulo}</button>);
+
+  const firstWd=new Date(y,m-1,1).getDay();
+  const cells=[]; for(let i=0;i<firstWd;i++) cells.push(null); for(let d=1;d<=nDays;d++) cells.push(d);
+  const ws=new Date(weekRef); ws.setDate(ws.getDate()-ws.getDay()); ws.setHours(0,0,0,0);
+  const weekDays=[]; for(let i=0;i<7;i++){ const d=new Date(ws); d.setDate(ws.getDate()+i); weekDays.push(d); }
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        <div style={{display:"inline-flex",border:`1px solid ${T.line}`,borderRadius:8,overflow:"hidden"}}>
+          {[["mes","Mês"],["semana","Semana"]].map(([v,l])=>(<button key={v} onClick={()=>setVista(v)} style={{border:"none",background:vista===v?T.brand:"var(--surface)",color:vista===v?"#fff":T.muted,fontWeight:700,fontSize:13,padding:"7px 16px",cursor:"pointer"}}>{l}</button>))}
+        </div>
+        {vista==="mes"
+          ? <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(x=><option key={x} value={x}>{x}</option>)}</select>
+          : <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <button onClick={()=>{const d=new Date(weekRef);d.setDate(d.getDate()-7);setWeekRef(d);}} style={{...inp,cursor:"pointer"}}>‹</button>
+              <span style={{fontSize:13,fontWeight:700,color:T.ink}}>{fmt(weekDays[0])} – {fmt(weekDays[6])}</span>
+              <button onClick={()=>{const d=new Date(weekRef);d.setDate(d.getDate()+7);setWeekRef(d);}} style={{...inp,cursor:"pointer"}}>›</button>
+              <button onClick={()=>setWeekRef(new Date())} style={{...inp,cursor:"pointer",fontSize:12}}>Hoje</button>
+            </div>}
+        <span style={{fontSize:11.5,color:T.muted,alignSelf:"center"}}>tons mais fortes = mais tarefas · clique numa tarefa p/ abrir</span>
+      </div>
+
+      {vista==="mes" ? (
+        <Card style={{padding:12,overflowX:"auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6,minWidth:680}}>
+            {WDLABEL.map(w=><div key={w} style={{textAlign:"center",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",padding:"2px 0"}}>{w}</div>)}
+            {cells.map((d,i)=>{ if(d===null) return <div key={"e"+i}/>; const dt=new Date(y,m-1,d); const {dated,rec}=tasksOfDate(dt); const load=dated.length+rec.length; const tr=tier(load); const isToday=iso(dt)===todayISO;
+              return (
+                <div key={d} style={{minHeight:92,border:`1px solid ${isToday?T.brand:T.line}`,borderRadius:9,padding:6,background:tr.bg,display:"flex",flexDirection:"column"}}>
+                  <div style={{display:"flex",alignItems:"center",marginBottom:2}}>
+                    <span style={{fontSize:12,fontWeight:isToday?800:600,color:isToday?T.brand:T.ink}}>{d}</span>
+                    {load>0 && <span style={{marginLeft:"auto",fontSize:10,fontWeight:800,color:tr.c,background:"var(--surface)",borderRadius:20,padding:"0 6px"}}>{load}</span>}
+                  </div>
+                  {dated.slice(0,2).map(r=><Chip key={r.id} r={r}/>)}
+                  {dated.length>2 && <div style={{fontSize:10,color:T.muted,marginTop:2}}>+{dated.length-2} com data</div>}
+                  {rec.length>0 && <div style={{fontSize:10,color:T.muted,marginTop:"auto",paddingTop:3}}>+{rec.length} recorrente(s)</div>}
+                </div>
+              );})}
+          </div>
+        </Card>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,alignItems:"start"}}>
+          {weekDays.map((dt,i)=>{ const {dated,rec}=tasksOfDate(dt); const all=[...dated,...rec]; const isToday=iso(dt)===todayISO;
+            return (
+              <Card key={i} style={{padding:0,overflow:"hidden",border:`1px solid ${isToday?T.brand:T.line}`}}>
+                <div style={{padding:"8px 10px",borderBottom:`1px solid ${T.line}`,background:isToday?"var(--brand-bg)":T.canvas}}>
+                  <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase"}}>{WDLABEL[dt.getDay()]}</div>
+                  <div style={{fontSize:14,fontWeight:800,color:isToday?T.brand:T.ink}}>{fmt(dt)} <span style={{fontSize:11,fontWeight:600,color:T.muted}}>· {all.length}</span></div>
+                </div>
+                <div style={{padding:8,display:"flex",flexDirection:"column",gap:5,minHeight:50}}>
+                  {all.map(r=>(<button key={r.id} onClick={()=>onOpen&&onOpen(r)} style={{textAlign:"left",border:`1px solid ${T.line}`,borderLeft:`3px solid ${CADCOR[r.cadencia]||T.brand}`,background:"var(--surface)",borderRadius:7,padding:"5px 7px",cursor:"pointer"}}>
+                    <div style={{fontSize:11.5,fontWeight:600,color:T.ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.titulo}</div>
+                    <div style={{fontSize:10,color:T.muted}}>{r.pessoa}{r.empresa?` · ${r.empresa}`:""} · {CADTXT[r.cadencia]}</div>
+                  </button>))}
+                  {!all.length && <div style={{fontSize:11,color:T.muted,textAlign:"center",padding:"8px 0"}}>—</div>}
+                </div>
+              </Card>
+            );})}
+        </div>
+      )}
+
+      {semData.length>0 && <Card style={{padding:"10px 14px",marginTop:12,background:T.canvas}}>
+        <div style={{fontSize:11.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>Sem data fixa no mês ({semData.length}) — sob demanda</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {semData.map(r=><button key={r.id} onClick={()=>onOpen&&onOpen(r)} style={{border:`1px solid ${T.line}`,background:"var(--surface)",borderRadius:20,padding:"3px 10px",fontSize:11,color:T.ink,cursor:"pointer"}}>{r.titulo}<span style={{color:T.muted}}> · {r.pessoa}</span></button>)}
+        </div>
+      </Card>}
+    </div>
   );
 }
 
