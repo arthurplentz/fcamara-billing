@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-pessoas-gestao · #161";
+const APP_BUILD = "rotinas-pontual · #162";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4859,7 +4859,7 @@ function rtDueDay(r, y, m1){ if(r.prazoTipo==="dia_mes"&&r.prazoValor){ const la
 // Dias da semana em que uma rotina recorrente cai (0=Dom..6=Sáb), p/ a agenda.
 // Diária = seg a sex; semanal = tenta ler o dia do texto do prazo (ex.: "terças e quintas").
 const RT_WD = [["domingo",0],["segunda",1],["terça",2],["terca",2],["quarta",3],["quinta",4],["sexta",5],["sábado",6],["sabado",6]];
-function rtWeekdays(r){ if(r.cadencia==="diaria") return [1,2,3,4,5]; if(r.cadencia==="semanal"){ const t=(r.prazoTxt||"").toLowerCase(); const s=new Set(); RT_WD.forEach(([w,i])=>{ if(t.includes(w)) s.add(i); }); return s.size?[...s]:[1]; } return []; }
+function rtWeekdays(r){ if(r.cadencia==="diaria") return [1,2,3,4,5]; if(r.cadencia==="semanal"){ const t=(r.prazoTxt||"").toLowerCase(); const s=new Set(); RT_WD.forEach(([w,i])=>{ if(t.includes(w)) s.add(i); }); return s.size?[...s]:[1]; } return []; } // pontual/mensal: sem dia-da-semana fixo
 
 function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=[], profiles=[], onToggleDone, onSaveRoutine, onDeleteRoutine, onSeed, onSetObs, onAddSubtask, onToggleSubtask, onUpdateSubtask, onDeleteSubtask }) {
   const podeCadastrar = !isViewer; // cadastro liberado para todo o time (menos viewers)
@@ -4878,12 +4878,20 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const mesesOpt = []; { const [yy,mm]=ymNow.split("-").map(Number); for(let i=-3;i<=8;i++){ const d=new Date(yy,mm-1-i,1); mesesOpt.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } } // 3 meses à frente + atual + 8 atrás
   // diária reinicia todo dia; semanal a cada semana (ISO); mensal por mês.
   const weekKey = rtIsoWeek(new Date());
-  const periodOf = (r) => r.cadencia==="diaria" ? todayStr : r.cadencia==="semanal" ? weekKey : mes;
+  const periodOf = (r) => r.cadencia==="diaria" ? todayStr : r.cadencia==="semanal" ? weekKey : r.cadencia==="pontual" ? "unico" : mes;
   // buckets de tempo (inspirado em Todoist/Things): atrasado → hoje → semana → futuro → feito.
   const BUCKET_ORD = { atrasado:0, hoje:1, semana:2, futuro:3, feito:4 };
   const statusOf = (r) => {
     const periodo = periodOf(r);
     const d = done[`${r.id}|${periodo}`];
+    if (r.cadencia==="pontual") { // tarefa de uma vez só, com data específica
+      const du = r.dataUnica || "";
+      if (d?.feito) return { k:"feito", bucket:"feito", label: d.feitoEm?`feito ${d.feitoEm.slice(8,10)}/${d.feitoEm.slice(5,7)}`:"feito", color:"#166534", bg:"#f0fdf4" };
+      if (du && du<todayStr){ const od=Math.round((new Date(todayStr)-new Date(du))/86400000); return { k:"atrasado", bucket:"atrasado", label:`atrasado ${od}d`, color:T.danger, bg:"#fef2f2" }; }
+      if (du && du===todayStr) return { k:"pendente", bucket:"hoje", label:"vence hoje", color:"#c2630f", bg:"#fff7ed" };
+      if (du) return { k:"pendente", bucket:"futuro", label:`vence ${du.slice(8,10)}/${du.slice(5,7)}`, color:T.muted, bg:"transparent" };
+      return { k:"pendente", bucket:"futuro", label:"sem data", color:T.muted, bg:"transparent" };
+    }
     // diária/semanal: ao concluir, vai para FINALIZADO no dia/semana corrente.
     // No próximo período o card volta sozinho como novo pendente (reinicia).
     if (r.cadencia==="diaria") {
@@ -4934,7 +4942,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const mine = ativos.filter(r=> pessoa ? rtSamePerson(r.pessoa, pessoa) : true)
     .filter(r=> matchEmp(r.empresa))
     .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa,r.empresa]) : true);
-  const cadOrder = { mensal:0, semanal:1, diaria:2 };
+  const cadOrder = { pontual:0, mensal:1, semanal:2, diaria:3 };
   const mineSorted = [...mine].sort((a,b)=> (cadOrder[a.cadencia]??3)-(cadOrder[b.cadencia]??3) || (rtDueDay(a,...mes.split("-").map(Number))||99)-(rtDueDay(b,...mes.split("-").map(Number))||99) || a.titulo.localeCompare(b.titulo));
   const totMine = mine.length, feitMine = mine.filter(isFeito).length, atrMine = mine.filter(r=>statusOf(r).k==="atrasado").length;
   const CAD_LABEL = { mensal:"Mensais", semanal:"Semanais", diaria:"Diárias" };
@@ -5021,7 +5029,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
           <button onClick={()=>setEmpFil("__none__")} style={{marginLeft:"auto",border:`1px solid ${T.dangerLine}`,background:"var(--surface)",color:T.danger,fontWeight:700,fontSize:12,padding:"6px 12px",borderRadius:8,cursor:"pointer"}}>Ver e ajustar</button>
         </Card>}
         {(() => {
-          const CAD1 = { mensal:"mensal", semanal:"semanal", diaria:"diária" };
+          const CAD1 = { mensal:"mensal", semanal:"semanal", diaria:"diária", pontual:"pontual" };
           const COLS = [
             { key:"vencidos",   label:"Vencidos",   color:T.danger,     bg:T.dangerBg,       test:st=>st.bucket==="atrasado" },
             { key:"hoje",       label:"Hoje",       color:"#c2630f",    bg:"#fff7ed",        test:st=>st.bucket==="hoje" },
@@ -5163,7 +5171,7 @@ function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[],
   const [obsDirty, setObsDirty] = useState(false);
   const [nt, setNt] = useState(""); const [nr, setNr] = useState(""); const [np, setNp] = useState("");
   const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:T.surface||"#fff", color:T.ink };
-  const CAD1 = { mensal:"Mensal", semanal:"Semanal", diaria:"Diária" };
+  const CAD1 = { mensal:"Mensal", semanal:"Semanal", diaria:"Diária", pontual:"Pontual (1x)" };
   const addSub = () => { const t=nt.trim(); if(!t) return; onAddSubtask({ routineId:rotina.id, titulo:t, responsavel:nr||user?.name||"", prazo:np||"" }); setNt(""); setNr(""); setNp(""); };
   return (
     <Modal onClose={onClose} title={rotina.titulo} wide>
@@ -5257,11 +5265,12 @@ const MANUAL_TAREFAS = {
       "**A vencer** — o que vence nos próximos dias (semanais e mensais futuras do mês).",
       "**Finalizado** — o que já foi concluído no período.",
     ]},
-    { icon:"🔁", titulo:"Diárias, semanais e mensais", itens:[
+    { icon:"🔁", titulo:"Cadências (diária, semanal, mensal, pontual)", itens:[
       "**Diária** — reinicia todo dia. Marcou hoje, amanhã ela volta como nova em 'Hoje'.",
       "**Semanal** — reinicia a cada semana.",
       "**Mensal** — vale pelo mês, com prazo e aviso de atraso.",
-      "Ou seja: marcar hoje não apaga a rotina — ela reaparece sozinha no próximo período.",
+      "**Pontual (1x)** — tarefa de uma vez só, com uma **data específica**. Não recorre: quando conclui, fica em Finalizado e não volta.",
+      "As recorrentes (diária/semanal/mensal) reaparecem sozinhas no próximo período; a pontual não.",
     ]},
     { icon:"🔎", titulo:"Abrir a tarefa (detalhe)", itens:[
       "Clique em qualquer card para abrir o detalhe.",
@@ -5307,6 +5316,7 @@ const MANUAL_TAREFAS = {
     ]},
   ],
   changelog: [
+    { data:"22/10", txt:"Nova cadência Pontual (1x) para tarefas de uma vez só, com data específica." },
     { data:"22/10", txt:"Agenda (calendário mês/semana) liberada para todos — clique no dia para ver as tarefas. Manual como aba inicial." },
     { data:"22/10", txt:"Campo Empresa obrigatório + filtro por empresa; exclusão de tarefa com aviso." },
     { data:"21/10", txt:"Detalhe da tarefa com descrição, observação e subtarefas atribuíveis; quadro em 4 colunas." },
@@ -5348,14 +5358,16 @@ function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
   const WDFULL = ["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
   const inp = { padding:"7px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:T.surface||"#fff", color:T.ink };
   const WDLABEL = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-  const CADTXT = { diaria:"diária", semanal:"semanal", mensal:"mensal" };
-  const CADCOR = { diaria:"#0e7490", semanal:"#7c3aed", mensal:T.brand };
+  const CADTXT = { diaria:"diária", semanal:"semanal", mensal:"mensal", pontual:"pontual" };
+  const CADCOR = { diaria:"#0e7490", semanal:"#7c3aed", mensal:T.brand, pontual:"#64748b" };
 
   const mensais = list.filter(r=>r.cadencia==="mensal");
-  const recur = list.filter(r=>r.cadencia!=="mensal");
+  const pontuais = list.filter(r=>r.cadencia==="pontual");
+  const recur = list.filter(r=>r.cadencia!=="mensal" && r.cadencia!=="pontual");
   const recurOn = wd => recur.filter(r=>rtWeekdays(r).includes(wd));
-  const tasksOfDate = (dt) => { const day=dt.getDate(), yy=dt.getFullYear(), mm=dt.getMonth()+1; const dated=mensais.filter(r=>rtDueDay(r,yy,mm)===day); const rec=recurOn(dt.getDay()); return { dated, rec }; };
-  const semData = mensais.filter(r=>!rtDueDay(r,y,m));
+  const isoOf=(dt)=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+  const tasksOfDate = (dt) => { const day=dt.getDate(), yy=dt.getFullYear(), mm=dt.getMonth()+1; const diso=isoOf(dt); const dated=[...mensais.filter(r=>rtDueDay(r,yy,mm)===day), ...pontuais.filter(r=>r.dataUnica===diso)]; const rec=recurOn(dt.getDay()); return { dated, rec }; };
+  const semData = [...mensais.filter(r=>!rtDueDay(r,y,m)), ...pontuais.filter(r=>!r.dataUnica)];
 
   const nDays=new Date(y,m,0).getDate();
   const loads=[]; for(let d=1;d<=nDays;d++){ const {dated,rec}=tasksOfDate(new Date(y,m-1,d)); loads.push(dated.length+rec.length); }
@@ -5472,16 +5484,20 @@ function RoutineEditModal({ rotina, pessoasOpts, onSave, onClose }) {
         <Field label="Título *"><input style={inp} value={f.titulo||""} onChange={e=>set("titulo",e.target.value)}/></Field>
         <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
         <Field label="Empresa *"><select style={{...inp,borderColor:f.empresa?T.line:T.dangerLine}} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}><option value="">— selecione —</option>{RT_EMPRESAS.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
-        <Field label="Cadência"><select style={inp} value={f.cadencia||"mensal"} onChange={e=>set("cadencia",e.target.value)}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="diaria">Diária</option></select></Field>
-        <Field label="Prazo (texto)"><input style={inp} placeholder="ex: 1º dia útil / dia 15 / data de corte 20" value={f.prazoTxt||""} onChange={e=>set("prazoTxt",e.target.value)}/></Field>
-        <Field label="Tipo de prazo (p/ status)"><select style={inp} value={f.prazoTipo||"livre"} onChange={e=>set("prazoTipo",e.target.value)}><option value="livre">Livre (sem cálculo)</option><option value="dia_mes">Dia do mês</option><option value="dia_util">N-ésimo dia útil</option></select></Field>
-        <Field label="Valor (dia do mês ou nº do dia útil)"><input type="number" style={inp} value={f.prazoValor??""} onChange={e=>set("prazoValor",e.target.value)}/></Field>
+        <Field label="Cadência"><select style={inp} value={f.cadencia||"mensal"} onChange={e=>set("cadencia",e.target.value)}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="diaria">Diária</option><option value="pontual">Pontual (1x — data específica)</option></select></Field>
+        {f.cadencia==="pontual"
+          ? <Field label="Data da tarefa *"><input type="date" style={{...inp,borderColor:f.dataUnica?T.line:T.dangerLine}} value={f.dataUnica||""} onChange={e=>set("dataUnica",e.target.value)}/></Field>
+          : <>
+              <Field label="Prazo (texto)"><input style={inp} placeholder="ex: 1º dia útil / dia 15 / data de corte 20" value={f.prazoTxt||""} onChange={e=>set("prazoTxt",e.target.value)}/></Field>
+              <Field label="Tipo de prazo (p/ status)"><select style={inp} value={f.prazoTipo||"livre"} onChange={e=>set("prazoTipo",e.target.value)}><option value="livre">Livre (sem cálculo)</option><option value="dia_mes">Dia do mês</option><option value="dia_util">N-ésimo dia útil</option></select></Field>
+              <Field label="Valor (dia do mês ou nº do dia útil)"><input type="number" style={inp} value={f.prazoValor??""} onChange={e=>set("prazoValor",e.target.value)}/></Field>
+            </>}
       </div>
       <Field label="Descrição (como fazer — aparece no detalhe da tarefa)"><textarea style={{...inp,minHeight:80,resize:"vertical"}} placeholder="Passo a passo / instruções que o time deve seguir ao executar." value={f.descricao||""} onChange={e=>set("descricao",e.target.value)}/></Field>
       <Field label="Premissa / observação (resumo curto)"><textarea style={{...inp,minHeight:60,resize:"vertical"}} value={f.premissa||""} onChange={e=>set("premissa",e.target.value)}/></Field>
       <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary disabled={!f.pessoa||!f.titulo||!f.empresa} onClick={()=>onSave(f)}>Salvar</Btn>
+        <Btn primary disabled={!f.pessoa||!f.titulo||!f.empresa||(f.cadencia==="pontual"&&!f.dataUnica)} onClick={()=>onSave(f)}>Salvar</Btn>
       </div>
     </Modal>
   );
