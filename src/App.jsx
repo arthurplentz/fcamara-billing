@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-manual-completo · #160";
+const APP_BUILD = "rotinas-pessoas-gestao · #161";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4719,6 +4719,7 @@ function ApelidoModal({ atual, onSave, onClose }) {
 // Empresas do grupo (para classificar/filtrar rotinas). "Todas" = vale para todas.
 const RT_EMPRESAS = ["FC Holding","Fcamara","Omnik","Nação Digital","SGA","FC Hyperautomation","Dojo","Nextgeneration","FC Europa","FC UK","Todas"];
 const RT_PESSOAS = [
+  { nome:"Daniela", area:"Gestão" }, { nome:"Luana", area:"Gestão" },
   { nome:"Beatriz Goulart", area:"Contas a Receber" }, { nome:"Erica Nascimento", area:"Contas a Receber" },
   { nome:"Tifany Samelo", area:"Contas a Receber" }, { nome:"Diego Jesus", area:"Financial Controls" },
   { nome:"Fernanda Libretti", area:"Financial Controls" }, { nome:"Layza Morais", area:"Financial Controls" },
@@ -5145,7 +5146,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
         </Card>
       </>)}
 
-      {edit && <RoutineEditModal rotina={edit} onSave={r=>{ onSaveRoutine(r); setEdit(null); }} onClose={()=>setEdit(null)}/>}
+      {edit && <RoutineEditModal rotina={edit} pessoasOpts={pessoasOpts} onSave={r=>{ onSaveRoutine(r); setEdit(null); }} onClose={()=>setEdit(null)}/>}
       {detail && <RoutineDetailModal
         rotina={detail} periodo={periodOf(detail)} doneRec={done[`${detail.id}|${periodOf(detail)}`]||{}}
         subs={subtasks.filter(s=>s.routineId===detail.id)} pessoasOpts={pessoasOpts}
@@ -5458,14 +5459,15 @@ function RoutineAgenda({ list=[], mes, setMes, mesesOpt=[], onOpen }) {
   );
 }
 
-function RoutineEditModal({ rotina, onSave, onClose }) {
+function RoutineEditModal({ rotina, pessoasOpts, onSave, onClose }) {
+  const listaPessoas = (pessoasOpts && pessoasOpts.length) ? pessoasOpts : RT_PESSOAS.map(p=>p.nome);
   const [f, setF] = useState({ ...rotina });
   const set = (k,v) => setF(s=>({ ...s, [k]:v }));
   const inp = { padding:"8px 10px", borderRadius:8, border:`1px solid ${T.line}`, fontSize:13, background:"#fff", color:T.ink, width:"100%" };
   return (
     <Modal title={rotina.id?"Editar rotina":"Nova rotina"} onClose={onClose} wide>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        <Field label="Pessoa *"><input style={inp} list="rt-pessoas" value={f.pessoa||""} onChange={e=>{ const p=e.target.value; const found=RT_PESSOAS.find(x=>x.nome===p); set("pessoa",p); if(found&&!f.area) set("area",found.area); }}/><datalist id="rt-pessoas">{RT_PESSOAS.map(p=><option key={p.nome} value={p.nome}/>)}</datalist></Field>
+        <Field label="Pessoa *"><input style={inp} list="rt-pessoas" value={f.pessoa||""} onChange={e=>{ const p=e.target.value; const found=RT_PESSOAS.find(x=>x.nome===p); set("pessoa",p); if(found&&!f.area) set("area",found.area); }}/><datalist id="rt-pessoas">{listaPessoas.map(p=><option key={p} value={p}/>)}</datalist></Field>
         <Field label="Área"><select style={inp} value={f.area||""} onChange={e=>set("area",e.target.value)}><option value="">—</option><option>Contas a Receber</option><option>Financial Controls</option></select></Field>
         <Field label="Título *"><input style={inp} value={f.titulo||""} onChange={e=>set("titulo",e.target.value)}/></Field>
         <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
