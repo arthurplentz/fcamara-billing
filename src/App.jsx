@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-excluir · #153";
+const APP_BUILD = "rotinas-empresa · #154";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4716,6 +4716,8 @@ function ApelidoModal({ atual, onSave, onClose }) {
 }
 
 // ─── ROTINAS DO TIME (tarefas recorrentes) ───────────────────────────────────
+// Empresas do grupo (para classificar/filtrar rotinas). "Todas" = vale para todas.
+const RT_EMPRESAS = ["FC Holding","Fcamara","Omnik","Nação Digital","SGA","FC Hyperautomation","Dojo","Nextgeneration","FC Europa","FC UK","Todas"];
 const RT_PESSOAS = [
   { nome:"Beatriz Goulart", area:"Contas a Receber" }, { nome:"Erica Nascimento", area:"Contas a Receber" },
   { nome:"Tifany Samelo", area:"Contas a Receber" }, { nome:"Diego Jesus", area:"Financial Controls" },
@@ -4861,6 +4863,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const [pessoa, setPessoa] = useState(isAdmin ? "" : (user?.name||""));
   const [mes, setMes] = useState(ymNow);
   const [q, setQ] = useState("");
+  const [empFil, setEmpFil] = useState(""); // filtro por empresa
   const [edit, setEdit] = useState(null); // rotina em edição (modal admin)
   const [detail, setDetail] = useState(null); // rotina aberta no modal de detalhe
   const todayStr = new Date().toISOString().slice(0,10);
@@ -4918,10 +4921,13 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   // ordem importa: nomes completos (RT_PESSOAS/rotinas) primeiro, p/ serem os canônicos ao colapsar
   const pessoasOpts = rtDedupePessoas([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina, ...nomesProfiles, ...(user?.name?[user.name]:[])]);
   const ativos = routines.filter(r=>r.ativo!==false);
+  const empById = {}; routines.forEach(r=>{ empById[r.id]=r.empresa||""; });
+  const matchEmp = (emp) => !empFil || emp===empFil || emp==="Todas"; // "Todas" vale p/ qualquer empresa
 
   // ── Lista filtrada (aba por pessoa) ──
   const mine = ativos.filter(r=> pessoa ? rtSamePerson(r.pessoa, pessoa) : true)
-    .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa]) : true);
+    .filter(r=> matchEmp(r.empresa))
+    .filter(r=> q ? matchQuery(q,[r.titulo,r.cliente,r.pessoa,r.premissa,r.empresa]) : true);
   const cadOrder = { mensal:0, semanal:1, diaria:2 };
   const mineSorted = [...mine].sort((a,b)=> (cadOrder[a.cadencia]??3)-(cadOrder[b.cadencia]??3) || (rtDueDay(a,...mes.split("-").map(Number))||99)-(rtDueDay(b,...mes.split("-").map(Number))||99) || a.titulo.localeCompare(b.titulo));
   const totMine = mine.length, feitMine = mine.filter(isFeito).length, atrMine = mine.filter(r=>statusOf(r).k==="atrasado").length;
@@ -4999,6 +5005,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
       {aba==="minhas" && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
+          <select value={empFil} onChange={e=>setEmpFil(e.target.value)} style={inp} title="Empresa"><option value="">Todas as empresas</option>{RT_EMPRESAS.filter(x=>x!=="Todas").map(x=><option key={x} value={x}>{x}</option>)}</select>
           <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
           <input placeholder="Buscar tarefa/cliente…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
         </div>
@@ -5011,7 +5018,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
             { key:"finalizado", label:"Finalizado", color:T.ok,         bg:T.okBg,           test:st=>st.bucket==="feito" },
           ];
           const subsByRoutine = {}; subtasks.forEach(s=>{ (subsByRoutine[s.routineId]=subsByRoutine[s.routineId]||[]).push(s); });
-          const mySubs = subtasks.filter(s=> pessoa ? rtSamePerson(s.responsavel, pessoa) : true).filter(s=> q? matchQuery(q,[s.titulo,s.responsavel,s.criadoPor]) : true);
+          const mySubs = subtasks.filter(s=> pessoa ? rtSamePerson(s.responsavel, pessoa) : true).filter(s=> matchEmp(empById[s.routineId]||"")).filter(s=> q? matchQuery(q,[s.titulo,s.responsavel,s.criadoPor]) : true);
           if (!mine.length && !mySubs.length) return <Card style={{padding:24,textAlign:"center",color:T.muted}}>Nenhuma tarefa {pessoa?<b>para “{pessoa}”</b>:""}. {isAdmin ? "Vá em Cadastro para adicionar ou semear." : ""}</Card>;
           const titById = {}; routines.forEach(r=>{ titById[r.id]=r.titulo; });
           return (
@@ -5036,6 +5043,7 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
                           {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.ink,background:T.canvas,border:`1px solid ${T.line}`,borderRadius:20,padding:"1px 7px"}}>{r.pessoa}</span>}
+                          {r.empresa && <span style={{fontSize:10,fontWeight:600,color:T.brand,background:"var(--brand-bg)",borderRadius:20,padding:"1px 7px"}}>{r.empresa}</span>}
                           <span style={{fontSize:10,color:T.muted}}>{CAD1[r.cadencia]||r.cadencia}{r.prazoTxt?` · ${r.prazoTxt}`:""}</span>
                           <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:st.color,whiteSpace:"nowrap"}}>{st.label}</span>
                         </div>
@@ -5140,6 +5148,7 @@ function RoutineDetailModal({ rotina, periodo, doneRec, subs=[], pessoasOpts=[],
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",fontSize:12,color:T.muted}}>
           <span style={{fontWeight:700,color:T.ink}}>{rotina.pessoa}</span>
           <span>· {CAD1[rotina.cadencia]||rotina.cadencia}</span>
+          {rotina.empresa && <span style={{fontWeight:600,color:T.brand,background:"var(--brand-bg)",borderRadius:20,padding:"1px 8px"}}>{rotina.empresa}</span>}
           {rotina.cliente && <span>· {rotina.cliente}</span>}
           {rotina.prazoTxt && <span>· prazo: {rotina.prazoTxt}</span>}
           {onEditRotina && <button onClick={onEditRotina} style={{marginLeft:"auto",...inp,cursor:"pointer",fontSize:12,fontWeight:600}}>✎ Editar rotina</button>}
@@ -5211,6 +5220,7 @@ function RoutineEditModal({ rotina, onSave, onClose }) {
         <Field label="Área"><select style={inp} value={f.area||""} onChange={e=>set("area",e.target.value)}><option value="">—</option><option>Contas a Receber</option><option>Financial Controls</option></select></Field>
         <Field label="Título *"><input style={inp} value={f.titulo||""} onChange={e=>set("titulo",e.target.value)}/></Field>
         <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
+        <Field label="Empresa"><select style={inp} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}><option value="">—</option>{RT_EMPRESAS.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
         <Field label="Cadência"><select style={inp} value={f.cadencia||"mensal"} onChange={e=>set("cadencia",e.target.value)}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="diaria">Diária</option></select></Field>
         <Field label="Prazo (texto)"><input style={inp} placeholder="ex: 1º dia útil / dia 15 / data de corte 20" value={f.prazoTxt||""} onChange={e=>set("prazoTxt",e.target.value)}/></Field>
         <Field label="Tipo de prazo (p/ status)"><select style={inp} value={f.prazoTipo||"livre"} onChange={e=>set("prazoTipo",e.target.value)}><option value="livre">Livre (sem cálculo)</option><option value="dia_mes">Dia do mês</option><option value="dia_util">N-ésimo dia útil</option></select></Field>
