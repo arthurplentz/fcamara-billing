@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-dedup-nomes · #151";
+const APP_BUILD = "rotinas-feito-coluna · #152";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4876,14 +4876,14 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const statusOf = (r) => {
     const periodo = periodOf(r);
     const d = done[`${r.id}|${periodo}`];
-    // diária/semanal: ao concluir, a tarefa já "reagenda" para a próxima ocorrência
-    // (vai para A vencer) — some de Hoje mas continua visível como recorrente.
+    // diária/semanal: ao concluir, vai para FINALIZADO no dia/semana corrente.
+    // No próximo período o card volta sozinho como novo pendente (reinicia).
     if (r.cadencia==="diaria") {
-      if (d?.feito) return { k:"feito", bucket:"futuro", label:"feito · volta amanhã", color:"#166534", bg:"#f0fdf4" };
+      if (d?.feito) return { k:"feito", bucket:"feito", label:"feito hoje · volta amanhã", color:"#166534", bg:"#f0fdf4" };
       return { k:"pendente", bucket:"hoje", label:"hoje", color:T.muted, bg:"transparent" };
     }
     if (r.cadencia==="semanal") {
-      if (d?.feito) return { k:"feito", bucket:"futuro", label:"feito · volta na semana", color:"#166534", bg:"#f0fdf4" };
+      if (d?.feito) return { k:"feito", bucket:"feito", label:"feito · volta na semana", color:"#166534", bg:"#f0fdf4" };
       return { k:"pendente", bucket:"semana", label:"esta semana", color:T.muted, bg:"transparent" };
     }
     const [yy,mm]=mes.split("-").map(Number);
