@@ -21,7 +21,7 @@ const TIPOS_PROJETO = ["Time & Expenses", "Fee", "WIP", "Usage Based"];
 const BUS = ["BU Health", "BU Multisector", "BU Logistics", "BU Others", "BU Finance", "BU Retail"];
 // Carimbo de versão visível (bump a cada deploy) — serve para confirmar, na tela,
 // se o navegador está rodando o build mais novo (e não uma cópia em cache).
-const APP_BUILD = "rotinas-empresa · #154";
+const APP_BUILD = "rotinas-empresa-obrig · #155";
 
 // PEP canônico para JUNÇÃO DE VALORES: o sufixo após o 1º ponto (".1.1", ".0.3"…)
 // é variação sistêmica e conta como o MESMO PEP. Ex.: BR02CLP00046.1.1 →
@@ -4922,7 +4922,8 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
   const pessoasOpts = rtDedupePessoas([...RT_PESSOAS.map(p=>p.nome), ...pessoasComRotina, ...nomesProfiles, ...(user?.name?[user.name]:[])]);
   const ativos = routines.filter(r=>r.ativo!==false);
   const empById = {}; routines.forEach(r=>{ empById[r.id]=r.empresa||""; });
-  const matchEmp = (emp) => !empFil || emp===empFil || emp==="Todas"; // "Todas" vale p/ qualquer empresa
+  const matchEmp = (emp) => !empFil || (empFil==="__none__" ? !emp : (emp===empFil || emp==="Todas")); // "Todas" vale p/ qualquer empresa
+  const semEmpresa = ativos.filter(r=>!r.empresa); // tarefas ainda sem empresa (precisam de ajuste)
 
   // ── Lista filtrada (aba por pessoa) ──
   const mine = ativos.filter(r=> pessoa ? rtSamePerson(r.pessoa, pessoa) : true)
@@ -5005,10 +5006,15 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
       {aba==="minhas" && (<>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <select value={pessoa} onChange={e=>setPessoa(e.target.value)} style={inp}><option value="">Todas as pessoas</option>{pessoasOpts.map(p=><option key={p} value={p}>{p}</option>)}</select>
-          <select value={empFil} onChange={e=>setEmpFil(e.target.value)} style={inp} title="Empresa"><option value="">Todas as empresas</option>{RT_EMPRESAS.filter(x=>x!=="Todas").map(x=><option key={x} value={x}>{x}</option>)}</select>
+          <select value={empFil} onChange={e=>setEmpFil(e.target.value)} style={inp} title="Empresa"><option value="">Todas as empresas</option>{RT_EMPRESAS.filter(x=>x!=="Todas").map(x=><option key={x} value={x}>{x}</option>)}<option value="__none__">⚠ Sem empresa</option></select>
           <select value={mes} onChange={e=>setMes(e.target.value)} style={inp}>{mesesOpt.map(m=><option key={m} value={m}>{m}</option>)}</select>
           <input placeholder="Buscar tarefa/cliente…" value={q} onChange={e=>setQ(e.target.value)} style={{...inp,flex:1,minWidth:180}}/>
         </div>
+        {semEmpresa.length>0 && empFil!=="__none__" && podeCadastrar && <Card style={{padding:"10px 14px",marginBottom:12,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:T.danger,fontWeight:700}}>⚠ {semEmpresa.length} tarefa(s) sem empresa</span>
+          <span style={{fontSize:12,color:T.muted}}>defina a empresa para classificar e filtrar certo</span>
+          <button onClick={()=>setEmpFil("__none__")} style={{marginLeft:"auto",border:`1px solid ${T.dangerLine}`,background:"var(--surface)",color:T.danger,fontWeight:700,fontSize:12,padding:"6px 12px",borderRadius:8,cursor:"pointer"}}>Ver e ajustar</button>
+        </Card>}
         {(() => {
           const CAD1 = { mensal:"mensal", semanal:"semanal", diaria:"diária" };
           const COLS = [
@@ -5043,7 +5049,9 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:7,flexWrap:"wrap"}}>
                           {!pessoa && <span style={{fontSize:10,fontWeight:600,color:T.ink,background:T.canvas,border:`1px solid ${T.line}`,borderRadius:20,padding:"1px 7px"}}>{r.pessoa}</span>}
-                          {r.empresa && <span style={{fontSize:10,fontWeight:600,color:T.brand,background:"var(--brand-bg)",borderRadius:20,padding:"1px 7px"}}>{r.empresa}</span>}
+                          {r.empresa
+                            ? <span style={{fontSize:10,fontWeight:600,color:T.brand,background:"var(--brand-bg)",borderRadius:20,padding:"1px 7px"}}>{r.empresa}</span>
+                            : <span title="Defina a empresa desta tarefa" style={{fontSize:10,fontWeight:700,color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,borderRadius:20,padding:"1px 7px"}}>⚠ sem empresa</span>}
                           <span style={{fontSize:10,color:T.muted}}>{CAD1[r.cadencia]||r.cadencia}{r.prazoTxt?` · ${r.prazoTxt}`:""}</span>
                           <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:st.color,whiteSpace:"nowrap"}}>{st.label}</span>
                         </div>
@@ -5112,8 +5120,8 @@ function RoutinesView({ user, isAdmin, isViewer, routines=[], done={}, subtasks=
           {routines.filter(r=> q?matchQuery(q,[r.titulo,r.cliente,r.pessoa]):true).sort((a,b)=>a.pessoa.localeCompare(b.pessoa)||a.titulo.localeCompare(b.titulo)).map((r,i,arr)=>(
             <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 14px",borderBottom:i<arr.length-1?`1px solid ${T.lineSoft}`:"none"}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:650,color:T.ink}}>{r.titulo}{r.cliente?` · ${r.cliente}`:""}</div>
-                <div style={{fontSize:11,color:T.muted}}>{r.pessoa} · {r.cadencia} · {r.prazoTxt||"sem prazo"}</div>
+                <div style={{fontSize:13,fontWeight:650,color:T.ink}}>{r.titulo}{r.cliente?` · ${r.cliente}`:""}{!r.empresa && <span style={{marginLeft:8,fontSize:10,fontWeight:700,color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerLine}`,borderRadius:20,padding:"1px 7px"}}>⚠ sem empresa</span>}</div>
+                <div style={{fontSize:11,color:T.muted}}>{r.pessoa} · {r.empresa||"sem empresa"} · {r.cadencia} · {r.prazoTxt||"sem prazo"}</div>
               </div>
               <Btn small onClick={()=>setEdit(r)}>Editar</Btn>
               <button onClick={()=>{ if(window.confirm(`⚠️ EXCLUIR a tarefa "${r.titulo}"?\n\nRemove a rotina para TODO O TIME, com subtarefas e histórico de conclusões.\n\nEsta ação NÃO pode ser desfeita.`)) onDeleteRoutine(r.id); }} title="Excluir tarefa" style={{border:"none",background:"none",cursor:"pointer",color:T.danger,fontSize:16}}>🗑</button>
@@ -5220,7 +5228,7 @@ function RoutineEditModal({ rotina, onSave, onClose }) {
         <Field label="Área"><select style={inp} value={f.area||""} onChange={e=>set("area",e.target.value)}><option value="">—</option><option>Contas a Receber</option><option>Financial Controls</option></select></Field>
         <Field label="Título *"><input style={inp} value={f.titulo||""} onChange={e=>set("titulo",e.target.value)}/></Field>
         <Field label="Cliente"><input style={inp} value={f.cliente||""} onChange={e=>set("cliente",e.target.value)}/></Field>
-        <Field label="Empresa"><select style={inp} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}><option value="">—</option>{RT_EMPRESAS.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
+        <Field label="Empresa *"><select style={{...inp,borderColor:f.empresa?T.line:T.dangerLine}} value={f.empresa||""} onChange={e=>set("empresa",e.target.value)}><option value="">— selecione —</option>{RT_EMPRESAS.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
         <Field label="Cadência"><select style={inp} value={f.cadencia||"mensal"} onChange={e=>set("cadencia",e.target.value)}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="diaria">Diária</option></select></Field>
         <Field label="Prazo (texto)"><input style={inp} placeholder="ex: 1º dia útil / dia 15 / data de corte 20" value={f.prazoTxt||""} onChange={e=>set("prazoTxt",e.target.value)}/></Field>
         <Field label="Tipo de prazo (p/ status)"><select style={inp} value={f.prazoTipo||"livre"} onChange={e=>set("prazoTipo",e.target.value)}><option value="livre">Livre (sem cálculo)</option><option value="dia_mes">Dia do mês</option><option value="dia_util">N-ésimo dia útil</option></select></Field>
@@ -5230,7 +5238,7 @@ function RoutineEditModal({ rotina, onSave, onClose }) {
       <Field label="Premissa / observação (resumo curto)"><textarea style={{...inp,minHeight:60,resize:"vertical"}} value={f.premissa||""} onChange={e=>set("premissa",e.target.value)}/></Field>
       <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn primary disabled={!f.pessoa||!f.titulo} onClick={()=>onSave(f)}>Salvar</Btn>
+        <Btn primary disabled={!f.pessoa||!f.titulo||!f.empresa} onClick={()=>onSave(f)}>Salvar</Btn>
       </div>
     </Modal>
   );
